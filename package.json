@@ -1,0 +1,16 @@
+{
+  "name": "sigcard",
+  "version": "1.0.0",
+  "description": "Sigcard application with Laravel backend and React frontend",
+  "private": true,
+  "scripts": {
+    "dev": "npx concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"backend,frontend\" --prefix-colors \"blue,green\"",
+    "dev:backend": "cd backend && php artisan serve",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:frontend",
+    "build:frontend": "cd frontend && npm run build",
+    "install:all": "npm run install:frontend && npm run install:backend",
+    "install:frontend": "cd frontend && npm install",
+    "install:backend": "cd backend && npm install && composer install"
+  }
+}

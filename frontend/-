@@ -1,0 +1,444 @@
+﻿import { useMemo, useState } from "react";
+import Navbar from "../../components/layout/Navbar";
+import Footer from "../../components/Footer";
+import { Link } from "react-router-dom";
+import {
+  HiOutlineCheckCircle,
+  HiOutlineUpload,
+  HiOutlinePhotograph,
+} from "react-icons/hi";
+
+const accountTypes = ["Regular", "Joint", "Corporate"];
+const riskLevels = ["Low Risk", "Medium Risk", "High Risk"];
+
+const steps = [
+  { key: "profile", title: "Customer Details" },
+  { key: "sigcard", title: "Sigcard Upload" },
+  { key: "nais", title: "NAIS Upload" },
+  { key: "privacy", title: "Data Privacy Upload" },
+  { key: "otherDocs", title: "Other Documents (Optional)" },
+];
+
+const initialFiles = {
+  sigcardFront: null,
+  sigcardBack: null,
+  naisFront: null,
+  naisBack: null,
+  privacyFront: null,
+  privacyBack: null,
+  otherDocs: [],
+};
+
+const DropZone = ({ label, file, onSelect }) => {
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleFiles = (fileList) => {
+    if (fileList?.length) onSelect(fileList);
+  };
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-bold tracking-wider text-center uppercase text-slate-700">
+        {label}
+      </h3>
+      <label
+        className={`group relative flex w-full min-h-[220px] cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-dashed transition-all ${
+          isDragging
+            ? "border-blue-500 bg-blue-50 scale-105"
+            : file
+            ? "border-green-400 bg-green-50"
+            : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50"
+        }`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          handleFiles(e.dataTransfer.files);
+        }}
+      >
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+        {file ? (
+          <>
+            <img
+              src={URL.createObjectURL(file)}
+              alt={label}
+              className="object-cover w-full h-full"
+            />
+            <div className="absolute inset-0 flex items-center justify-center transition-opacity opacity-0 bg-black/60 group-hover:opacity-100">
+              <div className="text-center text-white">
+                <HiOutlinePhotograph className="w-10 h-10 mx-auto mb-2" />
+                <p className="text-sm font-semibold">Click to change</p>
+              </div>
+            </div>
+            <div className="absolute right-3 top-3 rounded-full bg-green-500 p-1.5 shadow-lg">
+              <HiOutlineCheckCircle className="w-5 h-5 text-white" />
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-3 p-6 text-center">
+            <div className="p-4 bg-blue-100 rounded-full">
+              <HiOutlineUpload className="w-8 h-8 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-700">
+                {isDragging ? "Drop image here" : "Drag & drop"}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                or click to select a file
+              </p>
+            </div>
+          </div>
+        )}
+      </label>
+    </div>
+  );
+};
+
+const UploadSigcard = () => {
+  const [step, setStep] = useState(0);
+  const [formData, setFormData] = useState({
+    firstName: "",
+    middleName: "",
+    lastName: "",
+    suffix: "",
+    accountType: "",
+    profiling: "",
+    riskLevel: "",
+  });
+  const [files, setFiles] = useState(initialFiles);
+
+  const progress = Math.round(((step + 1) / steps.length) * 100);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleFileChange = (field, fileList, multiple = false) => {
+    setFiles((prev) => ({
+      ...prev,
+      [field]: multiple ? [...prev[field], ...fileList] : fileList[0],
+    }));
+  };
+
+  const removeOtherDoc = (index) => {
+    setFiles((prev) => ({
+      ...prev,
+      otherDocs: prev.otherDocs.filter((_, idx) => idx !== index),
+    }));
+  };
+
+  const isStepValid = useMemo(() => {
+    switch (steps[step].key) {
+      case "profile":
+        return (
+          formData.firstName.trim() &&
+          formData.lastName.trim() &&
+          formData.accountType &&
+          formData.riskLevel
+        );
+      case "sigcard":
+        return files.sigcardFront && files.sigcardBack;
+      case "nais":
+        return files.naisFront && files.naisBack;
+      case "privacy":
+        return files.privacyFront && files.privacyBack;
+      case "otherDocs":
+        return true;
+      default:
+        return false;
+    }
+  }, [step, formData, files]);
+
+  const handleNext = () => {
+    if (!isStepValid) return;
+    setStep((prev) => Math.min(prev + 1, steps.length - 1));
+  };
+
+  const handlePrev = () => setStep((prev) => Math.max(prev - 1, 0));
+
+  const renderStepContent = () => {
+    switch (steps[step].key) {
+      case "profile":
+        return (
+          <div className="w-full max-w-3xl mx-auto">
+            <div className="space-y-8">
+              {/* Name Fields */}
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-slate-700">
+                    First Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    name="firstName"
+                    value={formData.firstName}
+                    onChange={handleInputChange}
+                    placeholder="Enter first name"
+                    className="w-full px-5 py-4 text-base transition-all border-2 rounded-xl border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-slate-700">
+                    Middle Name{" "}
+                    <span className="text-xs text-slate-400">(Optional)</span>
+                  </label>
+                  <input
+                    name="middleName"
+                    value={formData.middleName}
+                    onChange={handleInputChange}
+                    placeholder="Enter middle name"
+                    className="w-full px-5 py-4 text-base transition-all border-2 rounded-xl border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-slate-700">
+                    Last Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    name="lastName"
+                    value={formData.lastName}
+                    onChange={handleInputChange}
+                    placeholder="Enter last name"
+                    className="w-full px-5 py-4 text-base transition-all border-2 rounded-xl border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-slate-700">
+                    Suffix{" "}
+                    <span className="text-xs text-slate-400">(Optional)</span>
+                  </label>
+                  <input
+                    name="suffix"
+                    value={formData.suffix}
+                    onChange={handleInputChange}
+                    placeholder="e.g., Jr., Sr., III"
+                    className="w-full px-5 py-4 text-base transition-all border-2 rounded-xl border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                  />
+                </div>
+              </div>
+
+              {/* Account Information */}
+              <div className="pt-4 border-t-2 border-slate-100">
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div className="space-y-3">
+                    <label className="block text-sm font-bold text-slate-700">
+                      Account Type <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      name="accountType"
+                      value={formData.accountType}
+                      onChange={handleInputChange}
+                      className="w-full px-5 py-4 text-base transition-all bg-white border-2 rounded-xl border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                    >
+                      <option value="">Select account type</option>
+                      {accountTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="block text-sm font-bold text-slate-700">
+                      Risk Level <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      name="riskLevel"
+                      value={formData.riskLevel}
+                      onChange={handleInputChange}
+                      className="w-full px-5 py-4 text-base transition-all bg-white border-2 rounded-xl border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                    >
+                      <option value="">Select risk level</option>
+                      {riskLevels.map((risk) => (
+                        <option key={risk} value={risk}>
+                          {risk}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case "sigcard":
+        return (
+          <div className="grid gap-4 md:grid-cols-2">
+            <DropZone
+              label="Sigcard Front"
+              file={files.sigcardFront}
+              onSelect={(fileList) =>
+                handleFileChange("sigcardFront", fileList)
+              }
+            />
+            <DropZone
+              label="Sigcard Back"
+              file={files.sigcardBack}
+              onSelect={(fileList) => handleFileChange("sigcardBack", fileList)}
+            />
+          </div>
+        );
+      case "nais":
+        return (
+          <div className="grid gap-4 md:grid-cols-2">
+            <DropZone
+              label="NAIS Front"
+              file={files.naisFront}
+              onSelect={(fileList) => handleFileChange("naisFront", fileList)}
+            />
+            <DropZone
+              label="NAIS Back"
+              file={files.naisBack}
+              onSelect={(fileList) => handleFileChange("naisBack", fileList)}
+            />
+          </div>
+        );
+      case "privacy":
+        return (
+          <div className="grid gap-4 md:grid-cols-2">
+            <DropZone
+              label="Data Privacy Front"
+              file={files.privacyFront}
+              onSelect={(fileList) =>
+                handleFileChange("privacyFront", fileList)
+              }
+            />
+            <DropZone
+              label="Data Privacy Back"
+              file={files.privacyBack}
+              onSelect={(fileList) => handleFileChange("privacyBack", fileList)}
+            />
+          </div>
+        );
+      case "otherDocs":
+        return (
+          <div className="space-y-4">
+            <label className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-sm font-semibold transition border-2 border-dashed rounded-2xl border-slate-300 bg-slate-50 text-slate-600 hover:border-blue-400 hover:bg-blue-50">
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) =>
+                  handleFileChange("otherDocs", e.target.files, true)
+                }
+              />
+              <span className="text-sm text-slate-500">
+                Drag & drop or click to upload other documents (optional)
+              </span>
+            </label>
+            {files.otherDocs.length > 0 && (
+              <div className="grid gap-3 md:grid-cols-2">
+                {files.otherDocs.map((file, index) => (
+                  <div
+                    key={`${file.name}-${index}`}
+                    className="p-3 bg-white border shadow-sm rounded-2xl border-slate-200"
+                  >
+                    <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                      <span className="truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeOtherDoc(index)}
+                        className="text-xs text-red-500 hover:text-red-600"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="flex flex-col min-h-screen bg-gray-50 text-slate-900">
+      <Navbar />
+
+      <main className="flex flex-1 w-full max-w-[1200px] flex-col gap-10 px-4 py-10 mx-auto sm:px-6 lg:px-10">
+        <header className="space-y-3 text-center sm:text-left">
+          <p className="text-xs uppercase tracking-[0.45em] text-blue-500">
+            Upload Customer Sigcard
+          </p>
+          <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
+            Guided flow for capturing customer documents.
+          </h1>
+          <p className="text-base text-slate-600 sm:text-lg">
+            Complete each section before moving on. Required fields keep every
+            customer profile accurate and audit-ready.
+          </p>
+        </header>
+
+        <section className="w-full space-y-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_25px_70px_rgba(15,23,42,0.08)] sm:p-6 lg:p-8">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-semibold text-slate-900">
+              {steps[step].title}
+            </h2>
+            <span className="text-sm font-semibold text-blue-600">
+              Step {step + 1} of {steps.length}
+            </span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-600 to-purple-600 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          <div className="pt-2">{renderStepContent()}</div>
+
+          <div className="flex flex-col gap-3 pt-4 text-sm font-semibold sm:flex-row sm:items-center sm:justify-between">
+            <button
+              onClick={handlePrev}
+              disabled={step === 0}
+              className="w-full rounded-full border border-slate-300 px-6 py-3 text-slate-700 transition hover:bg-white disabled:cursor-not-allowed disabled:text-slate-300 sm:w-auto"
+            >
+              Previous
+            </button>
+
+            {step === steps.length - 1 ? (
+              <button
+                onClick={() => alert("Form submitted!")}
+                disabled={!isStepValid}
+                className="w-full rounded-full bg-green-600 px-8 py-3 text-white shadow-lg transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-400 sm:w-auto"
+              >
+                Submit
+              </button>
+            ) : (
+              <button
+                onClick={handleNext}
+                disabled={!isStepValid}
+                className="w-full rounded-full bg-blue-600 px-8 py-3 text-white shadow-lg transition hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed sm:w-auto"
+              >
+                Next
+              </button>
+            )}
+          </div>
+        </section>
+      </main>
+
+      <Footer />
+    </div>
+  );
+};
+
+export default UploadSigcard;
