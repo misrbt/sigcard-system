@@ -21,4 +21,23 @@ export default defineConfig({
     },
     extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json'],
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Suppress "use client" directive warnings from third-party packages
+        if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) return;
+        warn(warning);
+      },
+      output: {
+        manualChunks: {
+          'vendor-react':  ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui':     ['framer-motion', 'sweetalert2'],
+          'vendor-charts': ['chart.js', 'react-chartjs-2'],
+          'vendor-icons':  ['react-icons'],
+          'vendor-http':   ['axios'],
+        },
+      },
+    },
+  },
 })
