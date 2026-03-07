@@ -18,7 +18,7 @@ class TrackLastActivity
             $user->timestamps = false;
             $user->update([
                 'session_expires_at' => now()->addMinutes(
-                    config('sanctum.expiration', 30)
+                    (int) config('sanctum.expiration', 30)
                 ),
             ]);
             $user->timestamps = true;

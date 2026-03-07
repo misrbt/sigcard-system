@@ -597,11 +597,10 @@ const UploadSigcard = () => {
 
       resetAll();
     } catch (error) {
-      const message =
-        error?.response?.data?.message ||
-        error?.response?.data?.errors
-          ? Object.values(error.response.data.errors).flat().join("\n")
-          : "Something went wrong. Please try again.";
+      const data = error?.response?.data;
+      const message = data?.errors
+        ? Object.values(data.errors).flat().join("\n")
+        : data?.message || "Something went wrong. Please try again.";
 
       Swal.fire({
         icon: "error",
