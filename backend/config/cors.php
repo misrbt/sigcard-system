@@ -1,5 +1,24 @@
 <?php
 
+$allowedOrigins = array_filter(array_map(
+    'trim',
+    explode(',', env('CORS_ALLOWED_ORIGINS', ''))
+));
+
+if (empty($allowedOrigins)) {
+    $allowedOrigins = [
+        'https://sigcard.rbtbank.com',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
+        'https://sigcard.staging.local',
+        'http://sigcard.staging.local',
+        'https://192.168.0.2',
+        'http://192.168.0.2',
+    ];
+}
+
 return [
 
     /*
@@ -19,11 +38,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
-        'https://sigcard.rbtbank.com',
-        'http://localhost:5173',
-        'http://localhost:3000',
-    ],
+    'allowed_origins' => $allowedOrigins,
 
     'allowed_origins_patterns' => [],
 

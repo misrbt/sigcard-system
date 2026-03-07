@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const BASE_URL = API_BASE_URL.replace(/\/api$/, '');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -9,7 +10,15 @@ const api = axios.create({
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
+  withCredentials: true,
 });
+
+// Get CSRF cookie from Sanctum
+export const getCsrfCookie = async () => {
+  await axios.get(`${BASE_URL}/sanctum/csrf-cookie`, {
+    withCredentials: true,
+  });
+};
 
 // Attach Bearer token to every request
 api.interceptors.request.use(
