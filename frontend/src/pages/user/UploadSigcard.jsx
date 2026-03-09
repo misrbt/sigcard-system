@@ -54,7 +54,7 @@ const steps = [
   { key: "accountType", title: "Account Type" },
   { key: "profile",     title: "Customer Details" },
   { key: "sigcard",     title: "Sigcard Upload" },
-  { key: "nais",        title: "NAIS Upload" },
+  { key: "nais",        title: "NAIS Upload (Optional)" },
   { key: "privacy",     title: "Data Privacy Upload" },
   { key: "otherDocs",   title: "Other Documents (Optional)" },
 ];
@@ -512,7 +512,7 @@ const UploadSigcard = () => {
       case "sigcard":
         return files.sigcardPairs.every((p) => p.front && p.back);
       case "nais":
-        return files.naisPairs.every((p) => p.front && p.back);
+        return true;
       case "privacy":
         return files.privacyPairs.every((p) => p.front && p.back);
       case "otherDocs":
@@ -633,7 +633,6 @@ const UploadSigcard = () => {
                     whileTap={{ scale: 0.97 }}
                     onClick={() => {
                       handleInputChange({ target: { name: "accountType", value } });
-                      setTimeout(() => setStep((s) => s + 1), 220);
                     }}
                     className={`relative flex flex-col items-center gap-4 p-7 rounded-2xl border-2 text-center transition-all outline-none
                       ${isSelected
@@ -657,7 +656,7 @@ const UploadSigcard = () => {
                 );
               })}
             </div>
-            <p className="text-xs text-center text-slate-400">Click a card to select and continue automatically</p>
+            <p className="text-xs text-center text-slate-400">Select an account type then click Next to continue</p>
           </div>
         );
 
@@ -745,7 +744,7 @@ const UploadSigcard = () => {
             isJoint={formData.accountType === "Joint"}
             pairs={files.naisPairs}
             frontLabel="NAIS Front"
-            backLabel="NAIS Back"
+            backLabel="NAIS Back (Optional)"
             onSetFile={(i, side, f) => setPairFile("naisPairs", i, side, f)}
             onRemovePerson={removePersonAll}
             onAddPerson={addPersonAll}
@@ -809,7 +808,7 @@ const UploadSigcard = () => {
     accountType: "Choose the account classification for this customer",
     profile:     "Enter the customer's personal information and risk level",
     sigcard:     "Upload front and back images of the signature card",
-    nais:        "Upload NAIS document images",
+    nais:        "Upload NAIS document images (optional — you may skip this step)",
     privacy:     "Upload data privacy consent form",
     otherDocs:   "Upload any additional supporting documents (optional)",
   };

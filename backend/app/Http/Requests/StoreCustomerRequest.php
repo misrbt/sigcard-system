@@ -40,9 +40,9 @@ class StoreCustomerRequest extends FormRequest
             'sigcardPairs.*.front' => 'required|image|mimes:jpeg,jpg,png|max:10240',
             'sigcardPairs.*.back'  => 'required|image|mimes:jpeg,jpg,png|max:10240',
 
-            'naisPairs'         => 'required|array|min:1',
+            'naisPairs'         => 'nullable|array|min:1',
             'naisPairs.*.front' => 'required|image|mimes:jpeg,jpg,png|max:10240',
-            'naisPairs.*.back'  => 'required|image|mimes:jpeg,jpg,png|max:10240',
+            'naisPairs.*.back'  => 'nullable|image|mimes:jpeg,jpg,png|max:10240',
 
             'privacyPairs'         => 'required|array|min:1',
             'privacyPairs.*.front' => 'required|image|mimes:jpeg,jpg,png|max:10240',
@@ -61,7 +61,7 @@ class StoreCustomerRequest extends FormRequest
                 return;
             }
 
-            foreach (['sigcardPairs', 'naisPairs', 'privacyPairs'] as $key) {
+            foreach (['sigcardPairs', 'privacyPairs'] as $key) {
                 if (count($this->file($key, [])) < 2) {
                     $validator->errors()->add(
                         $key,
@@ -94,9 +94,7 @@ class StoreCustomerRequest extends FormRequest
             'sigcardPairs.*.front.required' => 'Sigcard front image is required for each person.',
             'sigcardPairs.*.back.required'  => 'Sigcard back image is required for each person.',
 
-            'naisPairs.required'         => 'NAIS images are required.',
             'naisPairs.*.front.required' => 'NAIS front image is required for each person.',
-            'naisPairs.*.back.required'  => 'NAIS back image is required for each person.',
 
             'privacyPairs.required'         => 'Data privacy images are required.',
             'privacyPairs.*.front.required' => 'Data privacy front image is required for each person.',
