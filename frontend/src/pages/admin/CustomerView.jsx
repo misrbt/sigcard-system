@@ -9,7 +9,9 @@ import {
   HiOutlineDocumentText,
   HiOutlineEye,
   HiOutlineOfficeBuilding,
+  HiOutlinePencilAlt,
   HiOutlinePhotograph,
+  HiOutlinePlus,
   HiOutlineShieldCheck,
   HiOutlineUsers,
   HiOutlineX,
@@ -17,6 +19,7 @@ import {
   HiOutlineZoomOut,
 } from "react-icons/hi";
 import api from "../../services/api";
+import { useAuth } from "../../hooks/useAuth";
 
 const storageUrl = (path) => {
   const base = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api").replace(/\/api$/, "");
@@ -40,10 +43,11 @@ const docLabel = {
 };
 
 const statusStyle = {
-  active:  "bg-green-100 text-green-700 border border-green-300",
-  dormant: "bg-yellow-100 text-yellow-700 border border-yellow-300",
-  escheat: "bg-orange-100 text-orange-700 border border-orange-300",
-  closed:  "bg-red-100 text-red-700 border border-red-300",
+  active:      "bg-green-100 text-green-700 border border-green-300",
+  dormant:     "bg-yellow-100 text-yellow-700 border border-yellow-300",
+  escheat:     "bg-orange-100 text-orange-700 border border-orange-300",
+  closed:      "bg-red-100 text-red-700 border border-red-300",
+  reactivated: "bg-teal-100 text-teal-700 border border-teal-300",
 };
 
 const riskStyle = {
@@ -187,30 +191,245 @@ const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) =
   );
 };
 
-// ── Main page ──────────────────────────────────────────────────────────────────
-const AdminCustomerView = ({ basePath = '/admin' }) => {
-  const { id }   = useParams();
-  const navigate = useNavigate();
+// ── Customer History Section ──────────────────────────────────────────────────
+const HIST_FIELD_LABELS = {
+  firstname: "First Name", middlename: "Middle Name", lastname: "Last Name",
+  suffix: "Suffix", account_type: "Account Type", risk_level: "Risk Level",
+  status: "Status", account_no: "Account No.", date_opened: "Date Opened",
+  company_name: "Company Name", branch_id: "Branch",
+};
 
-  const [customer, setCustomer] = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [viewer, setViewer]     = useState(null);
+const HIST_STATUS_COLORS = {
+  active:      "bg-green-100 text-green-700",
+  dormant:     "bg-yellow-100 text-yellow-700",
+  closed:      "bg-red-100 text-red-700",
+  escheat:     "bg-orange-100 text-orange-700",
+  reactivated: "bg-teal-100 text-teal-700",
+};
+
+const HIST_DOC_LABELS = {
+  sigcard_front: "Sigcard Front", sigcard_back: "Sigcard Back",
+  nais_front: "NAIS Front", nais_back: "NAIS Back",
+  privacy_front: "Data Privacy Front", privacy_back: "Data Privacy Back",
+  other: "Other Document",
+};
+
+const histEventConfig = (event, description) => {
+  const desc = (description ?? "").toLowerCase();
+  if (desc.includes("replaced"))                         return { label: "Document Replaced", dot: "bg-orange-500", textColor: "text-orange-700" };
+  if (desc.includes("deleted") && desc.includes("doc")) return { label: "Document Deleted",  dot: "bg-red-500",    textColor: "text-red-700"    };
+  if (desc.includes("uploaded"))                         return { label: "Document Uploaded", dot: "bg-purple-500", textColor: "text-purple-700" };
+  if (desc.includes("created") || event === "created")  return { label: "Account Created",   dot: "bg-green-500",  textColor: "text-green-700"  };
+  if (desc.includes("updated") || event === "updated")  return { label: "Info Updated",       dot: "bg-blue-500",   textColor: "text-blue-700"   };
+  if (desc.includes("deleted"))                          return { label: "Record Deleted",    dot: "bg-red-500",    textColor: "text-red-700"    };
+  return { label: description ?? event ?? "Event",               dot: "bg-slate-400",  textColor: "text-slate-600"  };
+};
+
+const HistValueBadge = ({ field, value }) => {
+  if (value === null || value === undefined || value === "")
+    return <span className="text-slate-400 italic text-[11px]">—</span>;
+  if (field === "status")
+    return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${HIST_STATUS_COLORS[value] ?? "bg-slate-100 text-slate-600"}`}>{value}</span>;
+  return <span className="text-[11px] text-slate-800 font-medium">{String(value)}</span>;
+};
+
+const CustomerHistorySection = ({ customerId }) => {
+  const [history, setHistory]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [expanded, setExpanded]   = useState({});
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
+    api.get(`/customers/${customerId}/history`)
+      .then(({ data }) => setHistory(data.history ?? []))
+      .catch(() => setHistory([]))
+      .finally(() => setLoading(false));
+  }, [customerId]);
+
+  const toggle = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center gap-2 px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors"
+      >
+        <HiOutlineDocumentText className="w-4 h-4 text-slate-400" />
+        <h2 className="text-sm font-bold text-slate-900">Audit History</h2>
+        {!loading && (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
+            {history.length} event{history.length !== 1 ? "s" : ""}
+          </span>
+        )}
+        <span className="ml-auto text-xs text-slate-400">{collapsed ? "Show" : "Hide"}</span>
+      </button>
+
+      {!collapsed && (
+        <div className="px-5 py-5">
+          {loading ? (
+            <div className="flex items-center gap-2 py-6 justify-center">
+              <div className="w-5 h-5 border-2 border-[#1877F2] border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-slate-400">Loading history…</span>
+            </div>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">No history recorded yet.</p>
+          ) : (
+            <ol className="relative border-l border-slate-200 space-y-5 ml-2">
+              {history.map((entry) => {
+                const cfg         = histEventConfig(entry.event, entry.description);
+                const isExp       = expanded[entry.id];
+                const diff        = entry.diff ?? {};
+                const meta        = entry.meta ?? {};
+                const hasDiff     = Object.keys(diff).length > 0;
+                const desc        = (entry.description ?? "").toLowerCase();
+                const isDocReplaced = desc.includes("replaced");
+                const isDocDeleted  = desc.includes("deleted") && desc.includes("doc");
+                const isCreated     = desc.includes("created") || entry.event === "created";
+                const hasInitialDocs = isCreated && meta.documents_uploaded && Object.keys(meta.documents_uploaded).length > 0;
+                const hasDetails    = hasDiff || isDocReplaced || isDocDeleted || hasInitialDocs;
+
+                return (
+                  <li key={entry.id} className="ml-5 pb-1">
+                    <span className={`absolute -left-1.5 w-3 h-3 rounded-full border-2 border-white ${cfg.dot}`} />
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                      <span className={`text-[11px] font-bold uppercase tracking-wide ${cfg.textColor}`}>{cfg.label}</span>
+                      <span className="text-[11px] text-slate-400">{formatDate(entry.created_at)}</span>
+                      {entry.causer && (
+                        <span className="text-[11px] text-slate-400">
+                          by <span className="font-medium text-slate-600">{entry.causer.name ?? entry.causer.email}</span>
+                        </span>
+                      )}
+                      {hasDetails && (
+                        <button onClick={() => toggle(entry.id)} className="text-[11px] text-[#1877F2] hover:underline ml-auto">
+                          {isExp ? "Hide details" : "View details"}
+                        </button>
+                      )}
+                    </div>
+
+                    {entry.description && (
+                      <p className="text-[11px] text-slate-500 mt-0.5">{entry.description}</p>
+                    )}
+
+                    {isExp && (
+                      <div className="mt-2 space-y-2">
+                        {hasDiff && (
+                          <div className="bg-slate-50 rounded-xl border border-slate-100 px-4 py-3">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Changes</p>
+                            <div className="space-y-2">
+                              {Object.entries(diff).map(([field, { before, after }]) => (
+                                <div key={field} className="grid grid-cols-[130px_1fr_1fr] gap-2 items-center text-[11px]">
+                                  <span className="text-slate-500 font-medium truncate">{HIST_FIELD_LABELS[field] ?? field}</span>
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="text-[9px] text-slate-400 uppercase font-bold shrink-0">Before</span>
+                                    <HistValueBadge field={field} value={before} />
+                                  </span>
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="text-[9px] text-slate-400 uppercase font-bold shrink-0">After</span>
+                                    <HistValueBadge field={field} value={after} />
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {hasInitialDocs && (
+                          <div className="bg-green-50 rounded-xl border border-green-100 px-4 py-3">
+                            <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider mb-2">Documents Uploaded</p>
+                            <div className="flex flex-wrap gap-2">
+                              {Object.entries(meta.documents_uploaded).map(([type, count]) => (
+                                <span key={type} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700">
+                                  {HIST_DOC_LABELS[type] ?? type} ×{count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {isDocReplaced && meta.archived_file_path && (
+                          <div className="bg-orange-50 rounded-xl border border-orange-100 px-4 py-3">
+                            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider mb-2">
+                              Previous Document — {HIST_DOC_LABELS[meta.document_type] ?? meta.document_type ?? "—"}
+                            </p>
+                            <a href={storageUrl(meta.archived_file_path)} target="_blank" rel="noopener noreferrer" className="inline-block">
+                              <img
+                                src={storageUrl(meta.archived_file_path)}
+                                alt="Previous document"
+                                className="w-28 h-36 object-contain rounded-lg border border-orange-200 bg-white hover:opacity-80 transition-opacity"
+                              />
+                            </a>
+                            {meta.replaced_file && (
+                              <p className="text-[10px] text-slate-500 mt-1">Was: <span className="font-medium font-mono">{meta.replaced_file}</span></p>
+                            )}
+                            {meta.new_file_name && (
+                              <p className="text-[10px] text-slate-500">Now: <span className="font-medium font-mono">{meta.new_file_name}</span></p>
+                            )}
+                          </div>
+                        )}
+
+                        {isDocReplaced && !meta.archived_file_path && (
+                          <div className="bg-orange-50 rounded-xl border border-orange-100 px-4 py-3">
+                            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider mb-1">
+                              Document Replaced — {HIST_DOC_LABELS[meta.document_type] ?? meta.document_type ?? "—"}
+                            </p>
+                            <p className="text-[11px] text-slate-500">No archived image available for this replacement.</p>
+                          </div>
+                        )}
+
+                        {isDocDeleted && (meta.file_name || meta.file_path) && (
+                          <div className="bg-red-50 rounded-xl border border-red-100 px-4 py-3">
+                            <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-1">
+                              Deleted — {HIST_DOC_LABELS[meta.document_type] ?? meta.document_type ?? "—"}
+                            </p>
+                            <p className="text-[11px] text-slate-600 font-mono">{meta.file_name ?? meta.file_path?.split("/").pop()}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Main page ──────────────────────────────────────────────────────────────────
+const AdminCustomerView = ({ basePath = '/admin' }) => {
+  const { id }      = useParams();
+  const navigate    = useNavigate();
+  const { hasRole } = useAuth();
+
+  const [customer, setCustomer]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [viewer, setViewer]       = useState(null);
+  const [activeAcctIdx, setActiveAcctIdx] = useState(1);
+  const fetchCustomer = () => {
     setLoading(true);
     api.get(`/customers/${id}`)
       .then(({ data }) => setCustomer(data))
       .catch(() => setCustomer(null))
       .finally(() => setLoading(false));
-  }, [id]);
+  };
+
+  useEffect(() => { fetchCustomer(); }, [id]);
 
   const buildImages = (startType = null, startPerson = null) => {
     if (!customer?.documents) return { images: [], index: 0 };
     const imgs = [];
     let startIdx = 0;
 
+    // When customer has multiple accounts (non-Joint), filter to active account tab
+    const hasMultiAccounts = customer?.account_type !== "Joint" && (customer?.accounts?.length ?? 0) >= 1;
+    const viewDocs = hasMultiAccounts
+      ? customer.documents.filter((d) => d.person_index === activeAcctIdx)
+      : customer.documents;
+
     const persons = [...new Set(
-      customer.documents
+      viewDocs
         .filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type))
         .map((d) => d.person_index)
     )].sort();
@@ -219,7 +438,7 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
       (persons.length ? persons : [1]).forEach((p) => {
         ["front", "back"].forEach((side) => {
           const type = sec[side];
-          const doc  = customer.documents.find((d) => d.document_type === type && d.person_index === p);
+          const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
           if (doc) {
             if (startType === type && startPerson === p) startIdx = imgs.length;
             imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
@@ -228,7 +447,7 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
       });
     });
 
-    customer.documents.filter((d) => d.document_type === "other").forEach((doc) => {
+    viewDocs.filter((d) => d.document_type === "other").forEach((doc) => {
       imgs.push({ src: storageUrl(doc.file_path), label: "Other Document", person: null });
     });
 
@@ -263,6 +482,20 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
   const isJoint   = customer.account_type === "Joint";
   const isDormant = customer.status === "dormant";
 
+  // Multi-account tabs (non-Joint only)
+  const allAccounts = !isJoint ? [
+    { account_no: customer.account_no, risk_level: customer.risk_level, date_opened: customer.date_opened, status: customer.status, acctIndex: 1 },
+    ...(customer.accounts ?? []).map((a, i) => ({
+      account_no: a.account_no, risk_level: a.risk_level, date_opened: a.date_opened, status: a.status, acctIndex: i + 2,
+    })),
+  ] : [];
+  const showAccountTabs = allAccounts.length >= 2;
+
+  // Docs filtered by active account tab (for non-Joint multi-account)
+  const docsForSection = showAccountTabs
+    ? docs.filter((d) => d.person_index === activeAcctIdx)
+    : docs;
+
   const allHolders = [
     { person_index: 1, firstname: customer.firstname, middlename: customer.middlename, lastname: customer.lastname, suffix: customer.suffix, risk_level: customer.risk_level },
     ...holders,
@@ -274,11 +507,12 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
     return `${h.firstname}${h.middlename ? " " + h.middlename : ""} ${h.lastname}${h.suffix ? " " + h.suffix : ""}`;
   };
 
-  const persons   = [...new Set(
-    docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type))
-        .map((d) => d.person_index)
-  )].sort();
-  const otherDocs = docs.filter((d) => d.document_type === "other");
+  const persons = isJoint
+    ? [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort()
+    : showAccountTabs
+      ? [activeAcctIdx]
+      : [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort();
+  const otherDocs = docsForSection.filter((d) => d.document_type === "other");
   const totalDocs = docs.length;
 
   return (
@@ -335,12 +569,29 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
                     <HiOutlineOfficeBuilding className="w-3.5 h-3.5" />
                     {customer.branch?.branch_name ?? "—"}
                   </span>
+                  {customer.account_no && (
+                    <span className="flex items-center gap-1.5">
+                      <HiOutlineDocumentText className="w-3.5 h-3.5" />
+                      {customer.account_no}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1.5">
                     <HiOutlineCalendar className="w-3.5 h-3.5" />
                     {formatDate(customer.created_at)}
                   </span>
                 </div>
               </div>
+
+              {/* Add Account action — admin only, non-Joint */}
+              {hasRole("admin") && !isJoint && (
+                <button
+                  onClick={() => navigate(`/admin/customers/${id}/add-account`)}
+                  className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
+                >
+                  <HiOutlinePlus className="w-4 h-4" />
+                  Add Account
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -368,6 +619,55 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
               </div>
             ))}
           </div>
+
+          {/* Account No. + Date Opened cards */}
+          {(customer.account_no || customer.date_opened) && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {customer.account_no && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Account No.</p>
+                  <p className="text-sm font-semibold text-slate-800 font-mono">{customer.account_no}</p>
+                </div>
+              )}
+              {customer.date_opened && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Date Opened</p>
+                  <p className="text-sm font-semibold text-slate-800">{formatDate(customer.date_opened)}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Additional Accounts card */}
+          {customer.accounts?.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+                <HiOutlineCreditCard className="w-4 h-4 text-blue-500" />
+                <h2 className="text-sm font-bold text-slate-900">Additional Accounts</h2>
+                <span className="ml-auto text-xs text-slate-400">{customer.accounts.length} account{customer.accounts.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="px-5 py-4 space-y-2">
+                {customer.accounts.map((acct, i) => (
+                  <div key={acct.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">{i + 2}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-slate-800 font-mono">{acct.account_no ?? "—"}</p>
+                      <p className="text-[10px] text-slate-400">{acct.risk_level}</p>
+                    </div>
+                    {acct.date_opened && (
+                      <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                        <HiOutlineCalendar className="w-3 h-3" />
+                        {formatDate(acct.date_opened)}
+                      </span>
+                    )}
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      acct.status === "active" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"
+                    }`}>{acct.status}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Account Holders — Joint only */}
           {isJoint && (
@@ -413,9 +713,37 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
               <span className="ml-auto text-xs text-slate-400">{totalDocs} file{totalDocs !== 1 ? "s" : ""}</span>
             </div>
 
+            {/* Account tabs — shown when customer has 2+ accounts (non-Joint) */}
+            {showAccountTabs && (
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Select Account</p>
+                <div className="flex gap-2 overflow-x-auto pb-0.5">
+                  {allAccounts.map((acct) => (
+                    <button
+                      key={acct.acctIndex}
+                      onClick={() => setActiveAcctIdx(acct.acctIndex)}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border-2 flex-shrink-0 ${
+                        activeAcctIdx === acct.acctIndex
+                          ? "bg-[#1877F2] text-white border-[#1877F2] shadow-sm"
+                          : "bg-white text-slate-600 border-slate-200 hover:border-[#1877F2]/50 hover:bg-blue-50"
+                      }`}
+                    >
+                      <HiOutlineCreditCard className="w-3.5 h-3.5" />
+                      <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
+                      {acct.acctIndex === 1 && (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${activeAcctIdx === 1 ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                          Primary
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="px-5 py-5 space-y-6">
               {DOC_SECTIONS.map((sec) => {
-                const secDocs = docs.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+                const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
                 return (
                   <div key={sec.key}>
                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">{sec.label}</p>
@@ -427,12 +755,12 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
                     ) : (
                       <div className="space-y-3">
                         {(persons.length ? persons : [1]).map((p) => {
-                          const frontDoc = docs.find((d) => d.document_type === sec.front && d.person_index === p);
-                          const backDoc  = docs.find((d) => d.document_type === sec.back  && d.person_index === p);
+                          const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
+                          const backDoc  = docsForSection.find((d) => d.document_type === sec.back  && d.person_index === p);
                           if (!frontDoc && !backDoc) return null;
                           return (
                             <div key={p}>
-                              {persons.length > 1 && (
+                              {isJoint && persons.length > 1 && (
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                                   Person {p} — {holderName(p)}
                                 </p>
@@ -507,6 +835,11 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
               </div>
             </div>
           </div>
+
+          {/* Audit History — visible to admin, manager, compliance-audit */}
+          {hasRole(["admin", "compliance-audit", "manager"]) && (
+            <CustomerHistorySection customerId={customer.id} />
+          )}
 
         </div>
       </div>

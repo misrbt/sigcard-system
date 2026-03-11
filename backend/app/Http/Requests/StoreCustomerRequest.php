@@ -17,14 +17,26 @@ class StoreCustomerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Primary holder (Person 1)
-            'firstname'    => 'required|string|max:255',
+            'account_no'   => 'nullable|string|max:100',
+            'date_opened'  => 'nullable|date',
+
+            // Primary holder (Person 1) — not required for Corporate
+            'firstname'    => 'required_unless:account_type,Corporate|nullable|string|max:255',
             'middlename'   => 'nullable|string|max:255',
-            'lastname'     => 'required|string|max:255',
+            'lastname'     => 'required_unless:account_type,Corporate|nullable|string|max:255',
             'suffix'       => 'nullable|string|max:50',
             'account_type' => 'required|in:Regular,Joint,Corporate',
             'risk_level'   => 'required|in:Low Risk,Medium Risk,High Risk',
             'branch_id'    => 'nullable|exists:branches,id',
+
+            // Corporate accounts use company_name instead of personal name fields
+            'company_name' => 'required_if:account_type,Corporate|nullable|string|max:255',
+
+            // Additional accounts for the same person (Regular only)
+            'additionalAccounts'                  => 'nullable|array',
+            'additionalAccounts.*.account_no'     => 'nullable|string|max:100',
+            'additionalAccounts.*.risk_level'     => 'required_with:additionalAccounts|in:Low Risk,Medium Risk,High Risk',
+            'additionalAccounts.*.date_opened'    => 'nullable|date',
 
             // Additional holders (Person 2+) — required for Joint accounts
             'additionalPersons'               => 'nullable|array',
@@ -37,20 +49,21 @@ class StoreCustomerRequest extends FormRequest
             // Document pairs — each pair has a front and back image.
             // Joint accounts require at least 2 pairs; others require exactly 1.
             'sigcardPairs'         => 'required|array|min:1',
-            'sigcardPairs.*.front' => 'required|image|mimes:jpeg,jpg,png|max:10240',
-            'sigcardPairs.*.back'  => 'required|image|mimes:jpeg,jpg,png|max:10240',
+            'sigcardPairs.*.front' => 'required|image|max:10240',
+            'sigcardPairs.*.back'  => 'required|image|max:10240',
 
             'naisPairs'         => 'nullable|array|min:1',
-            'naisPairs.*.front' => 'required|image|mimes:jpeg,jpg,png|max:10240',
-            'naisPairs.*.back'  => 'nullable|image|mimes:jpeg,jpg,png|max:10240',
+            'naisPairs.*.front' => 'required|image|max:10240',
+            'naisPairs.*.back'  => 'nullable|image|max:10240',
 
             'privacyPairs'         => 'required|array|min:1',
-            'privacyPairs.*.front' => 'required|image|mimes:jpeg,jpg,png|max:10240',
-            'privacyPairs.*.back'  => 'required|image|mimes:jpeg,jpg,png|max:10240',
+            'privacyPairs.*.front' => 'required|image|max:10240',
+            'privacyPairs.*.back'  => 'required|image|max:10240',
 
-            // Optional additional documents
-            'otherDocs'   => 'nullable|array',
-            'otherDocs.*' => 'image|mimes:jpeg,jpg,png|max:10240',
+            // Optional additional documents — keyed by person/account index (1-based)
+            'otherDocs'     => 'nullable|array',
+            'otherDocs.*'   => 'nullable',
+            'otherDocs.*.*' => 'nullable|image|max:10240',
         ];
     }
 
@@ -82,13 +95,14 @@ class StoreCustomerRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'firstname.required'    => 'First name is required.',
-            'lastname.required'     => 'Last name is required.',
-            'account_type.required' => 'Account type is required.',
-            'account_type.in'       => 'Account type must be Regular, Joint, or Corporate.',
-            'risk_level.required'   => 'Risk level is required.',
-            'risk_level.in'         => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
-            'branch_id.exists'      => 'The selected branch does not exist.',
+            'firstname.required_unless' => 'First name is required.',
+            'lastname.required_unless'  => 'Last name is required.',
+            'company_name.required_if'  => 'Company name is required for Corporate accounts.',
+            'account_type.required'     => 'Account type is required.',
+            'account_type.in'           => 'Account type must be Regular, Joint, or Corporate.',
+            'risk_level.required'       => 'Risk level is required.',
+            'risk_level.in'             => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
+            'branch_id.exists'          => 'The selected branch does not exist.',
 
             'sigcardPairs.required'         => 'Sigcard images are required.',
             'sigcardPairs.*.front.required' => 'Sigcard front image is required for each person.',
@@ -106,7 +120,6 @@ class StoreCustomerRequest extends FormRequest
             'additionalPersons.*.risk_level.in'            => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
 
             '*.image' => 'File must be an image.',
-            '*.mimes' => 'Image must be JPEG, JPG, or PNG format.',
             '*.max'   => 'Image size must not exceed 10MB.',
         ];
     }

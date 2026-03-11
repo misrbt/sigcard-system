@@ -1,7 +1,11 @@
+import { useAuth } from '../../hooks/useAuth';
 import BranchDashboard from '../shared/BranchDashboard';
 
-const CashierDashboard = () => (
-  <BranchDashboard title="Cashier Dashboard" apiEndpoint="/cashier/dashboard" basePath="/cashier" />
-);
+const CashierDashboard = () => {
+  const { user } = useAuth();
+  const title = user ? `Welcome, ${user.firstname} ${user.lastname}` : 'Welcome';
+
+  return <BranchDashboard title={title} apiEndpoint="/cashier/dashboard" basePath="/cashier" />;
+};
 
 export default CashierDashboard;

@@ -151,6 +151,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/', [CustomerController::class, 'index']);
         Route::get('/{customer}', [CustomerController::class, 'show']);
         Route::get('/{customer}/documents', [CustomerController::class, 'getDocuments']);
+        Route::get('/{customer}/history', [CustomerController::class, 'history']);
     });
 
     // Customer write routes — cashier cannot modify
@@ -160,6 +161,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::delete('/{customer}', [CustomerController::class, 'destroy']);
         Route::delete('/{customer}/documents/{document}', [CustomerController::class, 'deleteDocument']);
         Route::post('/{customer}/replace-document', [CustomerController::class, 'replaceDocument']);
+        Route::post('/{customer}/add-account', [CustomerController::class, 'addAccount']);
     });
 
     // Compliance Audit Routes

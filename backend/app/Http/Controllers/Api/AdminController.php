@@ -180,7 +180,13 @@ class AdminController extends Controller
                 });
             }
 
-            $users = $query->paginate($request->per_page ?? 15);
+            $allowed  = ['firstname', 'lastname', 'email', 'username', 'status', 'created_at', 'last_login_at'];
+            $sortBy   = in_array($request->sort_by, $allowed) ? $request->sort_by : 'created_at';
+            $sortDir  = $request->sort_dir === 'asc' ? 'asc' : 'desc';
+            $query->orderBy($sortBy, $sortDir);
+
+            $perPage  = min((int) ($request->per_page ?? 15), 100);
+            $users    = $query->paginate($perPage);
 
             activity()
                 ->causedBy(auth()->user())
@@ -273,6 +279,9 @@ class AdminController extends Controller
 
             $userData = $request->validated();
             $originalData = $user->toArray();
+
+            // Roles are managed by Spatie Permission via syncRoles(), not a DB column
+            unset($userData['roles']);
 
             // Handle password update
             if (isset($userData['password'])) {
