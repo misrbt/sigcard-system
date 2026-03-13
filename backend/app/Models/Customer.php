@@ -11,7 +11,6 @@ use Spatie\Activitylog\Traits\LogsActivity;
 /**
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\CustomerHolder> $holders
  */
-
 class Customer extends Model
 {
     use LogsActivity;
@@ -29,6 +28,7 @@ class Customer extends Model
         'suffix',
         'company_name',
         'account_type',
+        'joint_sub_type',
         'risk_level',
         'status',
     ];
@@ -37,8 +37,8 @@ class Customer extends Model
     {
         return [
             'date_opened' => 'date:Y-m-d',
-            'created_at'  => 'datetime',
-            'updated_at'  => 'datetime',
+            'created_at' => 'datetime',
+            'updated_at' => 'datetime',
         ];
     }
 
@@ -51,7 +51,7 @@ class Customer extends Model
             ->useLogName('customer')
             ->logOnly([
                 'account_no', 'date_opened', 'firstname', 'middlename', 'lastname', 'suffix', 'company_name',
-                'account_type', 'risk_level', 'status', 'branch_id',
+                'account_type', 'joint_sub_type', 'risk_level', 'status', 'branch_id',
             ])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs();
@@ -132,13 +132,13 @@ class Customer extends Model
         $name = $this->firstname ?? '';
 
         if ($this->middlename) {
-            $name .= ' ' . $this->middlename;
+            $name .= ' '.$this->middlename;
         }
 
-        $name .= ' ' . ($this->lastname ?? '');
+        $name .= ' '.($this->lastname ?? '');
 
         if ($this->suffix) {
-            $name .= ' ' . $this->suffix;
+            $name .= ' '.$this->suffix;
         }
 
         return trim($name);

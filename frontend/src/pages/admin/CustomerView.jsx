@@ -452,6 +452,15 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
     }
   };
 
+  // Joint sub-type helpers (safe to reference in closures — called after render)
+  const isITF = customer?.account_type === "Joint" && customer?.joint_sub_type === "ITF";
+  const isNonITF = customer?.account_type === "Joint" && customer?.joint_sub_type === "Non-ITF";
+  const isSharedDoc = (secKey) => {
+    if (isITF) return true;
+    if (isNonITF && secKey === "privacy") return true;
+    return false;
+  };
+
   const buildImages = (startType = null, startPerson = null) => {
     if (!customer?.documents) return { images: [], index: 0 };
     const imgs = [];
@@ -470,16 +479,26 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
     )].sort();
 
     DOC_SECTIONS.forEach((sec) => {
-      (persons.length ? persons : [1]).forEach((p) => {
+      if (isSharedDoc(sec.key)) {
+        // Shared docs: collect all with person_index=1
         ["front", "back"].forEach((side) => {
           const type = sec[side];
-          const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
-          if (doc) {
-            if (startType === type && startPerson === p) startIdx = imgs.length;
-            imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
-          }
+          viewDocs.filter((d) => d.document_type === type && d.person_index === 1).forEach((doc) => {
+            imgs.push({ src: storageUrl(doc.file_path), label: `${docLabel[type] ?? type} (Shared)`, person: null });
+          });
         });
-      });
+      } else {
+        (persons.length ? persons : [1]).forEach((p) => {
+          ["front", "back"].forEach((side) => {
+            const type = sec[side];
+            const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
+            if (doc) {
+              if (startType === type && startPerson === p) startIdx = imgs.length;
+              imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
+            }
+          });
+        });
+      }
     });
 
     viewDocs.filter((d) => d.document_type === "other").forEach((doc) => {
@@ -492,6 +511,12 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
   const openViewer = (docType, personIndex) => {
     const { images, index } = buildImages(docType, personIndex);
     if (images.length) setViewer({ images, index });
+  };
+
+  const openViewerByPath = (filePath) => {
+    const { images } = buildImages();
+    const idx = images.findIndex((img) => img.src === storageUrl(filePath));
+    if (images.length) setViewer({ images, index: Math.max(idx, 0) });
   };
 
   if (loading) {
@@ -778,16 +803,70 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
 
             <div className="px-5 py-5 space-y-6">
               {DOC_SECTIONS.map((sec) => {
-                const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+                const shared = isSharedDoc(sec.key);
+                const secDocs = shared
+                  ? docs.filter((d) => (d.document_type === sec.front || d.document_type === sec.back) && d.person_index === 1)
+                  : docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+
                 return (
                   <div key={sec.key}>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">{sec.label}</p>
+                    <div className="flex items-center gap-2 mb-3">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{sec.label}</p>
+                      {shared && secDocs.length > 0 && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Shared</span>
+                      )}
+                    </div>
                     {secDocs.length === 0 ? (
                       <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
                         <HiOutlinePhotograph className="w-4 h-4 text-slate-300" />
                         <p className="text-sm text-slate-400">No documents uploaded</p>
                       </div>
+                    ) : shared ? (
+                      /* ── Shared doc rendering: group all person_index=1 docs into front/back pairs ── */
+                      <div className="space-y-3">
+                        {(() => {
+                          const allFront = docs.filter((d) => d.document_type === sec.front && d.person_index === 1);
+                          const allBack  = docs.filter((d) => d.document_type === sec.back  && d.person_index === 1);
+                          const pairCount = Math.max(allFront.length, allBack.length);
+                          return Array.from({ length: pairCount }, (_, i) => {
+                            const frontDoc = allFront[i] ?? null;
+                            const backDoc  = allBack[i]  ?? null;
+                            return (
+                              <div key={i}>
+                                {pairCount > 1 && (
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Set {i + 1}</p>
+                                )}
+                                <div className="grid grid-cols-2 gap-3">
+                                  {[{ doc: frontDoc, lbl: "Front" }, { doc: backDoc, lbl: "Back" }].map(({ doc, lbl }) => (
+                                    <div key={lbl}>
+                                      <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
+                                      {doc ? (
+                                        <button
+                                          onClick={() => openViewerByPath(doc.file_path)}
+                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-[#1877F2] transition-all bg-slate-50 shadow-sm"
+                                        >
+                                          <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                            </div>
+                                          </div>
+                                        </button>
+                                      ) : (
+                                        <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
+                                          <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
                     ) : (
+                      /* ── Per-person doc rendering (non-shared) ── */
                       <div className="space-y-3">
                         {(persons.length ? persons : [1]).map((p) => {
                           const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
@@ -809,11 +888,7 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
                                         onClick={() => openViewer(type, p)}
                                         className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-[#1877F2] transition-all bg-slate-50 shadow-sm"
                                       >
-                                        <img
-                                          src={storageUrl(doc.file_path)}
-                                          alt={lbl}
-                                          className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`}
-                                        />
+                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
                                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                                             <HiOutlineEye className="w-4 h-4 text-slate-700" />

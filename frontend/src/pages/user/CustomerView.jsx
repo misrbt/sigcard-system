@@ -454,6 +454,15 @@ const CustomerView = () => {
     }
   };
 
+  // Joint sub-type helpers (safe to reference in closures — called after render)
+  const isITF = customer?.account_type === "Joint" && customer?.joint_sub_type === "ITF";
+  const isNonITF = customer?.account_type === "Joint" && customer?.joint_sub_type === "Non-ITF";
+  const isSharedDoc = (secKey) => {
+    if (isITF) return true;
+    if (isNonITF && secKey === "privacy") return true;
+    return false;
+  };
+
   const buildImages = (startType = null, startPerson = null) => {
     if (!customer?.documents) return { images: [], index: 0 };
     const imgs = [];
@@ -472,16 +481,26 @@ const CustomerView = () => {
     )].sort();
 
     DOC_SECTIONS.forEach((sec) => {
-      (persons.length ? persons : [1]).forEach((p) => {
+      if (isSharedDoc(sec.key)) {
+        // Shared docs: collect all with person_index=1
         ["front", "back"].forEach((side) => {
           const type = sec[side];
-          const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
-          if (doc) {
-            if (startType === type && startPerson === p) startIdx = imgs.length;
-            imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
-          }
+          viewDocs.filter((d) => d.document_type === type && d.person_index === 1).forEach((doc) => {
+            imgs.push({ src: storageUrl(doc.file_path), label: `${docLabel[type] ?? type} (Shared)`, person: null });
+          });
         });
-      });
+      } else {
+        (persons.length ? persons : [1]).forEach((p) => {
+          ["front", "back"].forEach((side) => {
+            const type = sec[side];
+            const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
+            if (doc) {
+              if (startType === type && startPerson === p) startIdx = imgs.length;
+              imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
+            }
+          });
+        });
+      }
     });
 
     viewDocs.filter((d) => d.document_type === "other").forEach((doc) => {
@@ -494,6 +513,12 @@ const CustomerView = () => {
   const openViewer = (docType, personIndex) => {
     const { images, index } = buildImages(docType, personIndex);
     if (images.length) setViewer({ images, index });
+  };
+
+  const openViewerByPath = (filePath) => {
+    const { images } = buildImages();
+    const idx = images.findIndex((img) => img.src === storageUrl(filePath));
+    if (images.length) setViewer({ images, index: Math.max(idx, 0) });
   };
 
   // ── Loading ─────────────────────────────────────────────────────────────────
@@ -518,6 +543,7 @@ const CustomerView = () => {
   const docs      = customer.documents ?? [];
   const holders   = customer.holders   ?? [];
   const isJoint   = customer.account_type === "Joint";
+  const isCorporate = customer.account_type === "Corporate";
   const isDormant = customer.status === "dormant";
 
   // Multi-account tabs (non-Joint only)
@@ -587,7 +613,7 @@ const CustomerView = () => {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 flex-wrap mb-1">
                   <h1 className="text-xl font-bold text-white">{customer.full_name}</h1>
-                  {isJoint && holders.length > 0 && (
+                  {(isJoint || isCorporate) && holders.length > 0 && (
                     <span className="text-sm text-white/50 font-medium">
                       + {holders.map((h) => `${h.firstname} ${h.lastname}`).join(", ")}
                     </span>
@@ -601,8 +627,9 @@ const CustomerView = () => {
                     <HiOutlineCreditCard className="w-3.5 h-3.5" />
                     {customer.account_type}
                     {isJoint && <span className="ml-1">· {allHolders.length} holders</span>}
+                    {isCorporate && <span className="ml-1">· {allHolders.length} signatories</span>}
                   </span>
-                  {!isJoint && (
+                  {!isJoint && !isCorporate && (
                     <span className="flex items-center gap-1.5">
                       <HiOutlineShieldCheck className="w-3.5 h-3.5" />
                       {customer.risk_level}
@@ -658,8 +685,10 @@ const CustomerView = () => {
             {[
               { label: "Account Type", value: customer.account_type, badge: accountStyle[customer.account_type] },
               isJoint
-                ? { label: "Holders",    value: `${allHolders.length} people`, badge: "bg-purple-50 text-purple-700" }
-                : { label: "Risk Level", value: customer.risk_level,  badge: riskStyle[customer.risk_level] },
+                ? { label: "Holders",      value: `${allHolders.length} people`,       badge: "bg-purple-50 text-purple-700" }
+                : isCorporate
+                ? { label: "Signatories",  value: `${allHolders.length} signatories`,  badge: "bg-slate-100 text-slate-700" }
+                : { label: "Risk Level",   value: customer.risk_level,                 badge: riskStyle[customer.risk_level] },
               { label: "Branch",     value: customer.branch?.branch_name ?? "—", badge: null },
               { label: "Documents",  value: `${totalDocs} file${totalDocs !== 1 ? "s" : ""}`, badge: null },
             ].map(({ label, value, badge }) => (
@@ -754,6 +783,34 @@ const CustomerView = () => {
             </div>
           )}
 
+          {/* Signatories card — shown for Corporate accounts */}
+          {isCorporate && holders.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+                <HiOutlineUsers className="w-4 h-4 text-slate-500" />
+                <h2 className="text-sm font-bold text-slate-900">Authorized Signatories</h2>
+                <span className="ml-auto text-xs text-slate-400">{allHolders.length} signatories</span>
+              </div>
+              <div className="px-5 py-4 space-y-2">
+                {allHolders.map((h) => (
+                  <div key={h.person_index} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>
+                      {h.person_index}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate">
+                        {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {h.person_index === 1 ? "Primary Signatory" : `Signatory ${h.person_index}`}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Document sections */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
@@ -797,16 +854,168 @@ const CustomerView = () => {
 
             <div className="px-5 py-5 space-y-6">
               {DOC_SECTIONS.map((sec) => {
-                const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+                // Corporate sigcard: shared fronts (person_index=1) + per-signatory backs
+                if (isCorporate && sec.key === "sigcard") {
+                  const allFronts = docs.filter((d) => d.document_type === sec.front && d.person_index === 1);
+                  const allBacks  = docs.filter((d) => d.document_type === sec.back);
+                  const hasDocs = allFronts.length > 0 || allBacks.length > 0;
+                  return (
+                    <div key={sec.key}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{sec.label}</p>
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 rounded-full">Corporate</span>
+                      </div>
+                      {!hasDocs ? (
+                        <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
+                          <HiOutlinePhotograph className="w-4 h-4 text-slate-300" />
+                          <p className="text-sm text-slate-400">No documents uploaded</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-5">
+                          {/* Sigcard Fronts — shared */}
+                          {allFronts.length > 0 && (
+                            <div className="space-y-3">
+                              {allFronts.length > 1 && (
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Front ({allFronts.length})</p>
+                              )}
+                              <div className={`grid gap-3 ${allFronts.length === 1 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
+                                {allFronts.map((doc, i) => (
+                                  <div key={doc.id}>
+                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">
+                                      {allFronts.length === 1 ? "Front" : `Front ${i + 1}`}
+                                    </p>
+                                    <button
+                                      onClick={() => openViewerByPath(doc.file_path)}
+                                      className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
+                                    >
+                                      <img src={storageUrl(doc.file_path)} alt={`Front ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                        <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                          <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                        </div>
+                                      </div>
+                                    </button>
+                                  </div>
+                                ))}
+                                {allFronts.length === 1 && <div />}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Sigcard Backs — per signatory */}
+                          {allBacks.length > 0 && (
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2">
+                                <div className="h-px flex-1 bg-slate-200" />
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Back — per signatory</p>
+                                <div className="h-px flex-1 bg-slate-200" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                {allHolders.map((h) => {
+                                  const backDoc = allBacks.find((d) => d.person_index === h.person_index);
+                                  return (
+                                    <div key={h.person_index}>
+                                      <div className="flex items-center gap-1.5 mb-1.5">
+                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>
+                                          {h.person_index}
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 font-semibold truncate">
+                                          {h.firstname} {h.lastname}
+                                        </p>
+                                      </div>
+                                      {backDoc ? (
+                                        <button
+                                          onClick={() => openViewer("sigcard_back", h.person_index)}
+                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
+                                        >
+                                          <img src={storageUrl(backDoc.file_path)} alt={`Back — ${h.firstname}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                            </div>
+                                          </div>
+                                        </button>
+                                      ) : (
+                                        <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
+                                          <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                const shared = isSharedDoc(sec.key);
+                const secDocs = shared
+                  ? docs.filter((d) => (d.document_type === sec.front || d.document_type === sec.back) && d.person_index === 1)
+                  : docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+
                 return (
                   <div key={sec.key}>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">{sec.label}</p>
+                    <div className="flex items-center gap-2 mb-3">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{sec.label}</p>
+                      {shared && secDocs.length > 0 && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Shared</span>
+                      )}
+                    </div>
                     {secDocs.length === 0 ? (
                       <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
                         <HiOutlinePhotograph className="w-4 h-4 text-slate-300" />
                         <p className="text-sm text-slate-400">No documents uploaded</p>
                       </div>
+                    ) : shared ? (
+                      /* ── Shared doc rendering: group all person_index=1 docs into front/back pairs ── */
+                      <div className="space-y-3">
+                        {(() => {
+                          const allFront = docs.filter((d) => d.document_type === sec.front && d.person_index === 1);
+                          const allBack  = docs.filter((d) => d.document_type === sec.back  && d.person_index === 1);
+                          const pairCount = Math.max(allFront.length, allBack.length);
+                          return Array.from({ length: pairCount }, (_, i) => {
+                            const frontDoc = allFront[i] ?? null;
+                            const backDoc  = allBack[i]  ?? null;
+                            return (
+                              <div key={i}>
+                                {pairCount > 1 && (
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Set {i + 1}</p>
+                                )}
+                                <div className="grid grid-cols-2 gap-3">
+                                  {[{ doc: frontDoc, lbl: "Front" }, { doc: backDoc, lbl: "Back" }].map(({ doc, lbl }) => (
+                                    <div key={lbl}>
+                                      <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
+                                      {doc ? (
+                                        <button
+                                          onClick={() => openViewerByPath(doc.file_path)}
+                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
+                                        >
+                                          <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                            </div>
+                                          </div>
+                                        </button>
+                                      ) : (
+                                        <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
+                                          <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
                     ) : (
+                      /* ── Per-person doc rendering (non-shared) ── */
                       <div className="space-y-3">
                         {(persons.length ? persons : [1]).map((p) => {
                           const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
@@ -828,11 +1037,7 @@ const CustomerView = () => {
                                         onClick={() => openViewer(type, p)}
                                         className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
                                       >
-                                        <img
-                                          src={storageUrl(doc.file_path)}
-                                          alt={lbl}
-                                          className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`}
-                                        />
+                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
                                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                                             <HiOutlineEye className="w-4 h-4 text-slate-700" />

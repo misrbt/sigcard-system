@@ -24,7 +24,7 @@ class CustomerController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query    = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts']);
+        $query = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts']);
         $authUser = Auth::user();
 
         // Users see only their own branch.
@@ -88,46 +88,47 @@ class CustomerController extends Controller
             $authUser = Auth::user();
 
             $customer = Customer::create([
-                'account_no'   => $request->account_no ?: null,
-                'date_opened'  => $request->date_opened ?: null,
-                'branch_id'    => $authUser->hasRole('user') ? $authUser->branch_id : $request->branch_id,
-                'uploaded_by'  => Auth::id(),
-                'firstname'    => $request->firstname,
-                'middlename'   => $request->middlename,
-                'lastname'     => $request->lastname,
-                'suffix'       => $request->suffix,
+                'account_no' => $request->account_no ?: null,
+                'date_opened' => $request->date_opened ?: null,
+                'branch_id' => $authUser->hasRole('user') ? $authUser->branch_id : $request->branch_id,
+                'uploaded_by' => Auth::id(),
+                'firstname' => $request->firstname,
+                'middlename' => $request->middlename,
+                'lastname' => $request->lastname,
+                'suffix' => $request->suffix,
                 'company_name' => $request->company_name,
                 'account_type' => $request->account_type,
-                'risk_level'   => $request->risk_level,
-                'status'       => 'active',
+                'joint_sub_type' => $request->joint_sub_type,
+                'risk_level' => $request->risk_level,
+                'status' => 'active',
             ]);
 
             // Save additional accounts for the same person (Regular accounts)
             foreach ($request->input('additionalAccounts', []) as $account) {
                 CustomerAccount::create([
                     'customer_id' => $customer->id,
-                    'account_no'  => $account['account_no'] ?? null,
-                    'risk_level'  => $account['risk_level'],
+                    'account_no' => $account['account_no'] ?? null,
+                    'risk_level' => $account['risk_level'],
                     'date_opened' => $account['date_opened'] ?? null,
-                    'status'      => 'active',
+                    'status' => 'active',
                 ]);
             }
 
             // Save additional holders (person 2+) for Joint accounts
             foreach ($request->input('additionalPersons', []) as $index => $person) {
                 CustomerHolder::create([
-                    'customer_id'  => $customer->id,
+                    'customer_id' => $customer->id,
                     'person_index' => $index + 2, // Person 1 is in customers table
-                    'firstname'    => $person['firstname'],
-                    'middlename'   => $person['middlename'] ?? null,
-                    'lastname'     => $person['lastname'],
-                    'suffix'       => $person['suffix'] ?? null,
-                    'risk_level'   => $person['risk_level'] ?? null,
+                    'firstname' => $person['firstname'],
+                    'middlename' => $person['middlename'] ?? null,
+                    'lastname' => $person['lastname'],
+                    'suffix' => $person['suffix'] ?? null,
+                    'risk_level' => $person['risk_level'] ?? null,
                 ]);
             }
 
             $this->storePairs($customer, $request, 'sigcardPairs', 'sigcard_front', 'sigcard_back');
-            $this->storePairs($customer, $request, 'naisPairs',    'nais_front',    'nais_back');
+            $this->storePairs($customer, $request, 'naisPairs', 'nais_front', 'nais_back');
             $this->storePairs($customer, $request, 'privacyPairs', 'privacy_front', 'privacy_back');
 
             // Other docs sent per account/person: otherDocs[1][], otherDocs[2][], …
@@ -149,27 +150,34 @@ class CustomerController extends Controller
                 ->causedBy(Auth::user())
                 ->performedOn($customer)
                 ->withProperties([
-                    'action'            => 'customer_created',
-                    'full_name'         => $customer->full_name,
-                    'account_type'      => $customer->account_type,
-                    'risk_level'        => $customer->risk_level,
-                    'status'            => $customer->status,
-                    'branch_id'         => $customer->branch_id,
+                    'action' => 'customer_created',
+                    'full_name' => $customer->full_name,
+                    'account_type' => $customer->account_type,
+                    'risk_level' => $customer->risk_level,
+                    'status' => $customer->status,
+                    'branch_id' => $customer->branch_id,
                     'documents_uploaded' => $docCounts,
                 ])
                 ->log('Customer sigcard record created');
 
             return response()->json([
-                'message'  => 'Customer created successfully.',
+                'message' => 'Customer created successfully.',
                 'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
 
+            \Log::error('Customer creation failed', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'message' => 'Error creating customer.',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -191,18 +199,18 @@ class CustomerController extends Controller
             ]);
 
             $customer->update(array_filter([
-                'account_no'   => $request->account_no ?: null,
-                'date_opened'  => $request->date_opened ?: null,
-                'branch_id'    => $request->branch_id,
-                'firstname'    => $request->firstname,
-                'middlename'   => $request->middlename,
-                'lastname'     => $request->lastname,
-                'suffix'       => $request->suffix,
+                'account_no' => $request->account_no ?: null,
+                'date_opened' => $request->date_opened ?: null,
+                'branch_id' => $request->branch_id,
+                'firstname' => $request->firstname,
+                'middlename' => $request->middlename,
+                'lastname' => $request->lastname,
+                'suffix' => $request->suffix,
                 'company_name' => $request->company_name,
                 'account_type' => $request->account_type,
-                'risk_level'   => $request->risk_level,
-                'status'       => $request->status,
-            ], fn($v) => !is_null($v)));
+                'risk_level' => $request->risk_level,
+                'status' => $request->status,
+            ], fn ($v) => ! is_null($v)));
 
             // Sync additional accounts when provided
             if ($request->has('additionalAccounts')) {
@@ -211,10 +219,10 @@ class CustomerController extends Controller
                 foreach ($request->input('additionalAccounts', []) as $account) {
                     CustomerAccount::create([
                         'customer_id' => $customer->id,
-                        'account_no'  => $account['account_no'] ?? null,
-                        'risk_level'  => $account['risk_level'],
+                        'account_no' => $account['account_no'] ?? null,
+                        'risk_level' => $account['risk_level'],
                         'date_opened' => $account['date_opened'] ?? null,
-                        'status'      => $account['status'] ?? 'active',
+                        'status' => $account['status'] ?? 'active',
                     ]);
                 }
             }
@@ -225,20 +233,20 @@ class CustomerController extends Controller
 
                 foreach ($request->input('additionalPersons', []) as $index => $person) {
                     CustomerHolder::create([
-                        'customer_id'  => $customer->id,
+                        'customer_id' => $customer->id,
                         'person_index' => $index + 2,
-                        'firstname'    => $person['firstname'],
-                        'middlename'   => $person['middlename'] ?? null,
-                        'lastname'     => $person['lastname'],
-                        'suffix'       => $person['suffix'] ?? null,
-                        'risk_level'   => $person['risk_level'] ?? null,
+                        'firstname' => $person['firstname'],
+                        'middlename' => $person['middlename'] ?? null,
+                        'lastname' => $person['lastname'],
+                        'suffix' => $person['suffix'] ?? null,
+                        'risk_level' => $person['risk_level'] ?? null,
                     ]);
                 }
             }
 
             foreach (['sigcardPairs' => ['sigcard_front', 'sigcard_back'],
-                      'naisPairs'    => ['nais_front',    'nais_back'],
-                      'privacyPairs' => ['privacy_front', 'privacy_back']] as $pairsKey => [$frontType, $backType]) {
+                'naisPairs' => ['nais_front',    'nais_back'],
+                'privacyPairs' => ['privacy_front', 'privacy_back']] as $pairsKey => [$frontType, $backType]) {
                 if ($request->has($pairsKey)) {
                     $this->archiveAndReplaceDocGroup($customer, $request, $pairsKey, $frontType, $backType);
                 }
@@ -268,14 +276,14 @@ class CustomerController extends Controller
                 ->causedBy(Auth::user())
                 ->performedOn($customer)
                 ->withProperties([
-                    'action'    => 'customer_updated',
+                    'action' => 'customer_updated',
                     'full_name' => $customer->full_name,
-                    'diff'      => $diff,
+                    'diff' => $diff,
                 ])
                 ->log('Customer sigcard record updated');
 
             return response()->json([
-                'message'  => 'Customer updated successfully.',
+                'message' => 'Customer updated successfully.',
                 'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
             ]);
 
@@ -284,7 +292,7 @@ class CustomerController extends Controller
 
             return response()->json([
                 'message' => 'Error updating customer.',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -299,12 +307,12 @@ class CustomerController extends Controller
             }
 
             $snapshot = [
-                'full_name'    => $customer->full_name,
+                'full_name' => $customer->full_name,
                 'account_type' => $customer->account_type,
-                'risk_level'   => $customer->risk_level,
-                'status'       => $customer->status,
-                'branch_id'    => $customer->branch_id,
-                'doc_count'    => $customer->documents()->count(),
+                'risk_level' => $customer->risk_level,
+                'status' => $customer->status,
+                'branch_id' => $customer->branch_id,
+                'doc_count' => $customer->documents()->count(),
             ];
 
             $customer->delete();
@@ -323,7 +331,7 @@ class CustomerController extends Controller
 
             return response()->json([
                 'message' => 'Error deleting customer.',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -344,15 +352,15 @@ class CustomerController extends Controller
                 $props = $entry->properties->toArray();
 
                 return [
-                    'id'          => $entry->id,
-                    'event'       => $entry->event,
+                    'id' => $entry->id,
+                    'event' => $entry->event,
                     'description' => $entry->description,
-                    'causer'      => $entry->causer
+                    'causer' => $entry->causer
                         ? ['name' => optional($entry->causer)->full_name, 'email' => optional($entry->causer)->email]
                         : null,
-                    'diff'        => $props['diff'] ?? null,
-                    'meta'        => collect($props)->except(['diff'])->all(),
-                    'created_at'  => $entry->created_at->toIso8601String(),
+                    'diff' => $props['diff'] ?? null,
+                    'meta' => collect($props)->except(['diff'])->all(),
+                    'created_at' => $entry->created_at->toIso8601String(),
                 ];
             });
 
@@ -366,9 +374,9 @@ class CustomerController extends Controller
         }
 
         $documentType = $document->document_type;
-        $personIndex  = $document->person_index;
-        $fileName     = $document->file_name;
-        $filePath     = $document->file_path;
+        $personIndex = $document->person_index;
+        $fileName = $document->file_name;
+        $filePath = $document->file_path;
 
         Storage::disk('public')->delete($document->file_path);
         $document->delete();
@@ -377,12 +385,12 @@ class CustomerController extends Controller
             ->causedBy(Auth::user())
             ->performedOn($customer)
             ->withProperties([
-                'action'        => 'document_deleted',
-                'full_name'     => $customer->full_name,
+                'action' => 'document_deleted',
+                'full_name' => $customer->full_name,
                 'document_type' => $documentType,
-                'person_index'  => $personIndex,
-                'file_name'     => $fileName,
-                'file_path'     => $filePath,
+                'person_index' => $personIndex,
+                'file_name' => $fileName,
+                'file_path' => $filePath,
             ])
             ->log('Customer document deleted');
 
@@ -393,9 +401,9 @@ class CustomerController extends Controller
     {
         $request->validate([
             'document_type' => 'required|string|in:sigcard_front,sigcard_back,nais_front,nais_back,privacy_front,privacy_back,other',
-            'person_index'  => 'required|integer|min:1',
-            'file'          => 'required|image|max:10240',
-            'document_id'   => 'nullable|integer|exists:customer_documents,id',
+            'person_index' => 'required|integer|min:1',
+            'file' => 'required|image|max:10240',
+            'document_id' => 'nullable|integer|exists:customer_documents,id',
         ]);
 
         try {
@@ -410,10 +418,10 @@ class CustomerController extends Controller
 
             if ($existing) {
                 // Archive the old file instead of deleting so it can be viewed in audit history
-                $pathInfo      = pathinfo($existing->file_path);
-                $archiveName   = $pathInfo['filename'] . '_archived_' . now()->format('Ymd_His') . '.jpg';
-                $archiveDir    = 'archive/' . $pathInfo['dirname'];
-                $archivedPath  = $archiveDir . '/' . $archiveName;
+                $pathInfo = pathinfo($existing->file_path);
+                $archiveName = $pathInfo['filename'].'_archived_'.now()->format('Ymd_His').'.jpg';
+                $archiveDir = 'archive/'.$pathInfo['dirname'];
+                $archivedPath = $archiveDir.'/'.$archiveName;
 
                 if (Storage::disk('public')->exists($existing->file_path)) {
                     Storage::disk('public')->move($existing->file_path, $archivedPath);
@@ -433,25 +441,25 @@ class CustomerController extends Controller
                 ->causedBy(Auth::user())
                 ->performedOn($customer)
                 ->withProperties([
-                    'action'               => 'document_replaced',
-                    'full_name'            => $customer->full_name,
-                    'document_type'        => $request->document_type,
-                    'person_index'         => (int) $request->person_index,
-                    'replaced_file'        => $existing?->file_name,
-                    'archived_file_path'   => $archivedPath,
-                    'new_file_name'        => $newDocument->file_name,
+                    'action' => 'document_replaced',
+                    'full_name' => $customer->full_name,
+                    'document_type' => $request->document_type,
+                    'person_index' => (int) $request->person_index,
+                    'replaced_file' => $existing?->file_name,
+                    'archived_file_path' => $archivedPath,
+                    'new_file_name' => $newDocument->file_name,
                 ])
                 ->log('Customer document replaced');
 
             return response()->json([
-                'message'  => 'Document replaced successfully.',
+                'message' => 'Document replaced successfully.',
                 'customer' => $customer->load(['documents', 'branch']),
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Error replacing document.',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -466,38 +474,38 @@ class CustomerController extends Controller
 
             CustomerAccount::create([
                 'customer_id' => $customer->id,
-                'account_no'  => $request->account_no ?: null,
-                'risk_level'  => $request->risk_level,
+                'account_no' => $request->account_no ?: null,
+                'risk_level' => $request->risk_level,
                 'date_opened' => $request->date_opened ?: null,
-                'status'      => 'active',
+                'status' => 'active',
             ]);
 
             // Store sigcard pair
             foreach ($request->file('sigcardPairs', []) as $pair) {
-                if (!empty($pair['front'])) {
+                if (! empty($pair['front'])) {
                     $this->uploadDocument($customer, $pair['front'], 'sigcard_front', $personIndex);
                 }
-                if (!empty($pair['back'])) {
+                if (! empty($pair['back'])) {
                     $this->uploadDocument($customer, $pair['back'], 'sigcard_back', $personIndex);
                 }
             }
 
             // Store nais pair (optional)
             foreach ($request->file('naisPairs', []) as $pair) {
-                if (!empty($pair['front'])) {
+                if (! empty($pair['front'])) {
                     $this->uploadDocument($customer, $pair['front'], 'nais_front', $personIndex);
                 }
-                if (!empty($pair['back'])) {
+                if (! empty($pair['back'])) {
                     $this->uploadDocument($customer, $pair['back'], 'nais_back', $personIndex);
                 }
             }
 
             // Store privacy pair
             foreach ($request->file('privacyPairs', []) as $pair) {
-                if (!empty($pair['front'])) {
+                if (! empty($pair['front'])) {
                     $this->uploadDocument($customer, $pair['front'], 'privacy_front', $personIndex);
                 }
-                if (!empty($pair['back'])) {
+                if (! empty($pair['back'])) {
                     $this->uploadDocument($customer, $pair['back'], 'privacy_back', $personIndex);
                 }
             }
@@ -513,15 +521,15 @@ class CustomerController extends Controller
                 ->causedBy(Auth::user())
                 ->performedOn($customer)
                 ->withProperties([
-                    'action'       => 'account_added',
-                    'full_name'    => $customer->full_name,
-                    'account_no'   => $request->account_no,
+                    'action' => 'account_added',
+                    'full_name' => $customer->full_name,
+                    'account_no' => $request->account_no,
                     'person_index' => $personIndex,
                 ])
                 ->log('Additional account added to customer');
 
             return response()->json([
-                'message'  => 'Account added successfully.',
+                'message' => 'Account added successfully.',
                 'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
             ], 201);
 
@@ -530,7 +538,7 @@ class CustomerController extends Controller
 
             return response()->json([
                 'message' => 'Error adding account.',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -549,15 +557,19 @@ class CustomerController extends Controller
         string $backType
     ): void {
         $pairs = $request->file($pairsKey, []);
+        $pairsMeta = $request->input($pairsKey, []);
 
         foreach ($pairs as $index => $pair) {
-            $personIndex = $index + 1;
+            // ITF pairs include an explicit person_index from the frontend
+            $personIndex = isset($pairsMeta[$index]['person_index'])
+                ? (int) $pairsMeta[$index]['person_index']
+                : $index + 1;
 
-            if (!empty($pair['front'])) {
+            if (! empty($pair['front'])) {
                 $this->uploadDocument($customer, $pair['front'], $frontType, $personIndex);
             }
 
-            if (!empty($pair['back'])) {
+            if (! empty($pair['back'])) {
                 $this->uploadDocument($customer, $pair['back'], $backType, $personIndex);
             }
         }
@@ -576,7 +588,7 @@ class CustomerController extends Controller
 
     private function imageManager(): ImageManager
     {
-        return $this->imageManager ??= new ImageManager(new Driver());
+        return $this->imageManager ??= new ImageManager(new Driver);
     }
 
     private function uploadDocument(
@@ -597,19 +609,19 @@ class CustomerController extends Controller
         $customer->loadMissing('branch');
 
         $directory = $this->buildDirectory($customer);
-        $filename  = $this->buildFilename($documentType, $personIndex, $file);
-        $path      = "{$directory}/{$filename}";
+        $filename = $this->buildFilename($documentType, $personIndex, $file);
+        $path = "{$directory}/{$filename}";
 
         Storage::disk('public')->put($path, (string) $encoded);
 
         return CustomerDocument::create([
-            'customer_id'   => $customer->id,
+            'customer_id' => $customer->id,
             'document_type' => $documentType,
-            'person_index'  => $personIndex,
-            'file_path'     => $path,
-            'file_name'     => $filename,
-            'file_size'     => strlen((string) $encoded),
-            'mime_type'     => 'image/jpeg',
+            'person_index' => $personIndex,
+            'file_path' => $path,
+            'file_name' => $filename,
+            'file_size' => strlen((string) $encoded),
+            'mime_type' => 'image/jpeg',
         ]);
     }
 
@@ -650,10 +662,10 @@ class CustomerController extends Controller
         }
 
         if ($customer->account_type !== 'Joint') {
-            $name = strtoupper(trim($customer->lastname)) . ', ' . strtoupper(trim($customer->firstname));
+            $name = strtoupper(trim($customer->lastname)).', '.strtoupper(trim($customer->firstname));
 
-            if (!empty($customer->middlename)) {
-                $name .= ' ' . strtoupper(trim($customer->middlename));
+            if (! empty($customer->middlename)) {
+                $name .= ' '.strtoupper(trim($customer->middlename));
             }
 
             return $this->sanitizeName($name);
@@ -665,11 +677,11 @@ class CustomerController extends Controller
         $segments = [];
 
         // Person 1 (primary — stored in customers table)
-        $segments[] = strtoupper(trim($customer->lastname)) . ',' . strtoupper(trim($customer->firstname));
+        $segments[] = strtoupper(trim($customer->lastname)).','.strtoupper(trim($customer->firstname));
 
         // Person 2+ (stored in customer_holders table)
         foreach ($customer->holders as $holder) {
-            $segments[] = strtoupper(trim($holder->lastname)) . ',' . strtoupper(trim($holder->firstname));
+            $segments[] = strtoupper(trim($holder->lastname)).','.strtoupper(trim($holder->firstname));
         }
 
         return $this->sanitizeName(implode(' , ', $segments));
@@ -684,24 +696,24 @@ class CustomerController extends Controller
     {
         $nameMap = [
             'sigcard_front' => 'SIGCARD - FRONT',
-            'sigcard_back'  => 'SIGCARD - BACK',
-            'nais_front'    => 'NAIS - FRONT',
-            'nais_back'     => 'NAIS - BACK',
+            'sigcard_back' => 'SIGCARD - BACK',
+            'nais_front' => 'NAIS - FRONT',
+            'nais_back' => 'NAIS - BACK',
             'privacy_front' => 'DATA PRIVACY - FRONT',
-            'privacy_back'  => 'DATA PRIVACY - BACK',
+            'privacy_back' => 'DATA PRIVACY - BACK',
         ];
 
         if (isset($nameMap[$documentType])) {
-            $base   = $nameMap[$documentType];
+            $base = $nameMap[$documentType];
             $suffix = $personIndex > 1 ? " - PERSON {$personIndex}" : '';
 
-            return $base . $suffix . '.jpg';
+            return $base.$suffix.'.jpg';
         }
 
         // Other documents — keep original name, add UUID to avoid collisions.
         $originalName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
 
-        return $this->sanitizeName(strtoupper($originalName)) . ' - ' . Str::uuid() . '.jpg';
+        return $this->sanitizeName(strtoupper($originalName)).' - '.Str::uuid().'.jpg';
     }
 
     /**
@@ -727,10 +739,10 @@ class CustomerController extends Controller
         $existing = $customer->documents()->whereIn('document_type', [$frontType, $backType])->get();
 
         foreach ($existing as $doc) {
-            $pathInfo    = pathinfo($doc->file_path);
-            $archiveName = $pathInfo['filename'] . '_archived_' . now()->format('Ymd_His') . '.jpg';
-            $archiveDir  = 'archive/' . ($pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] : '');
-            $archivedPath = rtrim($archiveDir, '/') . '/' . $archiveName;
+            $pathInfo = pathinfo($doc->file_path);
+            $archiveName = $pathInfo['filename'].'_archived_'.now()->format('Ymd_His').'.jpg';
+            $archiveDir = 'archive/'.($pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] : '');
+            $archivedPath = rtrim($archiveDir, '/').'/'.$archiveName;
 
             if (Storage::disk('public')->exists($doc->file_path)) {
                 Storage::disk('public')->move($doc->file_path, $archivedPath);
@@ -740,11 +752,11 @@ class CustomerController extends Controller
                 ->causedBy(Auth::user())
                 ->performedOn($customer)
                 ->withProperties([
-                    'action'             => 'document_replaced',
-                    'full_name'          => $customer->full_name,
-                    'document_type'      => $doc->document_type,
-                    'person_index'       => $doc->person_index,
-                    'replaced_file'      => $doc->file_name,
+                    'action' => 'document_replaced',
+                    'full_name' => $customer->full_name,
+                    'document_type' => $doc->document_type,
+                    'person_index' => $doc->person_index,
+                    'replaced_file' => $doc->file_name,
                     'archived_file_path' => $archivedPath,
                 ])
                 ->log('Customer document replaced');
@@ -758,7 +770,7 @@ class CustomerController extends Controller
     /**
      * Delete all documents of the given types for a customer and remove their stored files.
      *
-     * @param string[] $types
+     * @param  string[]  $types
      */
     private function deleteDocumentsByTypes(Customer $customer, array $types): void
     {

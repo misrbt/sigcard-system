@@ -10,10 +10,12 @@ import {
   HiOutlineRefresh,
   HiOutlineCloudUpload,
   HiOutlineUser,
+  HiOutlineUsers,
   HiOutlineOfficeBuilding,
   HiOutlineCreditCard,
   HiOutlineShieldCheck,
   HiOutlinePlus,
+  HiOutlineX,
 } from "react-icons/hi";
 import Swal from "sweetalert2";
 import api from "../../services/api";
@@ -127,6 +129,59 @@ const ImageCard = ({ doc, side, accent, preview, uploading, uploaded, onFileChan
         )}
       </div>
 
+      {/* Remove pending file button — below the image, always visible and clickable */}
+      {preview && !uploaded && !uploading && (
+        <button
+          onClick={() => onFileChange(null)}
+          className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-semibold transition-colors"
+        >
+          <HiOutlineX className="w-3.5 h-3.5" />
+          Remove
+        </button>
+      )}
+
+      <input ref={inputRef} type="file" accept="image/jpeg,image/jpg,image/png" className="hidden"
+        onChange={(e) => { onFileChange(e.target.files[0] ?? null); e.target.value = ""; }} />
+    </div>
+  );
+};
+
+// ── New pair upload card (for "Add Another") ─────────────────────────────────
+const NewPairUploadCard = ({ file, side, accent, onFileChange }) => {
+  const inputRef = useRef(null);
+  const ac = ACCENT[accent];
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{side} Side</span>
+      <div
+        onClick={() => inputRef.current?.click()}
+        className={`relative group w-full aspect-[3/4] rounded-2xl overflow-hidden border-2 bg-slate-50 transition-all duration-200 cursor-pointer ${
+          file ? `ring-2 ${ac.ring} border-transparent shadow-lg` : `${ac.bg} border-slate-200 hover:border-slate-300`
+        }`}
+      >
+        {file ? (
+          <img src={URL.createObjectURL(file)} alt={side} className="w-full h-full object-contain" />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full gap-3 select-none">
+            <div className="w-12 h-12 rounded-2xl bg-white/70 flex items-center justify-center shadow-sm">
+              <HiOutlinePhotograph className={`w-6 h-6 ${ac.icon}`} />
+            </div>
+            <div className="text-center">
+              <p className="text-xs font-semibold text-slate-500">No image</p>
+              <p className="text-[10px] text-slate-400">Click to upload</p>
+            </div>
+          </div>
+        )}
+        {file && (
+          <div className={`absolute top-2 left-2 ${ac.badge} text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow`}>NEW</div>
+        )}
+      </div>
+      {file && (
+        <button onClick={() => onFileChange(null)}
+          className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-semibold transition-colors">
+          <HiOutlineX className="w-3.5 h-3.5" /> Remove
+        </button>
+      )}
       <input ref={inputRef} type="file" accept="image/jpeg,image/jpg,image/png" className="hidden"
         onChange={(e) => { onFileChange(e.target.files[0] ?? null); e.target.value = ""; }} />
     </div>
@@ -168,6 +223,8 @@ const EditCustomerDocs = () => {
   const [saveProgress, setSaveProgress]   = useState({ done: 0, total: 0 });
 
   const [newOtherFiles, setNewOtherFiles] = useState([]);
+  const [activePerson, setActivePerson]   = useState(1);
+  const [newPairs, setNewPairs]           = useState({}); // { "sigcard": [{front:null,back:null}], ... }
   const otherInputRef = useRef(null);
 
   // ── Load customer ──────────────────────────────────────────────────────────
@@ -188,6 +245,7 @@ const EditCustomerDocs = () => {
 
   // ── Derived helpers ────────────────────────────────────────────────────────
   const getDoc        = (type, pi) => customer?.documents?.find((d) => d.document_type === type && d.person_index === pi) ?? null;
+  const getAllDocs     = (type, pi) => (customer?.documents ?? []).filter((d) => d.document_type === type && d.person_index === pi);
   const setPendingFile = (type, pi, file) => {
     const key = `${type}__${pi}`;
     setPending((p) => ({ ...p, [key]: file }));
@@ -197,41 +255,143 @@ const EditCustomerDocs = () => {
   const isUploaded     = (type, pi) => !!uploaded[`${type}__${pi}`];
   const isUploading    = (type, pi) => uploading === `${type}__${pi}`;
 
-  const personCount = Math.max(
-    1,
-    ...(customer?.documents ?? [])
-      .filter((d) => DOC_GROUPS.some((g) => g.front === d.document_type || g.back === d.document_type))
-      .map((d) => d.person_index)
-  );
-  const persons   = Array.from({ length: personCount }, (_, i) => i + 1);
-  const otherDocs = (customer?.documents ?? []).filter((d) => d.document_type === "other");
+  const isJoint     = customer?.account_type === "Joint";
+  const isCorporate = customer?.account_type === "Corporate";
+  const isITF       = isJoint && customer?.joint_sub_type === "ITF";
+  const isNonITF    = isJoint && customer?.joint_sub_type === "Non-ITF";
+  const holders     = customer?.holders ?? [];
 
-  const totalPending = Object.values(pending).filter(Boolean).length + newOtherFiles.length;
+  // For ITF all docs are shared; for Non-ITF only privacy is shared
+  const isSharedDoc = (groupKey) => {
+    if (isITF) return true; // all doc types shared for ITF
+    if (isNonITF && groupKey === "privacy") return true;
+    return false;
+  };
+
+  // Build person/account list depending on account type
+  // Joint: persons = primary customer (1) + joint holders (2, 3…)
+  // Non-Joint with multiple accounts: each account maps to a person_index
+  const allPersons = (() => {
+    if (!customer) return [{ index: 1, label: "Person 1", name: "" }];
+
+    if (isJoint) {
+      const primary = {
+        index: 1,
+        label: "Person 1",
+        name: `${customer.firstname ?? ""} ${customer.lastname ?? ""}`.trim(),
+      };
+      const jointHolders = holders.map((h) => ({
+        index: h.person_index,
+        label: `Person ${h.person_index}`,
+        name: `${h.firstname ?? ""} ${h.lastname ?? ""}`.trim(),
+      }));
+      return [primary, ...jointHolders];
+    }
+
+    // Corporate: show signatories (like Joint) — person tabs switch signatory for sigcard back
+    if (isCorporate) {
+      const primary = {
+        index: 1,
+        label: "Signatory 1",
+        name: `${customer.firstname ?? ""} ${customer.lastname ?? ""}`.trim(),
+      };
+      const corpHolders = holders.map((h) => ({
+        index: h.person_index,
+        label: `Signatory ${h.person_index}`,
+        name: `${h.firstname ?? ""} ${h.lastname ?? ""}`.trim(),
+      }));
+      return [primary, ...corpHolders];
+    }
+
+    // Non-Joint: primary account + additional accounts
+    const items = [
+      {
+        index: 1,
+        label: customer.account_no ? `Acct: ${customer.account_no}` : "Account 1",
+        name: `${customer.firstname ?? ""} ${customer.lastname ?? ""}`.trim(),
+      },
+    ];
+    (customer.accounts ?? []).forEach((a, i) => {
+      items.push({
+        index: i + 2,
+        label: a.account_no ? `Acct: ${a.account_no}` : `Account ${i + 2}`,
+        name: `${customer.firstname ?? ""} ${customer.lastname ?? ""}`.trim(),
+      });
+    });
+    return items;
+  })();
+
+  const showPersonTabs = allPersons.length > 1;
+
+  // Ensure activePerson is valid
+  useEffect(() => {
+    if (customer && !allPersons.some((p) => p.index === activePerson)) {
+      setActivePerson(allPersons[0]?.index ?? 1);
+    }
+  }, [customer]);
+
+  const otherPersonIdx = isCorporate ? 1 : activePerson;
+  const otherDocs = (customer?.documents ?? []).filter((d) => d.document_type === "other" && d.person_index === otherPersonIdx);
+
+  const totalNewPairFiles = Object.values(newPairs).reduce((sum, pairs) =>
+    sum + pairs.reduce((c, p) => c + (p.front ? 1 : 0) + (p.back ? 1 : 0), 0), 0);
+  const totalPending = Object.values(pending).filter(Boolean).length + newOtherFiles.length + totalNewPairFiles;
+
+  const newPairPendingCount = (groupKey) => {
+    const pairs = newPairs[groupKey] ?? [];
+    return pairs.reduce((c, p) => c + (p.front ? 1 : 0) + (p.back ? 1 : 0), 0);
+  };
 
   const tabPending = (group) => {
     if (group.key === "other") return newOtherFiles.length;
-    return persons.reduce((acc, p) => {
-      if (getPendingFile(group.front, p)) acc++;
-      if (getPendingFile(group.back,  p)) acc++;
-      return acc;
-    }, 0);
+    if (isCorporate && group.key === "sigcard") {
+      // Count pending shared fronts + per-signatory backs
+      let count = 0;
+      const existingFronts = getAllDocs(group.front, 1);
+      existingFronts.forEach((doc) => { if (pending[`${group.front}__${doc.id}`]) count++; });
+      allPersons.forEach((p) => {
+        const backDoc = getDoc(group.back, p.index);
+        const backKey = backDoc ? `${group.back}__${backDoc.id}` : `${group.back}__${p.index}`;
+        if (pending[backKey]) count++;
+      });
+      count += newPairPendingCount(group.key);
+      return count;
+    }
+    const pi = isSharedDoc(group.key) ? 1 : (isCorporate ? 1 : activePerson);
+    let count = 0;
+    if (getPendingFile(group.front, pi)) count++;
+    if (getPendingFile(group.back, pi)) count++;
+    count += newPairPendingCount(group.key);
+    return count;
+  };
+
+  const personPendingCount = (personIdx) => {
+    let count = 0;
+    DOC_GROUPS.forEach((g) => {
+      const pi = isSharedDoc(g.key) ? 1 : personIdx;
+      if (pending[`${g.front}__${pi}`]) count++;
+      if (pending[`${g.back}__${pi}`]) count++;
+      if (isSharedDoc(g.key) && personIdx === activePerson) count += newPairPendingCount(g.key);
+    });
+    if (personIdx === activePerson) count += newOtherFiles.length;
+    return count;
   };
 
   // ── Upload helpers ─────────────────────────────────────────────────────────
-  const uploadOne = async (document_type, person_index, file) => {
-    const key = `${document_type}__${person_index}`;
-    setUploading(key);
+  const uploadOne = async (pendingKey, document_type, person_index, file, document_id) => {
+    setUploading(pendingKey);
     try {
       const fd = new FormData();
       fd.append("document_type", document_type);
       fd.append("person_index",  String(person_index));
       fd.append("file",          file);
+      if (document_id) fd.append("document_id", String(document_id));
       const { data } = await api.post(`/customers/${id}/replace-document`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setCustomer(data.customer);
-      setUploaded((p) => ({ ...p, [key]: true }));
-      setPending((p) => { const n = { ...p }; delete n[key]; return n; });
+      setUploaded((p) => ({ ...p, [pendingKey]: true }));
+      setPending((p) => { const n = { ...p }; delete n[pendingKey]; return n; });
     } finally {
       setUploading(null);
     }
@@ -239,7 +399,19 @@ const EditCustomerDocs = () => {
 
   const handleSaveAll = async () => {
     const entries = Object.entries(pending).filter(([, f]) => f);
-    const total   = entries.length + newOtherFiles.length;
+    // Collect new pair files
+    const pairEntries = [];
+    for (const [groupKey, pairs] of Object.entries(newPairs)) {
+      const group = DOC_GROUPS.find((g) => g.key === groupKey);
+      if (!group) continue;
+      // Corporate sigcard new pairs are fronts at person_index=1
+      const pi = isSharedDoc(groupKey) ? 1 : (isCorporate && groupKey === "sigcard") ? 1 : activePerson;
+      for (const pair of pairs) {
+        if (pair.front) pairEntries.push({ type: group.front, pi, file: pair.front });
+        if (pair.back)  pairEntries.push({ type: group.back,  pi, file: pair.back });
+      }
+    }
+    const total = entries.length + pairEntries.length + newOtherFiles.length;
     if (total === 0) return;
 
     setSaving(true);
@@ -247,11 +419,57 @@ const EditCustomerDocs = () => {
     setSaveProgress({ done: 0, total });
 
     try {
+      // Upload pending replacements
       for (const [key, file] of entries) {
-        const [document_type, person_index] = key.split("__");
-        try { await uploadOne(document_type, parseInt(person_index), file); }
+        const parts = key.split("__");
+        const document_type = parts[0];
+        const secondPart = parts[1];
+        // Determine if secondPart is a doc ID (for shared doc replacements) or person_index
+        const matchingDoc = (customer?.documents ?? []).find((d) => d.id === parseInt(secondPart));
+        const person_index = matchingDoc ? matchingDoc.person_index : parseInt(secondPart);
+        const document_id = matchingDoc ? matchingDoc.id : null;
+        try { await uploadOne(key, document_type, person_index, file, document_id); }
         catch { failed++; }
         setSaveProgress({ done: ++done, total });
+      }
+
+      // Upload new pair files (Add Another) — group by doc key then send via update endpoint
+      if (pairEntries.length > 0) {
+        // Group pairEntries by their pair group (sigcard, nais, privacy)
+        const PAIR_KEY_MAP = { sigcard_front: "sigcardPairs", sigcard_back: "sigcardPairs", nais_front: "naisPairs", nais_back: "naisPairs", privacy_front: "privacyPairs", privacy_back: "privacyPairs" };
+        const grouped = {};
+        for (const entry of pairEntries) {
+          const fdKey = PAIR_KEY_MAP[entry.type];
+          if (!grouped[fdKey]) grouped[fdKey] = [];
+          grouped[fdKey].push(entry);
+        }
+
+        setUploading("newpairs");
+        try {
+          const fd = new FormData();
+          fd.append("_method", "PUT");
+          for (const [fdKey, items] of Object.entries(grouped)) {
+            // Group front/back into pair indices
+            let pairIdx = 0;
+            for (let i = 0; i < items.length; i++) {
+              const side = items[i].type.endsWith("_front") ? "front" : "back";
+              fd.append(`${fdKey}[${pairIdx}][${side}]`, items[i].file);
+              fd.append(`${fdKey}[${pairIdx}][person_index]`, String(items[i].pi));
+              // If this is a back or the next item is not the matching back, advance pair index
+              if (side === "back" || i + 1 >= items.length || !items[i + 1].type.endsWith("_back")) pairIdx++;
+            }
+          }
+          const { data } = await api.post(`/customers/${id}`, fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          setCustomer(data.customer);
+          done += pairEntries.length;
+        } catch {
+          failed += pairEntries.length;
+          done += pairEntries.length;
+        }
+        setUploading(null);
+        setSaveProgress({ done, total });
       }
 
       if (newOtherFiles.length > 0) {
@@ -259,7 +477,8 @@ const EditCustomerDocs = () => {
         try {
           const fd = new FormData();
           fd.append("_method", "PUT");
-          newOtherFiles.forEach((f) => fd.append("otherDocs[1][]", f));
+          const otherUploadIdx = isCorporate ? 1 : activePerson;
+          newOtherFiles.forEach((f) => fd.append(`otherDocs[${otherUploadIdx}][]`, f));
           const { data } = await api.post(`/customers/${id}`, fd, {
             headers: { "Content-Type": "multipart/form-data" },
           });
@@ -275,6 +494,7 @@ const EditCustomerDocs = () => {
       }
 
       setNewOtherFiles([]);
+      setNewPairs({});
 
       if (failed === 0) {
         await Swal.fire({
@@ -347,7 +567,7 @@ const EditCustomerDocs = () => {
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-white/45">
                 <span className="flex items-center gap-1"><HiOutlineUser className="w-3 h-3" />{customerId(customer.id)}</span>
-                <span className="flex items-center gap-1"><HiOutlineCreditCard className="w-3 h-3" />{customer.account_type}</span>
+                <span className="flex items-center gap-1"><HiOutlineCreditCard className="w-3 h-3" />{customer.account_type}{isJoint && holders.length > 0 && ` · ${allPersons.length} holders`}</span>
                 <span className="flex items-center gap-1"><HiOutlineShieldCheck className="w-3 h-3" />{customer.risk_level}</span>
                 <span className="flex items-center gap-1"><HiOutlineOfficeBuilding className="w-3 h-3" />{customer.branch?.branch_name ?? "No Branch"}</span>
               </div>
@@ -359,7 +579,46 @@ const EditCustomerDocs = () => {
             </button>
           </div>
 
-          {/* Tab navigation */}
+          {/* Person / Account tabs */}
+          {showPersonTabs && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">
+                {isJoint ? "Account Holders" : isCorporate ? "Signatories" : "Accounts"}
+              </p>
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                {allPersons.map((person) => {
+                  const isActive = activePerson === person.index;
+                  const pCount   = personPendingCount(person.index);
+                  return (
+                    <button
+                      key={person.index}
+                      onClick={() => setActivePerson(person.index)}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200 flex-shrink-0 border ${
+                        isActive
+                          ? "bg-white/15 text-white border-white/30 shadow-lg backdrop-blur-sm"
+                          : "text-white/40 border-white/10 hover:text-white/70 hover:bg-white/5"
+                      }`}
+                    >
+                      <HiOutlineUser className="w-3.5 h-3.5" />
+                      <span>{person.label}</span>
+                      {person.name && (
+                        <span className={`text-xs ${isActive ? "text-white/60" : "text-white/30"}`}>
+                          {person.name}
+                        </span>
+                      )}
+                      {pCount > 0 && (
+                        <span className="bg-amber-400 text-amber-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                          {pCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Document type tabs */}
           <div className="flex gap-1.5 overflow-x-auto pb-0.5">
             {[...DOC_GROUPS, { key: "other", label: "Other Docs", accent: "slate", front: null, back: null }].map((group) => {
               const isActive = activeTab === group.key;
@@ -449,7 +708,7 @@ const EditCustomerDocs = () => {
       <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeTab}
+            key={`${activeTab}__${activePerson}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
@@ -457,65 +716,293 @@ const EditCustomerDocs = () => {
             className="w-full"
           >
 
-            {/* ── LEFT: active doc group ──────────────────────────────────── */}
-            <div className="flex-1 min-w-0">
-              {DOC_GROUPS.filter((g) => g.key === activeTab).map((group) => (
-                <div key={group.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  {/* Group header */}
-                  <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${ACCENT[group.accent].bg}`}>
-                        <HiOutlineDocumentText className={`w-4 h-4 ${ACCENT[group.accent].icon}`} />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-800">{group.label}</h3>
-                        <p className="text-[10px] text-slate-400">
-                          {personCount > 1 ? `${personCount} persons — front & back each` : "Front & Back required"}
-                        </p>
-                      </div>
-                    </div>
-                    {/* Completion dots per person */}
-                    <div className="flex gap-1.5">
-                      {persons.map((p) => {
-                        const hasFront = !!getDoc(group.front, p) || !!getPendingFile(group.front, p) || isUploaded(group.front, p);
-                        const hasBack  = !!getDoc(group.back,  p) || !!getPendingFile(group.back,  p) || isUploaded(group.back,  p);
-                        return (
-                          <div key={p} title={`Person ${p}`}
-                            className={`w-2 h-2 rounded-full transition-colors ${hasFront && hasBack ? "bg-emerald-400" : hasFront || hasBack ? "bg-amber-400" : "bg-slate-200"}`}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
+            {/* ── Corporate Sigcard — custom layout ──────────────────────── */}
+            {isCorporate && activeTab === "sigcard" && (() => {
+              const group = DOC_GROUPS.find((g) => g.key === "sigcard");
+              const existingFronts = getAllDocs(group.front, 1);
+              const addedPairs = newPairs["sigcard"] ?? [];
 
-                  {/* Person rows */}
-                  <div className="px-5 py-5 space-y-6">
-                    {persons.map((p) => (
-                      <div key={p}>
-                        {personCount > 1 && (
-                          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Person {p}</p>
-                        )}
-                        <div className="grid grid-cols-2 gap-4">
-                          <ImageCard
-                            doc={getDoc(group.front, p)} side="Front" accent={group.accent}
-                            preview={getPendingFile(group.front, p)} uploaded={isUploaded(group.front, p)} uploading={isUploading(group.front, p)}
-                            onFileChange={(f) => setPendingFile(group.front, p, f)}
-                          />
-                          <ImageCard
-                            doc={getDoc(group.back, p)} side="Back" accent={group.accent}
-                            preview={getPendingFile(group.back, p)} uploaded={isUploaded(group.back, p)} uploading={isUploading(group.back, p)}
-                            onFileChange={(f) => setPendingFile(group.back, p, f)}
-                          />
+              return (
+                <div className="flex-1 min-w-0">
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${ACCENT[group.accent].bg}`}>
+                          <HiOutlineDocumentText className={`w-4 h-4 ${ACCENT[group.accent].icon}`} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-800">Signature Card</h3>
+                          <p className="text-[10px] text-slate-400">Corporate — Shared fronts + per-signatory backs</p>
                         </div>
                       </div>
-                    ))}
-                    <p className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
-                      <HiOutlinePhotograph className="w-3.5 h-3.5" />
-                      Click an image to replace · JPEG, PNG · max 10 MB
-                    </p>
+                    </div>
+
+                    <div className="px-5 py-5 space-y-6">
+                      {/* ── Shared Fronts (person_index=1) ── */}
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sigcard Front (Shared)</p>
+                        {/* Existing front docs */}
+                        {Array.from({ length: Math.max(existingFronts.length, 1) }).map((_, pairIdx) => {
+                          const frontDoc = existingFronts[pairIdx] ?? null;
+                          const frontKey = frontDoc ? `${group.front}__${frontDoc.id}` : `${group.front}__1__p${pairIdx}`;
+                          return (
+                            <div key={pairIdx} className="space-y-2">
+                              {(existingFronts.length + addedPairs.length) > 1 && (
+                                <p className="text-xs font-medium text-slate-400">Front {pairIdx + 1}</p>
+                              )}
+                              <div className="grid grid-cols-2 gap-4">
+                                <ImageCard
+                                  doc={frontDoc} side="Front" accent={group.accent}
+                                  preview={pending[frontKey] ?? null}
+                                  uploaded={!!uploaded[frontKey]}
+                                  uploading={uploading === frontKey}
+                                  onFileChange={(f) => {
+                                    setPending((p) => ({ ...p, [frontKey]: f }));
+                                    setUploaded((p) => { const n = { ...p }; delete n[frontKey]; return n; });
+                                  }}
+                                />
+                                <div />
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* New front pairs added via "Add Another" */}
+                        {addedPairs.map((pair, pairIdx) => (
+                          <div key={`new-front-${pairIdx}`} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-medium text-slate-400">Front {existingFronts.length + pairIdx + 1}</p>
+                              <button type="button" onClick={() => setNewPairs((prev) => ({
+                                ...prev, sigcard: (prev.sigcard ?? []).filter((_, i) => i !== pairIdx),
+                              }))}
+                                className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                                <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <NewPairUploadCard file={pair.front} side="Front" accent={group.accent}
+                                onFileChange={(f) => setNewPairs((prev) => {
+                                  const pairs = [...(prev.sigcard ?? [])];
+                                  pairs[pairIdx] = { ...pairs[pairIdx], front: f };
+                                  return { ...prev, sigcard: pairs };
+                                })} />
+                              <div />
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Add Another Sigcard Front button — only when 3+ signatories */}
+                        {allPersons.length >= 3 && (
+                          <button type="button" onClick={() => setNewPairs((prev) => ({
+                            ...prev, sigcard: [...(prev.sigcard ?? []), { front: null, back: null }],
+                          }))}
+                            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all">
+                            <HiOutlinePlus className="w-3.5 h-3.5" />
+                            Add Another Sigcard Front
+                          </button>
+                        )}
+                      </div>
+
+                      {/* ── Divider ── */}
+                      <div className="flex items-center gap-2">
+                        <div className="h-px flex-1 bg-slate-200" />
+                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Back — per signatory</p>
+                        <div className="h-px flex-1 bg-slate-200" />
+                      </div>
+
+                      {/* ── Per-signatory Backs ── */}
+                      <div className="grid grid-cols-2 gap-4">
+                        {allPersons.map((person) => {
+                          const backDoc = getDoc(group.back, person.index);
+                          const backKey = backDoc ? `${group.back}__${backDoc.id}` : `${group.back}__${person.index}`;
+                          return (
+                            <div key={person.index} className="space-y-2">
+                              <div className="flex items-center gap-1.5">
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${person.index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>
+                                  {person.index}
+                                </div>
+                                <p className="text-xs font-semibold text-slate-600 truncate">{person.name || person.label}</p>
+                              </div>
+                              <ImageCard
+                                doc={backDoc} side="Back" accent={group.accent}
+                                preview={pending[backKey] ?? null}
+                                uploaded={!!uploaded[backKey]}
+                                uploading={uploading === backKey}
+                                onFileChange={(f) => {
+                                  setPending((p) => ({ ...p, [backKey]: f }));
+                                  setUploaded((p) => { const n = { ...p }; delete n[backKey]; return n; });
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <p className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
+                        <HiOutlinePhotograph className="w-3.5 h-3.5" />
+                        Click an image to replace · JPEG, PNG · max 10 MB
+                      </p>
+                    </div>
                   </div>
                 </div>
-              ))}
+              );
+            })()}
+
+            {/* ── Active doc group for active person ─────────────────────── */}
+            {!(isCorporate && activeTab === "sigcard") && <div className="flex-1 min-w-0">
+              {DOC_GROUPS.filter((g) => g.key === activeTab).map((group) => {
+                const shared    = isSharedDoc(group.key);
+                // Corporate: nais/privacy are per-account (person_index=1), not per-signatory
+                const personIdx = shared ? 1 : (isCorporate && group.key !== "sigcard") ? 1 : activePerson;
+                const activePersonInfo = allPersons.find((p) => p.index === activePerson);
+
+                // Build existing doc pairs for shared types
+                const existingFronts = getAllDocs(group.front, personIdx);
+                const existingBacks  = getAllDocs(group.back,  personIdx);
+                const existingPairCount = Math.max(existingFronts.length, existingBacks.length, 1);
+                const addedPairs = newPairs[group.key] ?? [];
+
+                const hasFront = existingFronts.length > 0 || !!getPendingFile(group.front, personIdx) || isUploaded(group.front, personIdx);
+                const hasBack  = existingBacks.length > 0  || !!getPendingFile(group.back,  personIdx) || isUploaded(group.back,  personIdx);
+
+                return (
+                  <div key={group.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    {/* Group header */}
+                    <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${ACCENT[group.accent].bg}`}>
+                          <HiOutlineDocumentText className={`w-4 h-4 ${ACCENT[group.accent].icon}`} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-800">{group.label}</h3>
+                          <p className="text-[10px] text-slate-400">
+                            {shared
+                              ? "Shared — Front & Back"
+                              : showPersonTabs
+                                ? `${activePersonInfo?.name || activePersonInfo?.label} — Front & Back`
+                                : "Front & Back required"}
+                          </p>
+                        </div>
+                      </div>
+                      {/* Completion indicator */}
+                      <div className="flex items-center gap-2">
+                        {shared ? (
+                          <span className="text-[10px] font-semibold text-purple-500">Shared</span>
+                        ) : showPersonTabs ? (
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            {activePersonInfo?.label}
+                          </span>
+                        ) : null}
+                        <div
+                          title={hasFront && hasBack ? "Complete" : hasFront || hasBack ? "Partial" : "Empty"}
+                          className={`w-2.5 h-2.5 rounded-full transition-colors ${hasFront && hasBack ? "bg-emerald-400" : hasFront || hasBack ? "bg-amber-400" : "bg-slate-200"}`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Document cards */}
+                    <div className="px-5 py-5 space-y-6">
+                      {/* Existing pairs — for shared types, show all existing docs grouped */}
+                      {shared ? (
+                        <>
+                          {Array.from({ length: existingPairCount }).map((_, pairIdx) => {
+                            const frontDoc = existingFronts[pairIdx] ?? null;
+                            const backDoc  = existingBacks[pairIdx] ?? null;
+                            // Use doc ID in key for replacements
+                            const frontKey = frontDoc ? `${group.front}__${frontDoc.id}` : `${group.front}__${personIdx}__p${pairIdx}`;
+                            const backKey  = backDoc  ? `${group.back}__${backDoc.id}`   : `${group.back}__${personIdx}__p${pairIdx}`;
+                            return (
+                              <div key={pairIdx} className="space-y-2">
+                                {existingPairCount + addedPairs.length > 1 && (
+                                  <p className="text-xs font-medium text-slate-400">{group.label} {pairIdx + 1}</p>
+                                )}
+                                <div className="grid grid-cols-2 gap-4">
+                                  <ImageCard
+                                    doc={frontDoc} side="Front" accent={group.accent}
+                                    preview={pending[frontKey] ?? null}
+                                    uploaded={!!uploaded[frontKey]}
+                                    uploading={uploading === frontKey}
+                                    onFileChange={(f) => {
+                                      setPending((p) => ({ ...p, [frontKey]: f }));
+                                      setUploaded((p) => { const n = { ...p }; delete n[frontKey]; return n; });
+                                    }}
+                                  />
+                                  <ImageCard
+                                    doc={backDoc} side="Back" accent={group.accent}
+                                    preview={pending[backKey] ?? null}
+                                    uploaded={!!uploaded[backKey]}
+                                    uploading={uploading === backKey}
+                                    onFileChange={(f) => {
+                                      setPending((p) => ({ ...p, [backKey]: f }));
+                                      setUploaded((p) => { const n = { ...p }; delete n[backKey]; return n; });
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {/* New pairs added via "Add Another" */}
+                          {addedPairs.map((pair, pairIdx) => (
+                            <div key={`new-${pairIdx}`} className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-medium text-slate-400">{group.label} {existingPairCount + pairIdx + 1}</p>
+                                <button type="button" onClick={() => setNewPairs((prev) => ({
+                                  ...prev, [group.key]: (prev[group.key] ?? []).filter((_, i) => i !== pairIdx),
+                                }))}
+                                  className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                                  <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                <NewPairUploadCard file={pair.front} side="Front" accent={group.accent}
+                                  onFileChange={(f) => setNewPairs((prev) => {
+                                    const pairs = [...(prev[group.key] ?? [])];
+                                    pairs[pairIdx] = { ...pairs[pairIdx], front: f };
+                                    return { ...prev, [group.key]: pairs };
+                                  })} />
+                                <NewPairUploadCard file={pair.back} side="Back" accent={group.accent}
+                                  onFileChange={(f) => setNewPairs((prev) => {
+                                    const pairs = [...(prev[group.key] ?? [])];
+                                    pairs[pairIdx] = { ...pairs[pairIdx], back: f };
+                                    return { ...prev, [group.key]: pairs };
+                                  })} />
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Add Another button */}
+                          <button type="button" onClick={() => setNewPairs((prev) => ({
+                            ...prev, [group.key]: [...(prev[group.key] ?? []), { front: null, back: null }],
+                          }))}
+                            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all">
+                            <HiOutlinePlus className="w-3.5 h-3.5" />
+                            Add Another {group.label}
+                          </button>
+                        </>
+                      ) : (
+                        /* Non-shared: single front/back pair per person */
+                        <div className="grid grid-cols-2 gap-4">
+                          <ImageCard
+                            doc={getDoc(group.front, personIdx)} side="Front" accent={group.accent}
+                            preview={getPendingFile(group.front, personIdx)} uploaded={isUploaded(group.front, personIdx)} uploading={isUploading(group.front, personIdx)}
+                            onFileChange={(f) => setPendingFile(group.front, personIdx, f)}
+                          />
+                          <ImageCard
+                            doc={getDoc(group.back, personIdx)} side="Back" accent={group.accent}
+                            preview={getPendingFile(group.back, personIdx)} uploaded={isUploaded(group.back, personIdx)} uploading={isUploading(group.back, personIdx)}
+                            onFileChange={(f) => setPendingFile(group.back, personIdx, f)}
+                          />
+                        </div>
+                      )}
+                      <p className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
+                        <HiOutlinePhotograph className="w-3.5 h-3.5" />
+                        Click an image to replace · JPEG, PNG · max 10 MB
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
 
               {/* Other docs tab — full-width when active */}
               {activeTab === "other" && (
@@ -599,7 +1086,7 @@ const EditCustomerDocs = () => {
                     onChange={(e) => { setNewOtherFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
                 </div>
               )}
-            </div>
+            </div>}
 
 
           </motion.div>
