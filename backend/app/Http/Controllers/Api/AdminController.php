@@ -155,7 +155,8 @@ class AdminController extends Controller
         $this->authorize('view-users');
 
         try {
-            $query = User::query()->with(['roles', 'permissions', 'branch']);
+            $query = User::query()->with(['roles', 'permissions', 'branch'])
+                ->where('email', 'not like', '%_deleted_%');
 
             // Apply filters
             if ($request->filled('status')) {

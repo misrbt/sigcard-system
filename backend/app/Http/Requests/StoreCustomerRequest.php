@@ -44,12 +44,12 @@ class StoreCustomerRequest extends FormRequest
             'additionalPersons.*.middlename'  => 'nullable|string|max:255',
             'additionalPersons.*.lastname'    => 'required_with:additionalPersons|string|max:255',
             'additionalPersons.*.suffix'      => 'nullable|string|max:50',
-            'additionalPersons.*.risk_level'  => 'required_with:additionalPersons|in:Low Risk,Medium Risk,High Risk',
+            'additionalPersons.*.risk_level'  => 'nullable|in:Low Risk,Medium Risk,High Risk',
 
             // Document pairs — each pair has a front and back image.
             // Joint accounts require at least 2 pairs; others require exactly 1.
             'sigcardPairs'         => 'required|array|min:1',
-            'sigcardPairs.*.front' => 'required|image|max:10240',
+            'sigcardPairs.*.front' => 'nullable|image|max:10240',
             'sigcardPairs.*.back'  => 'required|image|max:10240',
 
             'naisPairs'         => 'nullable|array|min:1',
@@ -74,15 +74,6 @@ class StoreCustomerRequest extends FormRequest
                 return;
             }
 
-            foreach (['sigcardPairs', 'privacyPairs'] as $key) {
-                if (count($this->file($key, [])) < 2) {
-                    $validator->errors()->add(
-                        $key,
-                        "Joint accounts require at least 2 persons for {$key}."
-                    );
-                }
-            }
-
             if (count($this->input('additionalPersons', [])) < 1) {
                 $validator->errors()->add(
                     'additionalPersons',
@@ -104,9 +95,8 @@ class StoreCustomerRequest extends FormRequest
             'risk_level.in'             => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
             'branch_id.exists'          => 'The selected branch does not exist.',
 
-            'sigcardPairs.required'         => 'Sigcard images are required.',
-            'sigcardPairs.*.front.required' => 'Sigcard front image is required for each person.',
-            'sigcardPairs.*.back.required'  => 'Sigcard back image is required for each person.',
+            'sigcardPairs.required'        => 'Sigcard images are required.',
+            'sigcardPairs.*.back.required' => 'Sigcard back image is required for each person.',
 
             'naisPairs.*.front.required' => 'NAIS front image is required for each person.',
 
@@ -116,8 +106,7 @@ class StoreCustomerRequest extends FormRequest
 
             'additionalPersons.*.firstname.required_with'  => 'First name is required for each additional holder.',
             'additionalPersons.*.lastname.required_with'   => 'Last name is required for each additional holder.',
-            'additionalPersons.*.risk_level.required_with' => 'Risk level is required for each additional holder.',
-            'additionalPersons.*.risk_level.in'            => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
+            'additionalPersons.*.risk_level.in' => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
 
             '*.image' => 'File must be an image.',
             '*.max'   => 'Image size must not exceed 10MB.',

@@ -67,8 +67,8 @@ const steps = [
 
 const stepDescriptions = {
   accountType:  "Choose the account classification for this customer.",
-  customerInfo: "Enter the customer's personal or company information.",
-  holders:      "Set the risk level, account details, and manage additional accounts or holders.",
+  customerInfo: "Enter the customer's personal or company information and account holders.",
+  holders:      "Set the risk level and account details. You may also add additional accounts.",
   sigcard:      "Upload front and back images of the signature card.",
   nais:         "Upload NAIS document images — optional, you may skip.",
   privacy:      "Upload the signed data privacy consent form.",
@@ -76,7 +76,7 @@ const stepDescriptions = {
 };
 
 const emptyPair    = ()  => ({ front: null, back: null });
-const emptyPerson  = ()  => ({ firstName: "", middleName: "", lastName: "", suffix: "", riskLevel: "" });
+const emptyPerson  = ()  => ({ firstName: "", middleName: "", lastName: "", suffix: "" });
 const emptyAccount = ()  => ({ accountNo: "", riskLevel: "", dateOpened: "" });
 
 const initialFiles = {
@@ -329,46 +329,44 @@ const UploadSigcard = () => {
   useEffect(() => {
     if (isJoint) {
       setAdditionalPersons((prev) => (prev.length < 1 ? [emptyPerson()] : prev));
-      setAdditionalAccounts([]);
-      // Joint: reset to single pair per person (synced below)
     } else {
       setAdditionalPersons([]);
-      setAdditionalAccounts([]);
-      // Reset doc pairs and other docs back to just one (primary account)
-      setFiles((prev) => ({
-        ...prev,
-        sigcardPairs: [prev.sigcardPairs[0] ?? emptyPair()],
-        naisPairs:    [prev.naisPairs[0]    ?? emptyPair()],
-        privacyPairs: [prev.privacyPairs[0] ?? emptyPair()],
-        otherDocs:    [prev.otherDocs?.[0]  ?? []],
-      }));
     }
+    setAdditionalAccounts([]);
+    setFiles((prev) => ({
+      ...prev,
+      sigcardPairs: [prev.sigcardPairs[0] ?? emptyPair()],
+      naisPairs:    [prev.naisPairs[0]    ?? emptyPair()],
+      privacyPairs: [prev.privacyPairs[0] ?? emptyPair()],
+      otherDocs:    [prev.otherDocs?.[0]  ?? []],
+    }));
   }, [formData.accountType]);
 
-  // Sync doc pair count: Joint → one per person, non-Joint → one per account
+  // Sync doc pair count:
+  //   sigcardPairs → per-person for Joint, per-account for others
+  //   naisPairs / privacyPairs / otherDocs → per-account for ALL types
   useEffect(() => {
-    const targetCount = isJoint
-      ? additionalPersons.length + 1
-      : additionalAccounts.length + 1;
+    const sigcardCount = isJoint ? additionalPersons.length + 1 : additionalAccounts.length + 1;
+    const acctCount    = additionalAccounts.length + 1;
     setFiles((prev) => {
-      const sync = (pairs) => {
-        if (pairs.length === targetCount) return pairs;
-        if (pairs.length < targetCount)
-          return [...pairs, ...Array.from({ length: targetCount - pairs.length }, emptyPair)];
-        return pairs.slice(0, targetCount);
+      const sync = (pairs, target) => {
+        if (pairs.length === target) return pairs;
+        if (pairs.length < target)
+          return [...pairs, ...Array.from({ length: target - pairs.length }, emptyPair)];
+        return pairs.slice(0, target);
       };
-      const syncOther = (others) => {
-        if (others.length === targetCount) return others;
-        if (others.length < targetCount)
-          return [...others, ...Array.from({ length: targetCount - others.length }, () => [])];
-        return others.slice(0, targetCount);
+      const syncOther = (others, target) => {
+        if (others.length === target) return others;
+        if (others.length < target)
+          return [...others, ...Array.from({ length: target - others.length }, () => [])];
+        return others.slice(0, target);
       };
       return {
         ...prev,
-        sigcardPairs: sync(prev.sigcardPairs),
-        naisPairs:    sync(prev.naisPairs),
-        privacyPairs: sync(prev.privacyPairs),
-        otherDocs:    syncOther(prev.otherDocs),
+        sigcardPairs: sync(prev.sigcardPairs, sigcardCount),
+        naisPairs:    sync(prev.naisPairs,    acctCount),
+        privacyPairs: sync(prev.privacyPairs, acctCount),
+        otherDocs:    syncOther(prev.otherDocs, acctCount),
       };
     });
   }, [isJoint, additionalPersons.length, additionalAccounts.length]);
@@ -389,13 +387,17 @@ const UploadSigcard = () => {
     switch (steps[step].key) {
       case "accountType":  return !!formData.accountType;
       case "customerInfo":
-        return isCorporate ? !!formData.companyName.trim() : !!formData.firstName.trim() && !!formData.lastName.trim();
+        if (isCorporate) return !!formData.companyName.trim();
+        if (isJoint) return !!formData.firstName.trim() && !!formData.lastName.trim() &&
+          additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
+        return !!formData.firstName.trim() && !!formData.lastName.trim();
       case "holders":
         if (!formData.riskLevel) return false;
         if (!formData.accountNo.trim() || !formData.dateOpened) return false;
-        if (isJoint && !additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim() && p.riskLevel)) return false;
         return additionalAccounts.every((a) => !!a.riskLevel && !!a.accountNo.trim() && !!a.dateOpened);
-      case "sigcard":  return files.sigcardPairs.every((p) => p.front && p.back);
+      case "sigcard":
+        if (isJoint) return files.sigcardPairs.every((p) => !!p.back);
+        return files.sigcardPairs.every((p) => p.front && p.back);
       case "nais":     return true;
       case "privacy":  return files.privacyPairs.every((p) => p.front && p.back);
       case "otherDocs":return true;
@@ -454,7 +456,6 @@ const UploadSigcard = () => {
           fd.append(`additionalPersons[${i}][middlename]`, p.middleName);
           fd.append(`additionalPersons[${i}][lastname]`,   p.lastName);
           fd.append(`additionalPersons[${i}][suffix]`,     p.suffix);
-          fd.append(`additionalPersons[${i}][risk_level]`, p.riskLevel);
         });
       }
 
@@ -532,7 +533,7 @@ const UploadSigcard = () => {
           </div>
         );
 
-      // ── STEP 2: Customer Info (name only) ──────────────────────────────────
+      // ── STEP 2: Customer Info ──────────────────────────────────────────────
       case "customerInfo":
         return (
           <div className="space-y-6">
@@ -555,12 +556,60 @@ const UploadSigcard = () => {
                     placeholder="Enter company or organization name" className={inputCls} />
                 </div>
               </div>
+            ) : isJoint ? (
+              <div className="space-y-5">
+                {/* Person 1 — always shown */}
+                <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/20 p-5 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">Person 1 — Primary</p>
+                      <p className="text-xs text-slate-400">Primary account holder</p>
+                    </div>
+                  </div>
+                  <div className="border-t border-blue-100" />
+                  <NameGrid
+                    values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                    onChange={(key, val) => setField(key, val)}
+                  />
+                </div>
+                {/* Person 2+ */}
+                {additionalPersons.map((p, i) => (
+                  <div key={i} className="rounded-2xl border-2 border-purple-100 bg-purple-50/20 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[i + 1] ?? "bg-slate-500"}`}>{i + 2}</div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">Person {i + 2}{i === 0 ? " — Secondary" : ""}</p>
+                          <p className="text-xs text-slate-400">Additional account holder</p>
+                        </div>
+                      </div>
+                      {additionalPersons.length > 1 && (
+                        <button type="button"
+                          onClick={() => setAdditionalPersons((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="text-xs font-medium text-red-500 hover:text-red-600">Remove</button>
+                      )}
+                    </div>
+                    <div className="border-t border-purple-100" />
+                    <NameGrid
+                      values={p}
+                      onChange={(key, val) => setAdditionalPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
+                    />
+                  </div>
+                ))}
+                <button type="button"
+                  onClick={() => setAdditionalPersons((prev) => [...prev, emptyPerson()])}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-2xl hover:border-purple-500 hover:bg-purple-50 transition-all">
+                  <HiOutlinePlus className="w-4 h-4" />
+                  Add Another Person
+                </button>
+              </div>
             ) : (
               <div className="space-y-5">
                 <div className="flex items-center gap-3 p-4 rounded-2xl bg-blue-50/50 border border-blue-100">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
                   <div>
-                    <p className="text-sm font-bold text-slate-800">{isJoint ? "Person 1 — Primary Account Holder" : "Account Holder"}</p>
+                    <p className="text-sm font-bold text-slate-800">Account Holder</p>
                     <p className="text-xs text-slate-400">Enter the customer's personal information</p>
                   </div>
                 </div>
@@ -579,7 +628,7 @@ const UploadSigcard = () => {
           <div className="space-y-6">
             <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
 
-            {/* Primary holder + account card */}
+            {/* Primary account card */}
             <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/20 p-5 space-y-4">
               <div className="flex items-center gap-3">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
@@ -590,7 +639,7 @@ const UploadSigcard = () => {
                       : `${formData.firstName} ${formData.lastName}`.trim() || (isJoint ? "Person 1 — Primary" : "Account Holder")}
                   </p>
                   <p className="text-xs text-slate-400">
-                    {isJoint ? "Primary account holder" : isCorporate ? "Corporate account" : "Primary account"}
+                    {isJoint ? "Primary account" : isCorporate ? "Corporate account" : "Primary account"}
                   </p>
                 </div>
               </div>
@@ -606,52 +655,8 @@ const UploadSigcard = () => {
               />
             </div>
 
-            {/* Joint: Person 2+ */}
-            {isJoint && additionalPersons.map((p, i) => (
-              <div key={i} className="rounded-2xl border-2 border-purple-100 p-5 space-y-5 bg-purple-50/20">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[i + 1] ?? "bg-slate-500"}`}>{i + 2}</div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">Person {i + 2}</p>
-                      <p className="text-xs text-slate-400">Secondary account holder</p>
-                    </div>
-                  </div>
-                  {additionalPersons.length > 1 && (
-                    <button type="button"
-                      onClick={() => setAdditionalPersons((prev) => prev.filter((_, idx) => idx !== i))}
-                      className="text-xs font-medium text-red-500 hover:text-red-600">Remove</button>
-                  )}
-                </div>
-
-                <div className="border-t border-purple-100" />
-
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Personal Information</p>
-                  <NameGrid
-                    values={p}
-                    onChange={(key, val) => setAdditionalPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
-                  />
-                </div>
-
-                <RiskLevelPicker
-                  value={p.riskLevel}
-                  onChange={(v) => setAdditionalPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, riskLevel: v } : x))}
-                />
-              </div>
-            ))}
-
-            {isJoint && (
-              <button type="button"
-                onClick={() => setAdditionalPersons((prev) => [...prev, emptyPerson()])}
-                className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-2xl hover:border-purple-500 hover:bg-purple-50 transition-all">
-                <HiOutlinePlus className="w-4 h-4" />
-                Add Another Person
-              </button>
-            )}
-
-            {/* Additional accounts (Regular / Corporate) */}
-            {!isJoint && additionalAccounts.map((a, i) => (
+            {/* Additional accounts — all account types */}
+            {additionalAccounts.map((a, i) => (
               <div key={i} className="rounded-2xl border-2 border-slate-100 p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -681,70 +686,90 @@ const UploadSigcard = () => {
               </div>
             ))}
 
-            {/* Add Account button */}
-            {!isJoint && (
-              <button type="button"
-                onClick={() => setAdditionalAccounts((prev) => [...prev, emptyAccount()])}
-                className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-2xl hover:border-blue-500 hover:bg-blue-50 transition-all">
-                <HiOutlinePlus className="w-4 h-4" />
-                Add Account
-              </button>
-            )}
+            {/* Add Account button — all types */}
+            <button type="button"
+              onClick={() => setAdditionalAccounts((prev) => [...prev, emptyAccount()])}
+              className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-2xl hover:border-blue-500 hover:bg-blue-50 transition-all">
+              <HiOutlinePlus className="w-4 h-4" />
+              Add Account
+            </button>
           </div>
         );
 
       // ── STEP 5–7: Document uploads ─────────────────────────────────────────
       case "sigcard": {
-        const isMultiAcct = !isJoint && additionalAccounts.length > 0;
-        const acctLabels = isMultiAcct ? [
-          `Account 1 — Primary${formData.accountNo ? ` (${formData.accountNo})` : ""}`,
-          ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
-        ] : undefined;
-        return <JointDocStep isMultiHolder={isJoint || isMultiAcct} minHolders={isJoint ? 2 : 1} pairs={files.sigcardPairs}
+        if (isJoint) {
+          const personLabels = [
+            "Person 1 — Primary",
+            ...additionalPersons.map((_, i) => i === 0 ? "Person 2 — Secondary" : `Person ${i + 2}`),
+          ];
+          return (
+            <div className="space-y-6">
+              <p className="text-xs text-slate-400">Upload a sigcard back image for each account holder.</p>
+              {files.sigcardPairs.map((pair, i) => (
+                <div key={i} className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${PERSON_COLORS[i] ?? "bg-slate-400"}`} />
+                    <p className="text-sm font-semibold text-slate-700">{personLabels[i]}</p>
+                    <div className="flex-1 h-px bg-slate-200" />
+                  </div>
+                  <DropZone
+                    label="Sigcard Back"
+                    file={pair.back}
+                    onSelect={(f) => setPairFile("sigcardPairs", i, "back", f)}
+                  />
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        // Non-joint: per-account (existing logic)
+        const isMultiHolder = additionalAccounts.length > 0;
+        const sectionLabels = additionalAccounts.length > 0
+          ? [
+              `Account 1 — Primary${formData.accountNo ? ` (${formData.accountNo})` : ""}`,
+              ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
+            ]
+          : undefined;
+        return <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.sigcardPairs}
           frontLabel="Sigcard Front" backLabel="Sigcard Back"
           onSetFile={(i, s, f) => setPairFile("sigcardPairs", i, s, f)}
-          onRemovePerson={isJoint ? (i) => setAdditionalPersons((prev) => prev.filter((_, idx) => idx !== i - 1)) : undefined}
-          sectionLabels={acctLabels} />;
+          sectionLabels={sectionLabels} />;
       }
 
       case "nais": {
-        const isMultiAcct = !isJoint && additionalAccounts.length > 0;
-        const acctLabels = isMultiAcct ? [
-          `Account 1 — Primary${formData.accountNo ? ` (${formData.accountNo})` : ""}`,
-          ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
-        ] : undefined;
-        return <JointDocStep isMultiHolder={isJoint || isMultiAcct} minHolders={isJoint ? 2 : 1} pairs={files.naisPairs}
+        const isMultiHolder = additionalAccounts.length > 0;
+        const sectionLabels = additionalAccounts.length > 0
+          ? [
+              `Account 1 — Primary${formData.accountNo ? ` (${formData.accountNo})` : ""}`,
+              ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
+            ]
+          : undefined;
+        return <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.naisPairs}
           frontLabel="NAIS Front" backLabel="NAIS Back (Optional)"
           onSetFile={(i, s, f) => setPairFile("naisPairs", i, s, f)}
-          onRemovePerson={isJoint ? (i) => setAdditionalPersons((prev) => prev.filter((_, idx) => idx !== i - 1)) : undefined}
-          sectionLabels={acctLabels} />;
+          sectionLabels={sectionLabels} />;
       }
 
       case "privacy": {
-        const isMultiAcct = !isJoint && additionalAccounts.length > 0;
-        const acctLabels = isMultiAcct ? [
-          `Account 1 — Primary${formData.accountNo ? ` (${formData.accountNo})` : ""}`,
-          ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
-        ] : undefined;
-        return <JointDocStep isMultiHolder={isJoint || isMultiAcct} minHolders={isJoint ? 2 : 1} pairs={files.privacyPairs}
+        const isMultiHolder = additionalAccounts.length > 0;
+        const sectionLabels = additionalAccounts.length > 0
+          ? [
+              `Account 1 — Primary${formData.accountNo ? ` (${formData.accountNo})` : ""}`,
+              ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
+            ]
+          : undefined;
+        return <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.privacyPairs}
           frontLabel="Data Privacy Front" backLabel="Data Privacy Back"
           onSetFile={(i, s, f) => setPairFile("privacyPairs", i, s, f)}
-          onRemovePerson={isJoint ? (i) => setAdditionalPersons((prev) => prev.filter((_, idx) => idx !== i - 1)) : undefined}
-          sectionLabels={acctLabels} />;
+          sectionLabels={sectionLabels} />;
       }
 
       // ── STEP 8: Other Documents ───────────────────────────────────────────
       case "otherDocs": {
-        const isMultiAcct  = !isJoint && additionalAccounts.length > 0;
-        const showSections = isJoint || isMultiAcct;
-        const sectionLabels = isJoint
-          ? [
-              "Person 1 — Primary",
-              ...additionalPersons.map((_, i) =>
-                i === 0 ? "Person 2 — Secondary" : `Person ${i + 2}`
-              ),
-            ]
-          : isMultiAcct
+        const showSections  = additionalAccounts.length > 0;
+        const sectionLabels = showSections
           ? [
               `Account 1 — Primary${formData.accountNo ? ` (${formData.accountNo})` : ""}`,
               ...additionalAccounts.map((a, i) =>

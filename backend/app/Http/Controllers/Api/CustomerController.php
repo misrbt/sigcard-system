@@ -122,7 +122,7 @@ class CustomerController extends Controller
                     'middlename'   => $person['middlename'] ?? null,
                     'lastname'     => $person['lastname'],
                     'suffix'       => $person['suffix'] ?? null,
-                    'risk_level'   => $person['risk_level'],
+                    'risk_level'   => $person['risk_level'] ?? null,
                 ]);
             }
 
@@ -231,7 +231,7 @@ class CustomerController extends Controller
                         'middlename'   => $person['middlename'] ?? null,
                         'lastname'     => $person['lastname'],
                         'suffix'       => $person['suffix'] ?? null,
-                        'risk_level'   => $person['risk_level'],
+                        'risk_level'   => $person['risk_level'] ?? null,
                     ]);
                 }
             }
@@ -395,13 +395,16 @@ class CustomerController extends Controller
             'document_type' => 'required|string|in:sigcard_front,sigcard_back,nais_front,nais_back,privacy_front,privacy_back,other',
             'person_index'  => 'required|integer|min:1',
             'file'          => 'required|image|max:10240',
+            'document_id'   => 'nullable|integer|exists:customer_documents,id',
         ]);
 
         try {
-            $existing = $customer->documents()
-                ->where('document_type', $request->document_type)
-                ->where('person_index', $request->person_index)
-                ->first();
+            $existing = $request->document_id
+                ? $customer->documents()->find($request->document_id)
+                : $customer->documents()
+                    ->where('document_type', $request->document_type)
+                    ->where('person_index', $request->person_index)
+                    ->first();
 
             $archivedPath = null;
 

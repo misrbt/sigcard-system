@@ -254,20 +254,24 @@ const EditCustomerDocs = () => {
         setSaveProgress({ done: ++done, total });
       }
 
-      for (const file of newOtherFiles) {
+      if (newOtherFiles.length > 0) {
         setUploading("other__new");
         try {
           const fd = new FormData();
-          fd.append("document_type", "other");
-          fd.append("person_index",  "1");
-          fd.append("file",          file);
-          const { data } = await api.post(`/customers/${id}/replace-document`, fd, {
+          fd.append("_method", "PUT");
+          newOtherFiles.forEach((f) => fd.append("otherDocs[1][]", f));
+          const { data } = await api.post(`/customers/${id}`, fd, {
             headers: { "Content-Type": "multipart/form-data" },
           });
           setCustomer(data.customer);
-        } catch { failed++; }
-        finally { setUploading(null); }
-        setSaveProgress({ done: ++done, total });
+          done += newOtherFiles.length;
+        } catch {
+          failed += newOtherFiles.length;
+          done   += newOtherFiles.length;
+        } finally {
+          setUploading(null);
+          setSaveProgress({ done, total });
+        }
       }
 
       setNewOtherFiles([]);

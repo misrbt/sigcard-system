@@ -409,6 +409,9 @@ const CustomerView = () => {
   const [loading, setLoading]     = useState(true);
   const [viewer, setViewer]       = useState(null);
   const [activeAcctIdx, setActiveAcctIdx] = useState(1);
+  const [otherBusy, setOtherBusy] = useState(false);
+  const addOtherRef = useRef(null);
+
   const fetchCustomer = () => {
     setLoading(true);
     api.get(`/customers/${id}`)
@@ -418,6 +421,38 @@ const CustomerView = () => {
   };
 
   useEffect(() => { fetchCustomer(); }, [id]);
+
+  const handleReplaceOtherDoc = async (doc, file) => {
+    setOtherBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("document_type", "other");
+      fd.append("person_index", doc.person_index);
+      fd.append("document_id", doc.id);
+      fd.append("file", file);
+      await api.post(`/customers/${id}/replace-document`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      fetchCustomer();
+    } catch {
+      /* silent */
+    } finally {
+      setOtherBusy(false);
+    }
+  };
+
+  const handleAddOtherDocs = async (files, personIndex) => {
+    setOtherBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("_method", "PUT");
+      files.forEach((f) => fd.append(`otherDocs[${personIndex}][]`, f));
+      await api.post(`/customers/${id}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      fetchCustomer();
+    } catch {
+      /* silent */
+    } finally {
+      setOtherBusy(false);
+    }
+  };
 
   const buildImages = (startType = null, startPerson = null) => {
     if (!customer?.documents) return { images: [], index: 0 };
@@ -823,26 +858,66 @@ const CustomerView = () => {
 
               {/* Other documents */}
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Other Documents</p>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Other Documents</p>
+                  {!isReadOnly && (
+                    <>
+                      <input
+                        type="file" accept="image/*" multiple className="hidden" ref={addOtherRef}
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files ?? []);
+                          if (files.length) handleAddOtherDocs(files, activeAcctIdx);
+                          e.target.value = "";
+                        }}
+                      />
+                      <button type="button" disabled={otherBusy}
+                        onClick={() => addOtherRef.current?.click()}
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40"
+                      >
+                        <HiOutlinePlus className="w-3 h-3" />
+                        Add Docs
+                      </button>
+                    </>
+                  )}
+                </div>
                 {otherDocs.length > 0 ? (
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                     {otherDocs.map((doc, i) => (
-                      <button
-                        key={doc.id}
-                        onClick={() => {
-                          const { images } = buildImages();
-                          const otherStart = images.findIndex((img) => img.src === storageUrl(doc.file_path));
-                          setViewer({ images, index: Math.max(otherStart, 0) });
-                        }}
-                        className="relative group aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
-                      >
+                      <div key={doc.id} className="relative group aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const { images } = buildImages();
+                            const otherStart = images.findIndex((img) => img.src === storageUrl(doc.file_path));
+                            setViewer({ images, index: Math.max(otherStart, 0) });
+                          }}
+                          className="absolute inset-0 w-full h-full"
+                        />
                         <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-cover transition-all${isDormant ? " blur-md" : ""}`} />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                             <HiOutlineEye className="w-4 h-4 text-slate-700" />
                           </div>
                         </div>
-                      </button>
+                        {!isReadOnly && (
+                          <>
+                            <input
+                              type="file" accept="image/*" id={`replace-other-${doc.id}`} className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleReplaceOtherDoc(doc, file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <label
+                              htmlFor={`replace-other-${doc.id}`}
+                              className="absolute bottom-1 right-1 px-1.5 py-0.5 text-[10px] font-semibold bg-orange-500 hover:bg-orange-600 text-white rounded cursor-pointer transition-colors opacity-0 group-hover:opacity-100 z-10"
+                            >
+                              Replace
+                            </label>
+                          </>
+                        )}
+                      </div>
                     ))}
                   </div>
                 ) : (
