@@ -26,10 +26,11 @@ import api from "../../services/api";
 const PAGE_SIZE = 10;
 
 const statusStyle = {
-  active:   "bg-green-100 text-green-700 border border-green-300",
-  dormant:  "bg-yellow-100 text-yellow-700 border border-yellow-300",
-  escheat:  "bg-orange-100 text-orange-700 border border-orange-300",
-  closed:   "bg-red-100 text-red-700 border border-red-300",
+  active:      "bg-green-100 text-green-700 border border-green-300",
+  dormant:     "bg-yellow-100 text-yellow-700 border border-yellow-300",
+  escheat:     "bg-orange-100 text-orange-700 border border-orange-300",
+  closed:      "bg-red-100 text-red-700 border border-red-300",
+  reactivated: "bg-teal-100 text-teal-700 border border-teal-300",
 };
 
 const riskStyle = {
@@ -207,9 +208,10 @@ const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) =
 
 // ── Customer Detail View ──────────────────────────────────────────────────────
 const CustomerDetailView = ({ customerId: cid, onClose }) => {
-  const [customer, setCustomer] = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [viewer, setViewer]     = useState(null); // { images, index }
+  const [customer, setCustomer]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [viewer, setViewer]       = useState(null); // { images, index }
+  const [activeAcctIdx, setActiveAcctIdx] = useState(1);
 
   useEffect(() => {
     setLoading(true);
@@ -225,9 +227,15 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     const imgs = [];
     let startIdx = 0;
 
+    // When customer has multiple accounts (non-Joint), filter to active account tab
+    const hasMultiAccounts = customer?.account_type !== "Joint" && (customer?.accounts?.length ?? 0) >= 1;
+    const viewDocs = hasMultiAccounts
+      ? customer.documents.filter((d) => d.person_index === activeAcctIdx)
+      : customer.documents;
+
     // Grouped: sigcard/nais/privacy per person
     const persons = [...new Set(
-      customer.documents
+      viewDocs
         .filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type))
         .map((d) => d.person_index)
     )].sort();
@@ -236,7 +244,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       (persons.length ? persons : [1]).forEach((p) => {
         ["front", "back"].forEach((side) => {
           const type = sec[side];
-          const doc  = customer.documents.find((d) => d.document_type === type && d.person_index === p);
+          const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
           if (doc) {
             if (startType === type && startPerson === p) startIdx = imgs.length;
             imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
@@ -246,7 +254,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     });
 
     // Other docs
-    customer.documents.filter((d) => d.document_type === "other").forEach((doc) => {
+    viewDocs.filter((d) => d.document_type === "other").forEach((doc) => {
       imgs.push({ src: storageUrl(doc.file_path), label: "Other Document", person: null });
     });
 
@@ -281,6 +289,18 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
   const isJoint  = customer.account_type === "Joint";
   const isDormant = customer.status === "dormant";
 
+  // Multi-account tabs (non-Joint only)
+  const allAccounts = !isJoint ? [
+    { account_no: customer.account_no, risk_level: customer.risk_level, date_opened: customer.date_opened, status: customer.status, acctIndex: 1 },
+    ...(customer.accounts ?? []).map((a, i) => ({
+      account_no: a.account_no, risk_level: a.risk_level, date_opened: a.date_opened, status: a.status, acctIndex: i + 2,
+    })),
+  ] : [];
+  const showAccountTabs = allAccounts.length >= 2;
+  const docsForSection = showAccountTabs
+    ? docs.filter((d) => d.person_index === activeAcctIdx)
+    : docs;
+
   const allHolders = [
     { person_index: 1, firstname: customer.firstname, middlename: customer.middlename, lastname: customer.lastname, suffix: customer.suffix, risk_level: customer.risk_level },
     ...holders,
@@ -292,11 +312,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     return `${h.firstname}${h.middlename ? " " + h.middlename : ""} ${h.lastname}${h.suffix ? " " + h.suffix : ""}`;
   };
 
-  const persons  = [...new Set(
-    docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type))
-        .map((d) => d.person_index)
-  )].sort();
-  const otherDocs  = docs.filter((d) => d.document_type === "other");
+  const persons = isJoint
+    ? [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort()
+    : showAccountTabs
+      ? [activeAcctIdx]
+      : [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort();
+  const otherDocs  = docsForSection.filter((d) => d.document_type === "other");
 
   return (
     <>
@@ -382,9 +403,37 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             )}
           </div>
 
+          {/* Account tabs — shown when customer has 2+ accounts (non-Joint) */}
+          {showAccountTabs && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Select Account</p>
+              <div className="flex gap-2 overflow-x-auto pb-0.5">
+                {allAccounts.map((acct) => (
+                  <button
+                    key={acct.acctIndex}
+                    onClick={() => setActiveAcctIdx(acct.acctIndex)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border-2 flex-shrink-0 ${
+                      activeAcctIdx === acct.acctIndex
+                        ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                    }`}
+                  >
+                    <HiOutlineCreditCard className="w-3.5 h-3.5" />
+                    <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
+                    {acct.acctIndex === 1 && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${activeAcctIdx === 1 ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                        Primary
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Document sections */}
           {DOC_SECTIONS.map((sec) => {
-            const secDocs = docs.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+            const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
             if (secDocs.length === 0) return (
               <div key={sec.key}>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{sec.label}</p>
@@ -399,12 +448,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">{sec.label}</p>
                 <div className="space-y-3">
                   {(persons.length ? persons : [1]).map((p) => {
-                    const frontDoc = docs.find((d) => d.document_type === sec.front && d.person_index === p);
-                    const backDoc  = docs.find((d) => d.document_type === sec.back  && d.person_index === p);
+                    const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
+                    const backDoc  = docsForSection.find((d) => d.document_type === sec.back  && d.person_index === p);
                     if (!frontDoc && !backDoc) return null;
                     return (
                       <div key={p}>
-                        {persons.length > 1 && (
+                        {isJoint && persons.length > 1 && (
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                             Person {p} — {holderName(p)}
                           </p>
@@ -546,6 +595,8 @@ const emptyHolder = () => ({ firstname: "", middlename: "", lastname: "", suffix
 
 const EditInfoModal = ({ customer, onClose, onSaved }) => {
   const [form, setForm] = useState({
+    account_no:   customer.account_no   ?? "",
+    date_opened:  customer.date_opened  ?? "",
     firstname:    customer.firstname    ?? "",
     middlename:   customer.middlename   ?? "",
     lastname:     customer.lastname     ?? "",
@@ -621,6 +672,18 @@ const EditInfoModal = ({ customer, onClose, onSaved }) => {
               <select value={form.risk_level} onChange={set("risk_level")} className={inputCls}>
                 {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
               </select>
+            </div>
+          </div>
+
+          {/* Account No. + Date Opened */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Account No.</label>
+              <input value={form.account_no} onChange={set("account_no")} placeholder="e.g. 1234-5678-9012" maxLength={100} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Date Opened</label>
+              <input type="date" value={form.date_opened} onChange={set("date_opened")} className={inputCls} />
             </div>
           </div>
 
@@ -725,13 +788,14 @@ const EditInfoModal = ({ customer, onClose, onSaved }) => {
 };
 
 // ── Edit Status Modal ─────────────────────────────────────────────────────────
-const STATUS_OPTIONS = ["active", "dormant", "escheat", "closed"];
+const STATUS_OPTIONS = ["active", "reactivated", "dormant", "escheat", "closed"];
 
 const STATUS_CONFIG = {
-  active:  { label: "Active",  desc: "Account is open and operational.",        icon: "✓", ring: "ring-green-400",  bg: "bg-green-50",  text: "text-green-700",  dot: "bg-green-500"  },
-  dormant: { label: "Dormant", desc: "No transactions for an extended period.", icon: "◷", ring: "ring-yellow-400", bg: "bg-yellow-50", text: "text-yellow-700", dot: "bg-yellow-500" },
-  escheat: { label: "Escheat", desc: "Funds transferred to the government.",    icon: "⚠", ring: "ring-orange-400", bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500" },
-  closed:  { label: "Closed",  desc: "Account has been permanently closed.",    icon: "✕", ring: "ring-red-400",    bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500"    },
+  active:      { label: "Active",      desc: "Account is open and operational.",            icon: "✓", ring: "ring-green-400",  bg: "bg-green-50",  text: "text-green-700",  dot: "bg-green-500"  },
+  reactivated: { label: "Reactivated", desc: "Previously inactive account restored.",       icon: "↺", ring: "ring-teal-400",   bg: "bg-teal-50",   text: "text-teal-700",   dot: "bg-teal-500"   },
+  dormant:     { label: "Dormant",     desc: "No transactions for an extended period.",     icon: "◷", ring: "ring-yellow-400", bg: "bg-yellow-50", text: "text-yellow-700", dot: "bg-yellow-500" },
+  escheat:     { label: "Escheat",     desc: "Funds transferred to the government.",        icon: "⚠", ring: "ring-orange-400", bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500" },
+  closed:      { label: "Closed",      desc: "Account has been permanently closed.",        icon: "✕", ring: "ring-red-400",    bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500"    },
 };
 
 const EditStatusModal = ({ customer, onClose, onSaved }) => {
@@ -842,8 +906,10 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
 // ── Main component ───────────────────────────────────────────────────────────
 const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = null }) => {
   const navigate = useNavigate();
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const isReadOnly = hasRole("cashier") || hasRole("manager");
+  const isManager  = hasRole("manager");
+  const isCashier  = hasRole("cashier");
 
   const [activeTab, setActiveTab]         = useState(onlyTab ?? defaultTab);
 
@@ -852,10 +918,16 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [loading, setLoading]             = useState(false);
   const [tableSearch, setTableSearch]     = useState("");
   const [statusFilter, setStatusFilter]   = useState("all");
+  const [accountTypeFilter, setAccountTypeFilter] = useState("all");
+  const [riskLevelFilter, setRiskLevelFilter]     = useState("all");
+  const [branchFilter, setBranchFilter]           = useState("all");
   const [sortDir, setSortDir]             = useState("asc");
   const [page, setPage]                   = useState(1);
   const [totalPages, setTotalPages]       = useState(1);
   const [total, setTotal]                 = useState(0);
+
+  // Manager branch list (mother + children) — only populated when manager has child branches
+  const [branchOptions, setBranchOptions] = useState([]);
 
   // Edit modals
   const [editInfoCustomer, setEditInfoCustomer]       = useState(null);
@@ -869,13 +941,31 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [showDropdown, setShowDropdown]           = useState(false);
   const searchContainerRef                        = useRef(null);
 
+  // ── Fetch branch + children for branch filter (manager & cashier) ─────────
+  useEffect(() => {
+    if ((!isManager && !isCashier) || !user?.branch_id) return;
+    api.get("/branches").then(({ data }) => {
+      const all = data.data ?? [];
+      const children = all.filter((b) => b.parent_id === user.branch_id);
+      if (children.length === 0) return; // no children → no dropdown
+      const mother = all.find((b) => b.id === user.branch_id);
+      setBranchOptions([
+        { id: mother?.id ?? user.branch_id, branch_name: (mother?.branch_name ?? "My Branch") + " (Mother)" },
+        ...children,
+      ]);
+    }).catch(() => {});
+  }, [isManager, isCashier, user?.branch_id]);
+
   // ── Fetch table data ───────────────────────────────────────────────────────
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
     try {
       const params = { page, per_page: PAGE_SIZE };
-      if (tableSearch)           params.search = tableSearch;
-      if (statusFilter !== "all") params.status = statusFilter;
+      if (tableSearch)                params.search       = tableSearch;
+      if (statusFilter !== "all")     params.status       = statusFilter;
+      if (accountTypeFilter !== "all") params.account_type = accountTypeFilter;
+      if (riskLevelFilter !== "all")  params.risk_level   = riskLevelFilter;
+      if ((isManager || isCashier) && branchFilter !== "all") params.branch_id = branchFilter;
 
       const { data } = await api.get("/customers", { params });
 
@@ -892,10 +982,10 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
     } finally {
       setLoading(false);
     }
-  }, [page, tableSearch, statusFilter, sortDir]);
+  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, isManager, isCashier]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
-  useEffect(() => { setPage(1); }, [tableSearch, statusFilter]);
+  useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter]);
 
   // ── Quick search (live) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1009,11 +1099,12 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   <input
                     value={tableSearch}
                     onChange={(e) => setTableSearch(e.target.value)}
-                    placeholder="Search by name or branch…"
+                    placeholder="Search by name, account no., or branch…"
                     className="w-full pl-12 pr-4 py-3 text-sm text-gray-900 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
                   />
                 </div>
                 <div className="flex gap-3 flex-wrap">
+                  {/* Status */}
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
@@ -1021,10 +1112,50 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   >
                     <option value="all">All Status</option>
                     <option value="active">Active</option>
+                    <option value="reactivated">Reactivated</option>
                     <option value="dormant">Dormant</option>
                     <option value="escheat">Escheat</option>
                     <option value="closed">Closed</option>
                   </select>
+
+                  {/* Account Type */}
+                  <select
+                    value={accountTypeFilter}
+                    onChange={(e) => setAccountTypeFilter(e.target.value)}
+                    className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="all">All Account Types</option>
+                    <option value="Regular">Regular</option>
+                    <option value="Joint">Joint</option>
+                    <option value="Corporate">Corporate</option>
+                  </select>
+
+                  {/* Risk Level */}
+                  <select
+                    value={riskLevelFilter}
+                    onChange={(e) => setRiskLevelFilter(e.target.value)}
+                    className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="all">All Risk Levels</option>
+                    <option value="Low Risk">Low Risk</option>
+                    <option value="Medium Risk">Medium Risk</option>
+                    <option value="High Risk">High Risk</option>
+                  </select>
+
+                  {/* Branch — manager & cashier, only when they have child branches */}
+                  {(isManager || isCashier) && branchOptions.length > 0 && (
+                    <select
+                      value={branchFilter}
+                      onChange={(e) => setBranchFilter(e.target.value)}
+                      className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="all">All Branches</option>
+                      {branchOptions.map((b) => (
+                        <option key={b.id} value={b.id}>{b.branch_name}</option>
+                      ))}
+                    </select>
+                  )}
+
                   <button
                     onClick={() => setSortDir((d) => d === "asc" ? "desc" : "asc")}
                     className="px-5 py-3 text-sm font-semibold border-2 border-slate-200 rounded-xl text-slate-700 hover:border-blue-400 hover:bg-blue-50 transition-all"
@@ -1052,7 +1183,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
-                      {["Full Name", "Account Type", "Risk Level", "Status", "Date Added", "Action"].map((h) => (
+                      {["Full Name", "Account No.", "Account Type", "Risk Level", "Status", "Date Added", "Action"].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600">
                           {h}
                         </th>
@@ -1065,7 +1196,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                       : customers.length === 0
                       ? (
                         <tr>
-                          <td colSpan={6} className="px-6 py-20 text-center">
+                          <td colSpan={7} className="px-6 py-20 text-center">
                             <div className="mx-auto w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                               <HiOutlineSearch className="w-8 h-8 text-slate-400" />
                             </div>
@@ -1097,6 +1228,10 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                 )}
                               </div>
                             </div>
+                          </td>
+                          {/* Account No. */}
+                          <td className="px-4 py-2.5 text-[11px] text-slate-600 font-mono">
+                            {c.account_no ?? "—"}
                           </td>
                           {/* Account Type */}
                           <td className="px-4 py-2.5">
@@ -1178,16 +1313,22 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   <button
                     disabled={page === 1}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="px-5 py-2.5 font-semibold rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-slate-700 rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
-                    ← Previous
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Previous
                   </button>
                   <button
                     disabled={page === totalPages}
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-5 py-2.5 font-semibold rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-slate-700 rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
-                    Next →
+                    Next
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -1279,7 +1420,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-semibold text-slate-900 truncate group-hover:text-blue-700">{c.full_name}</p>
                                     <p className="text-xs text-slate-400 truncate">
-                                      {c.branch?.branch_name ?? "No Branch"} · {c.account_type}
+                                      {c.account_no ? `Acct: ${c.account_no} · ` : ""}{c.branch?.branch_name ?? "No Branch"} · {c.account_type}
                                     </p>
                                   </div>
                                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>

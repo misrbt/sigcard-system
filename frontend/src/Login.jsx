@@ -13,7 +13,7 @@ import logo from "./assets/images/logos.png";
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, login, isAuthenticated, getPrimaryRole } = useAuth();
+  const { user, login, isAuthenticated, getPrimaryRole, fetchUser } = useAuth();
   const fromSessionExpired = location.state?.sessionExpired;
   const [formData, setFormData] = useState({
     email: "",
@@ -144,6 +144,7 @@ const Login = () => {
         new_password: forcePwdForm.new_password,
         new_password_confirmation: forcePwdForm.new_password_confirmation,
       });
+      await fetchUser();
       redirectByRole(getPrimaryRole());
     } catch (err) {
       const errs = err.response?.data?.errors || {};

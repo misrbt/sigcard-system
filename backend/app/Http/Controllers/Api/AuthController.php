@@ -418,11 +418,11 @@ class AuthController extends Controller
         $token = $user->createToken(
             'auth-token',
             ['*'],
-            now()->addMinutes(config('sanctum.expiration', 30))
+            now()->addMinutes((int) config('sanctum.expiration', 30))
         );
 
         $user->update([
-            'session_expires_at' => now()->addMinutes(config('sanctum.expiration', 30)),
+            'session_expires_at' => now()->addMinutes((int) config('sanctum.expiration', 30)),
         ]);
 
         activity()

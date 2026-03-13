@@ -22,10 +22,11 @@ import api from "../../services/api";
 const PAGE_SIZE = 15;
 
 const statusStyle = {
-  active:  "bg-green-100 text-green-700 border border-green-300",
-  dormant: "bg-yellow-100 text-yellow-700 border border-yellow-300",
-  escheat: "bg-orange-100 text-orange-700 border border-orange-300",
-  closed:  "bg-red-100 text-red-700 border border-red-300",
+  active:      "bg-green-100 text-green-700 border border-green-300",
+  dormant:     "bg-yellow-100 text-yellow-700 border border-yellow-300",
+  escheat:     "bg-orange-100 text-orange-700 border border-orange-300",
+  closed:      "bg-red-100 text-red-700 border border-red-300",
+  reactivated: "bg-teal-100 text-teal-700 border border-teal-300",
 };
 
 const riskStyle = {
@@ -168,9 +169,10 @@ const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) =
 
 // ── Customer Detail View (view-only) ─────────────────────────────────────────
 const CustomerDetailView = ({ customerId: cid, onClose }) => {
-  const [customer, setCustomer] = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [viewer, setViewer]     = useState(null);
+  const [customer, setCustomer]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [viewer, setViewer]       = useState(null);
+  const [activeAcctIdx, setActiveAcctIdx] = useState(1);
 
   useEffect(() => {
     setLoading(true);
@@ -185,8 +187,13 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     const imgs = [];
     let startIdx = 0;
 
+    const hasMultiAccounts = customer?.account_type !== "Joint" && (customer?.accounts?.length ?? 0) >= 1;
+    const viewDocs = hasMultiAccounts
+      ? customer.documents.filter((d) => d.person_index === activeAcctIdx)
+      : customer.documents;
+
     const persons = [...new Set(
-      customer.documents
+      viewDocs
         .filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type))
         .map((d) => d.person_index)
     )].sort();
@@ -195,7 +202,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       (persons.length ? persons : [1]).forEach((p) => {
         ["front", "back"].forEach((side) => {
           const type = sec[side];
-          const doc  = customer.documents.find((d) => d.document_type === type && d.person_index === p);
+          const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
           if (doc) {
             if (startType === type && startPerson === p) startIdx = imgs.length;
             imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
@@ -204,7 +211,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       });
     });
 
-    customer.documents.filter((d) => d.document_type === "other").forEach((doc) => {
+    viewDocs.filter((d) => d.document_type === "other").forEach((doc) => {
       imgs.push({ src: storageUrl(doc.file_path), label: "Other Document", person: null });
     });
 
@@ -239,6 +246,18 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
   const isJoint   = customer.account_type === "Joint";
   const isDormant = customer.status === "dormant";
 
+  // Multi-account tabs (non-Joint only)
+  const allAccounts = !isJoint ? [
+    { account_no: customer.account_no, risk_level: customer.risk_level, date_opened: customer.date_opened, status: customer.status, acctIndex: 1 },
+    ...(customer.accounts ?? []).map((a, i) => ({
+      account_no: a.account_no, risk_level: a.risk_level, date_opened: a.date_opened, status: a.status, acctIndex: i + 2,
+    })),
+  ] : [];
+  const showAccountTabs = allAccounts.length >= 2;
+  const docsForSection = showAccountTabs
+    ? docs.filter((d) => d.person_index === activeAcctIdx)
+    : docs;
+
   const allHolders = [
     { person_index: 1, firstname: customer.firstname, middlename: customer.middlename, lastname: customer.lastname, suffix: customer.suffix, risk_level: customer.risk_level },
     ...holders,
@@ -250,11 +269,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     return `${h.firstname}${h.middlename ? " " + h.middlename : ""} ${h.lastname}${h.suffix ? " " + h.suffix : ""}`;
   };
 
-  const persons   = [...new Set(
-    docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type))
-        .map((d) => d.person_index)
-  )].sort();
-  const otherDocs = docs.filter((d) => d.document_type === "other");
+  const persons = isJoint
+    ? [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort()
+    : showAccountTabs
+      ? [activeAcctIdx]
+      : [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort();
+  const otherDocs = docsForSection.filter((d) => d.document_type === "other");
 
   return (
     <>
@@ -294,8 +314,10 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             <div className="grid grid-cols-2 gap-3 text-sm">
               {[
                 { icon: HiOutlineCreditCard,     label: "Account Type", value: `${customer.account_type}${isJoint ? ` · ${allHolders.length} holders` : ""}` },
+                { icon: HiOutlineCreditCard,     label: "Account No.",  value: customer.account_no ?? "—" },
                 ...(!isJoint ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level }] : []),
                 { icon: HiOutlineOfficeBuilding, label: "Branch",       value: customer.branch?.branch_name ?? "—" },
+                { icon: HiOutlineCalendar,       label: "Date Opened",  value: customer.date_opened ? formatDate(customer.date_opened) : "—" },
                 { icon: HiOutlineCalendar,       label: "Date Added",   value: formatDate(customer.created_at) },
               ].map(({ icon: Icon, label, value }) => (
                 <div key={label} className="flex items-start gap-2">
@@ -328,9 +350,37 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             )}
           </div>
 
+          {/* Account tabs — shown when customer has 2+ accounts (non-Joint) */}
+          {showAccountTabs && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Select Account</p>
+              <div className="flex gap-2 overflow-x-auto pb-0.5">
+                {allAccounts.map((acct) => (
+                  <button
+                    key={acct.acctIndex}
+                    onClick={() => setActiveAcctIdx(acct.acctIndex)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border-2 flex-shrink-0 ${
+                      activeAcctIdx === acct.acctIndex
+                        ? "bg-[#1877F2] text-white border-[#1877F2] shadow-sm"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-[#1877F2]/50 hover:bg-blue-50"
+                    }`}
+                  >
+                    <HiOutlineCreditCard className="w-3.5 h-3.5" />
+                    <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
+                    {acct.acctIndex === 1 && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${activeAcctIdx === 1 ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                        Primary
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Document sections */}
           {DOC_SECTIONS.map((sec) => {
-            const secDocs = docs.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+            const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
             if (secDocs.length === 0) return (
               <div key={sec.key}>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{sec.label}</p>
@@ -345,12 +395,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">{sec.label}</p>
                 <div className="space-y-3">
                   {(persons.length ? persons : [1]).map((p) => {
-                    const frontDoc = docs.find((d) => d.document_type === sec.front && d.person_index === p);
-                    const backDoc  = docs.find((d) => d.document_type === sec.back  && d.person_index === p);
+                    const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
+                    const backDoc  = docsForSection.find((d) => d.document_type === sec.back  && d.person_index === p);
                     if (!frontDoc && !backDoc) return null;
                     return (
                       <div key={p}>
-                        {persons.length > 1 && (
+                        {isJoint && persons.length > 1 && (
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                             Person {p} — {holderName(p)}
                           </p>
@@ -426,7 +476,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
 // ── Skeleton row ──────────────────────────────────────────────────────────────
 const SkeletonRow = () => (
   <tr className="animate-pulse">
-    {[...Array(7)].map((_, i) => (
+    {[...Array(8)].map((_, i) => (
       <td key={i} className="px-4 py-3">
         <div className="h-3 rounded-full bg-slate-200" style={{ width: `${55 + (i % 4) * 15}%` }} />
       </td>
@@ -537,7 +587,7 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const TABLE_HEADERS = ["Full Name", "Account Type", "Risk Level", "Branch", "Status", "Date Added", "Action"];
+  const TABLE_HEADERS = ["Full Name", "Account No.", "Account Type", "Risk Level", "Branch", "Status", "Date Added", "Action"];
 
   return (
     <div className="space-y-6">
@@ -582,7 +632,7 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
                 <input
                   value={tableSearch}
                   onChange={(e) => setTableSearch(e.target.value)}
-                  placeholder="Search by name…"
+                  placeholder="Search by name, account no.…"
                   className="w-full pl-12 pr-4 py-3 text-sm text-gray-900 border-2 border-slate-200 rounded-xl focus:border-[#1877F2] focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
                 />
               </div>
@@ -593,6 +643,7 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
               >
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
+                <option value="reactivated">Reactivated</option>
                 <option value="dormant">Dormant</option>
                 <option value="escheat">Escheat</option>
                 <option value="closed">Closed</option>
@@ -645,7 +696,7 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
                     : customers.length === 0
                     ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-20 text-center">
+                        <td colSpan={8} className="px-6 py-20 text-center">
                           <div className="mx-auto w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                             <HiOutlineSearch className="w-8 h-8 text-slate-400" />
                           </div>
@@ -677,6 +728,10 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
                               )}
                             </div>
                           </div>
+                        </td>
+                        {/* Account No. */}
+                        <td className="px-4 py-2.5 text-[11px] text-slate-600 font-mono">
+                          {c.account_no ?? "—"}
                         </td>
                         {/* Account Type */}
                         <td className="px-4 py-2.5">
@@ -734,16 +789,22 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
                 <button
                   disabled={page === 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="px-5 py-2.5 font-semibold rounded-xl border-2 border-slate-200 hover:border-[#1877F2] hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-slate-700 rounded-xl border-2 border-slate-200 hover:border-[#1877F2] hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                 >
-                  ← Previous
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Previous
                 </button>
                 <button
                   disabled={page === totalPages}
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className="px-5 py-2.5 font-semibold rounded-xl border-2 border-slate-200 hover:border-[#1877F2] hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-slate-700 rounded-xl border-2 border-slate-200 hover:border-[#1877F2] hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                 >
-                  Next →
+                  Next
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </button>
               </div>
             </div>
@@ -829,7 +890,7 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold text-slate-900 truncate group-hover:text-[#1877F2]">{c.full_name}</p>
                                 <p className="text-xs text-slate-400 truncate">
-                                  {c.branch?.branch_name ?? "No Branch"} · {c.account_type}
+                                  {c.account_no ? `Acct: ${c.account_no} · ` : ""}{c.branch?.branch_name ?? "No Branch"} · {c.account_type}
                                 </p>
                               </div>
                               <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>

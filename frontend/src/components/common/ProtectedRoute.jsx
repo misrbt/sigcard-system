@@ -2,7 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 
 const ProtectedRoute = ({ children, roles = [] }) => {
-  const { isAuthenticated, loading, hasRole, sessionExpired } = useAuth();
+  const { isAuthenticated, loading, hasRole, sessionExpired, user } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -14,6 +14,10 @@ const ProtectedRoute = ({ children, roles = [] }) => {
         </div>
       </div>
     );
+  }
+
+  if (isAuthenticated && user?.force_password_change) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
   if (!isAuthenticated) {
