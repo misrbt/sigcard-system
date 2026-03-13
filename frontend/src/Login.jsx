@@ -261,11 +261,8 @@ const Login = () => {
       {/* Top header bar */}
       <div className="hidden md:flex gap-3 px-6 py-3 md:flex-col lg:flex-row lg:items-center lg:justify-between bg-[#051637]">
         <div>
-          <p className="text-[clamp(1.2rem,3vw,2.2rem)] font-semibold uppercase tracking-[0.35em] text-white">
-            RBT BANK INC.
-          </p>
-          <p className="mt-0.5 text-xs uppercase tracking-[0.55em] text-white/70">
-            A Rural Bank of Talisayan Misamis Oriental
+          <p className="text-[clamp(1.2rem,3vw,2.2rem)] font-semibold tracking-[0.35em] text-white">
+            RBT BANK INC. <span className="text-[clamp(0.55rem,1.2vw,0.75rem)] tracking-[0.25em] text-white/70">(A Rural Bank of Talisayan, Misamis Oriental)</span>
           </p>
         </div>
         <div className="flex flex-col gap-2 text-right sm:flex-row sm:items-center sm:gap-4">
@@ -348,6 +345,9 @@ const Login = () => {
                 <h2 className="text-2xl font-bold uppercase tracking-widest text-white drop-shadow-md">
                   SigCard System
                 </h2>
+                <p className="text-[10px] font-medium tracking-[0.4em] text-white/50">
+                  RBT BANK INC. (A Rural Bank of Talisayan, Misamis Oriental)
+                </p>
                 <div className="flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1">
                   <HiShieldCheck className="h-3 w-3 text-sky-300" />
                   <span className="text-[10px] font-semibold uppercase tracking-[0.4em] text-sky-200">
@@ -394,9 +394,13 @@ const Login = () => {
           className="flex flex-1 flex-col items-center justify-center bg-white px-6 py-10"
         >
           <div className="w-full max-w-md space-y-4">
-            {/* Logo — mobile only */}
-            <div className="flex justify-center md:hidden">
+            {/* Logo + brand — mobile only */}
+            <div className="flex flex-col items-center gap-2 md:hidden">
               <img src={logo} alt="Sigcard Logo" className="h-20 w-auto object-contain" />
+              <div className="text-center">
+                <p className="text-lg font-semibold tracking-[0.25em] text-slate-900">RBT BANK INC.</p>
+                <p className="text-[10px] tracking-[0.4em] text-slate-500">(A Rural Bank of Talisayan, Misamis Oriental)</p>
+              </div>
             </div>
 
             <div className="rounded-[24px] border border-slate-100 bg-white p-6 shadow-[0_8px_40px_rgba(15,23,42,0.08)]">
