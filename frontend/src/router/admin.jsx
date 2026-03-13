@@ -9,6 +9,7 @@ import SystemSettings from "../pages/admin/SystemSettings";
 import DataManagement from "../pages/admin/DataManagement";
 import AdminCustomerProfiles from "../pages/admin/CustomerProfiles";
 import AdminCustomerView from "../pages/admin/CustomerView";
+import AddAccount from "../pages/user/AddAccount.jsx";
 import Profile from "../pages/user/Profile.jsx";
 
 const AdminRoutes = () => {
@@ -90,6 +91,16 @@ const AdminRoutes = () => {
           <ProtectedRoute roles={["admin"]}>
             <AppLayout userRole="admin">
               <AdminCustomerView />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/customers/:id/add-account"
+        element={
+          <ProtectedRoute roles={["admin"]}>
+            <AppLayout userRole="admin">
+              <AddAccount />
             </AppLayout>
           </ProtectedRoute>
         }

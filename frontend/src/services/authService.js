@@ -1,4 +1,4 @@
-import api from './api';
+import api, { getCsrfCookie } from './api';
 
 /**
  * Auth API Endpoints Service
@@ -15,6 +15,8 @@ export const authService = {
    * @returns {Promise} Response with token and user data
    */
   login: async (credentials) => {
+    // Get CSRF cookie first for Sanctum SPA authentication
+    await getCsrfCookie();
     const response = await api.post('/auth/login', credentials);
     if (response.data.token) {
       localStorage.setItem('authToken', response.data.token);

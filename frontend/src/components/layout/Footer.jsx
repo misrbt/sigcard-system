@@ -18,8 +18,6 @@ const Footer = () => {
                 <h3 className="text-base font-semibold text-white">
                   RBT Bank Inc.
                 </h3>
-                <span className="hidden text-gray-500 md:inline">|</span>
-                <p>A Rural Bank of Talisayan Misamis Oriental</p>
               </div>
               <span className="hidden text-gray-500 md:inline">|</span>
               <div>&copy; {currentYear} Sigcard System. All rights reserved.</div>

@@ -6,6 +6,7 @@ import UploadSigcard from "../pages/user/UploadSigcard.jsx";
 import CustomerProfiles from "../pages/user/CustomerProfiles.jsx";
 import EditCustomerDocs from "../pages/user/EditCustomerDocs.jsx";
 import CustomerView from "../pages/user/CustomerView.jsx";
+import AddAccount from "../pages/user/AddAccount.jsx";
 import Profile from "../pages/user/Profile.jsx";
 
 const viewerRoles = ["user", "admin", "cashier"];
@@ -23,7 +24,8 @@ const UserRoutes = () => {
       <Route path="/user/upload"                element={withLayout(<UploadSigcard />,    ["user"])} />
       <Route path="/user/customers"             element={withLayout(<CustomerProfiles />, viewerRoles)} />
       <Route path="/user/customers/:id/view"    element={withLayout(<CustomerView />,     viewerRoles)} />
-      <Route path="/user/customers/:id/edit"    element={withLayout(<EditCustomerDocs />, ["user", "admin"])} />
+      <Route path="/user/customers/:id/edit"        element={withLayout(<EditCustomerDocs />, ["user", "admin"])} />
+      <Route path="/user/customers/:id/add-account" element={withLayout(<AddAccount />,        ["user", "admin"])} />
       <Route path="/user/profile"               element={withLayout(<Profile />,          ["user"])} />
     </>
   );

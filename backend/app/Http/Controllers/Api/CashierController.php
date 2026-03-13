@@ -14,9 +14,18 @@ class CashierController extends Controller
     public function dashboard(): JsonResponse
     {
         try {
+            $user   = auth()->user();
+            $branch = $user->branch()->with('children')->first();
+
+            $branchIds = collect([$user->branch_id]);
+
+            if ($branch) {
+                $branchIds = $branchIds->merge($branch->children->pluck('id'));
+            }
+
             return response()->json([
                 'success' => true,
-                'data'    => $this->getBranchDashboardData(auth()->user()->branch_id),
+                'data'    => $this->getBranchDashboardData($branchIds->unique()->values()->all()),
             ]);
         } catch (\Exception $e) {
             Log::error('Cashier dashboard error: ' . $e->getMessage());

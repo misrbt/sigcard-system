@@ -19,12 +19,15 @@ class Customer extends Model
     protected $appends = ['full_name'];
 
     protected $fillable = [
+        'account_no',
+        'date_opened',
         'branch_id',
         'uploaded_by',
         'firstname',
         'middlename',
         'lastname',
         'suffix',
+        'company_name',
         'account_type',
         'risk_level',
         'status',
@@ -33,8 +36,9 @@ class Customer extends Model
     protected function casts(): array
     {
         return [
-            'created_at' => 'datetime',
-            'updated_at' => 'datetime',
+            'date_opened' => 'date:Y-m-d',
+            'created_at'  => 'datetime',
+            'updated_at'  => 'datetime',
         ];
     }
 
@@ -46,7 +50,7 @@ class Customer extends Model
         return LogOptions::defaults()
             ->useLogName('customer')
             ->logOnly([
-                'firstname', 'middlename', 'lastname', 'suffix',
+                'account_no', 'date_opened', 'firstname', 'middlename', 'lastname', 'suffix', 'company_name',
                 'account_type', 'risk_level', 'status', 'branch_id',
             ])
             ->logOnlyDirty()
@@ -77,6 +81,15 @@ class Customer extends Model
     public function holders(): HasMany
     {
         return $this->hasMany(CustomerHolder::class)->orderBy('person_index');
+    }
+
+    /**
+     * Additional accounts for the same person (different account numbers).
+     * The primary account info is stored directly on the customers table.
+     */
+    public function accounts(): HasMany
+    {
+        return $this->hasMany(CustomerAccount::class)->orderBy('created_at');
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -112,19 +125,23 @@ class Customer extends Model
 
     public function getFullNameAttribute(): string
     {
-        $name = $this->firstname;
+        if ($this->account_type === 'Corporate') {
+            return $this->company_name ?? '';
+        }
+
+        $name = $this->firstname ?? '';
 
         if ($this->middlename) {
             $name .= ' ' . $this->middlename;
         }
 
-        $name .= ' ' . $this->lastname;
+        $name .= ' ' . ($this->lastname ?? '');
 
         if ($this->suffix) {
             $name .= ' ' . $this->suffix;
         }
 
-        return $name;
+        return trim($name);
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────────
