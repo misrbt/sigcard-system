@@ -8,11 +8,14 @@ import {
   HiOutlineCreditCard,
   HiOutlineDocumentText,
   HiOutlineEye,
+  HiOutlineInformationCircle,
   HiOutlineOfficeBuilding,
   HiOutlinePencilAlt,
   HiOutlinePhotograph,
   HiOutlinePlus,
   HiOutlineShieldCheck,
+  HiOutlineTag,
+  HiOutlineUser,
   HiOutlineUsers,
   HiOutlineX,
   HiOutlineZoomIn,
@@ -398,6 +401,280 @@ const CustomerHistorySection = ({ customerId }) => {
   );
 };
 
+// ── Edit Info Modals ──────────────────────────────────────────────────────────
+const RISK_OPTIONS = [
+  { value: "Low Risk",    label: "Low Risk",    cls: "border-emerald-400 text-emerald-700 bg-emerald-50 ring-2 ring-emerald-400/20" },
+  { value: "Medium Risk", label: "Medium Risk", cls: "border-yellow-400 text-yellow-700 bg-yellow-50 ring-2 ring-yellow-400/20" },
+  { value: "High Risk",   label: "High Risk",   cls: "border-red-400 text-red-700 bg-red-50 ring-2 ring-red-400/20" },
+];
+
+const inputCls = "w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent";
+
+const ModalShell = ({ title, subtitle, onClose, children, footer }) => (
+  <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div>
+          <h2 className="text-base font-bold text-slate-900">{title}</h2>
+          {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+          <HiOutlineX className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="px-6 py-5 space-y-5">{children}</div>
+      {footer && <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100">{footer}</div>}
+    </div>
+  </div>
+);
+
+// Choice picker — ask what to edit
+const EditChoiceModal = ({ customer, onClose, onPick }) => (
+  <ModalShell title="Edit Info" subtitle={customer.full_name} onClose={onClose}>
+    <p className="text-xs text-slate-500">Select what you would like to edit.</p>
+    <div className="grid grid-cols-2 gap-3">
+      <button
+        onClick={() => onPick("customer")}
+        className="flex flex-col items-center gap-3 px-4 py-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all group text-center"
+      >
+        <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+          <HiOutlineUser className="w-6 h-6 text-blue-600" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-slate-800">Customer Info</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Name, photo</p>
+        </div>
+      </button>
+      <button
+        onClick={() => onPick("account")}
+        className="flex flex-col items-center gap-3 px-4 py-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all group text-center"
+      >
+        <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+          <HiOutlineCreditCard className="w-6 h-6 text-indigo-600" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-slate-800">Account Info</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Risk level, dates, account no.</p>
+        </div>
+      </button>
+    </div>
+  </ModalShell>
+);
+
+// Edit customer personal info — name / photo
+const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
+  const isCorporateType = customer.account_type === "Corporate";
+
+  const [form, setForm] = useState({
+    firstname:    customer.firstname    ?? "",
+    middlename:   customer.middlename   ?? "",
+    lastname:     customer.lastname     ?? "",
+    suffix:       customer.suffix       ?? "",
+    company_name: customer.company_name ?? "",
+  });
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(customer.photo ? storageUrl(customer.photo) : null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState(null);
+
+  const setF = (key, val) => setForm((prev) => ({ ...prev, [key]: val }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("_method", "PUT");
+      Object.entries(form).forEach(([k, v]) => { if (v !== null && v !== undefined) fd.append(k, v); });
+      if (photoFile) fd.append("photo", photoFile);
+      await api.post(`/customers/${customer.id}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e?.response?.data?.message ?? "Failed to save changes.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      title="Edit Customer Info"
+      subtitle={customer.full_name}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onBack} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
+            ← Back
+          </button>
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 rounded-xl transition-colors">
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </>
+      }
+    >
+      {/* Photo */}
+      <div className="space-y-2">
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Customer Photo</p>
+        <div className="flex items-center gap-4">
+          {photoPreview ? (
+            <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-blue-300 flex-shrink-0">
+              <img src={photoPreview} alt="Photo" className="w-full h-full object-cover" />
+              <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✕</button>
+            </div>
+          ) : (
+            <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 flex-shrink-0">
+              <HiOutlinePhotograph className="w-8 h-8" />
+            </div>
+          )}
+          <label className="cursor-pointer flex-1">
+            <input type="file" accept="image/*" className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)); }
+                e.target.value = "";
+              }} />
+            <div className="px-4 py-2.5 text-sm font-semibold text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors text-center">
+              {photoPreview ? "Change Photo" : "Upload Photo"}
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {/* Name — non-Corporate */}
+      {!isCorporateType && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Name</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">First Name</label>
+              <input value={form.firstname} onChange={(e) => setF("firstname", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Middle Name</label>
+              <input value={form.middlename} onChange={(e) => setF("middlename", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Last Name</label>
+              <input value={form.lastname} onChange={(e) => setF("lastname", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Suffix</label>
+              <input value={form.suffix} onChange={(e) => setF("suffix", e.target.value)} className={inputCls} placeholder="Jr., Sr., III" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Company Name — Corporate */}
+      {isCorporateType && (
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Company Name</label>
+          <input value={form.company_name} onChange={(e) => setF("company_name", e.target.value)} className={inputCls} />
+        </div>
+      )}
+
+      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">{error}</div>}
+    </ModalShell>
+  );
+};
+
+// Edit account details — risk level, account no., dates (no status)
+const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
+  const isJointType     = customer.account_type === "Joint";
+  const isCorporateType = customer.account_type === "Corporate";
+
+  const [form, setForm] = useState({
+    risk_level:   customer.risk_level   ?? "Low Risk",
+    account_no:   customer.account_no   ?? "",
+    date_opened:  customer.date_opened  ? customer.date_opened.substring(0, 10)  : "",
+    date_updated: customer.date_updated ? customer.date_updated.substring(0, 10) : "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState(null);
+
+  const setF = (key, val) => setForm((prev) => ({ ...prev, [key]: val }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/customers/${customer.id}`, form);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e?.response?.data?.message ?? "Failed to save changes.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      title="Edit Account Info"
+      subtitle={customer.full_name}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onBack} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
+            ← Back
+          </button>
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 rounded-xl transition-colors">
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </>
+      }
+    >
+      {/* Risk Level — non-Joint/Corporate */}
+      {!isJointType && !isCorporateType && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Risk Level</p>
+          <div className="flex flex-wrap gap-2">
+            {RISK_OPTIONS.map(({ value, label, cls }) => (
+              <button key={value} type="button" onClick={() => setF("risk_level", value)}
+                className={`px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${form.risk_level === value ? cls : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Account No + Dates */}
+      <div className="space-y-2">
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Account Details</p>
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Account No.</label>
+            <input value={form.account_no} onChange={(e) => setF("account_no", e.target.value)} className={inputCls} placeholder="e.g. 1234-5678-9012" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Date Opened</label>
+              <input type="date" value={form.date_opened} onChange={(e) => setF("date_opened", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Date Updated <span className="text-slate-400">(Optional)</span></label>
+              <input type="date" value={form.date_updated} onChange={(e) => setF("date_updated", e.target.value)} className={inputCls} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">{error}</div>}
+    </ModalShell>
+  );
+};
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 const CustomerView = () => {
   const { id }      = useParams();
@@ -410,6 +687,7 @@ const CustomerView = () => {
   const [viewer, setViewer]       = useState(null);
   const [activeAcctIdx, setActiveAcctIdx] = useState(1);
   const [otherBusy, setOtherBusy] = useState(false);
+  const [editInfoOpen, setEditInfoOpen] = useState(null); // null | "choice" | "customer" | "account"
   const addOtherRef = useRef(null);
 
   const fetchCustomer = () => {
@@ -590,6 +868,31 @@ const CustomerView = () => {
         )}
       </AnimatePresence>
 
+      {/* Edit Info modals */}
+      {editInfoOpen === "choice" && (
+        <EditChoiceModal
+          customer={customer}
+          onClose={() => setEditInfoOpen(null)}
+          onPick={(v) => setEditInfoOpen(v)}
+        />
+      )}
+      {editInfoOpen === "customer" && (
+        <EditCustomerInfoModal
+          customer={customer}
+          onClose={() => setEditInfoOpen(null)}
+          onSaved={fetchCustomer}
+          onBack={() => setEditInfoOpen("choice")}
+        />
+      )}
+      {editInfoOpen === "account" && (
+        <EditAccountInfoModal
+          customer={customer}
+          onClose={() => setEditInfoOpen(null)}
+          onSaved={fetchCustomer}
+          onBack={() => setEditInfoOpen("choice")}
+        />
+      )}
+
       <div className="bg-gray-50 min-h-screen">
 
         {/* ── Hero header ──────────────────────────────────────────────────── */}
@@ -607,8 +910,14 @@ const CustomerView = () => {
 
             {/* Profile row */}
             <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl shadow-lg flex-shrink-0">
-                {initials(customer)}
+              <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg flex-shrink-0">
+                {customer.photo ? (
+                  <img src={storageUrl(customer.photo)} alt="Customer" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
+                    {initials(customer)}
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 flex-wrap mb-1">
@@ -618,9 +927,6 @@ const CustomerView = () => {
                       + {holders.map((h) => `${h.firstname} ${h.lastname}`).join(", ")}
                     </span>
                   )}
-                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
-                    {customer.status}
-                  </span>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/50 mt-1">
                   <span className="flex items-center gap-1.5">
@@ -680,46 +986,172 @@ const CustomerView = () => {
         {/* ── Content ──────────────────────────────────────────────────────── */}
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-          {/* Info cards row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: "Account Type", value: customer.account_type, badge: accountStyle[customer.account_type] },
-              isJoint
-                ? { label: "Holders",      value: `${allHolders.length} people`,       badge: "bg-purple-50 text-purple-700" }
-                : isCorporate
-                ? { label: "Signatories",  value: `${allHolders.length} signatories`,  badge: "bg-slate-100 text-slate-700" }
-                : { label: "Risk Level",   value: customer.risk_level,                 badge: riskStyle[customer.risk_level] },
-              { label: "Branch",     value: customer.branch?.branch_name ?? "—", badge: null },
-              { label: "Documents",  value: `${totalDocs} file${totalDocs !== 1 ? "s" : ""}`, badge: null },
-            ].map(({ label, value, badge }) => (
-              <div key={label} className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</p>
-                {badge ? (
-                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${badge}`}>{value}</span>
-                ) : (
-                  <p className="text-sm font-semibold text-slate-800">{value}</p>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Account No. + Date Opened cards */}
-          {(customer.account_no || customer.date_opened) && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {customer.account_no && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Account No.</p>
-                  <p className="text-sm font-semibold text-slate-800 font-mono">{customer.account_no}</p>
-                </div>
-              )}
-              {customer.date_opened && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Date Opened</p>
-                  <p className="text-sm font-semibold text-slate-800">{formatDate(customer.date_opened)}</p>
-                </div>
+          {/* Customer Details card */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+              <HiOutlineInformationCircle className="w-4 h-4 text-slate-400" />
+              <h2 className="text-sm font-bold text-slate-900">Customer Details</h2>
+              {!isReadOnly && (
+                <button onClick={() => setEditInfoOpen("choice")}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
+                  <HiOutlinePencilAlt className="w-3.5 h-3.5" />
+                  Edit Info
+                </button>
               )}
             </div>
-          )}
+            <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4">
+
+              {/* Full Name */}
+              <div className="flex items-start gap-3">
+                <HiOutlineUser className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Full Name</p>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {[customer.firstname, customer.middlename, customer.lastname, customer.suffix].filter(Boolean).join(" ") || "—"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Account Type */}
+              <div className="flex items-start gap-3">
+                <HiOutlineCreditCard className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Account Type</p>
+                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${accountStyle[customer.account_type] ?? "bg-slate-100 text-slate-600"}`}>
+                    {customer.account_type ?? "—"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Joint Sub Type — Joint only */}
+              {isJoint && (
+                <div className="flex items-start gap-3">
+                  <HiOutlineTag className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Joint Sub Type</p>
+                    <p className="text-sm font-semibold text-slate-800">{customer.joint_sub_type ?? "—"}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Company Name — Corporate only */}
+              {isCorporate && customer.company_name && (
+                <div className="flex items-start gap-3">
+                  <HiOutlineOfficeBuilding className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Company Name</p>
+                    <p className="text-sm font-semibold text-slate-800">{customer.company_name}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Account No. */}
+              <div className="flex items-start gap-3">
+                <HiOutlineDocumentText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Account No.</p>
+                  <p className="text-sm font-semibold text-slate-800 font-mono">{customer.account_no ?? "—"}</p>
+                </div>
+              </div>
+
+              {/* Risk Level — Regular only (Joint/Corporate show per holder) */}
+              {!isJoint && !isCorporate && (
+                <div className="flex items-start gap-3">
+                  <HiOutlineShieldCheck className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Risk Level</p>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${riskStyle[customer.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
+                      {customer.risk_level ?? "—"}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Status — single account shows one badge; multi-account shows per-account */}
+              <div className="flex items-start gap-3">
+                <HiOutlineShieldCheck className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>
+                  {showAccountTabs ? (
+                    <div className="space-y-1.5">
+                      {allAccounts.map((acct, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">{acct.acctIndex}</span>
+                          <span className="text-[10px] text-slate-500 font-mono truncate flex-1">{acct.account_no ?? "—"}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
+                            {acct.status ?? "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
+                      {customer.status ?? "—"}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Date Opened */}
+              <div className="flex items-start gap-3">
+                <HiOutlineCalendar className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Date Opened</p>
+                  <p className="text-sm font-semibold text-slate-800">{customer.date_opened ? formatDate(customer.date_opened) : "—"}</p>
+                </div>
+              </div>
+
+              {/* Date Updated */}
+              <div className="flex items-start gap-3">
+                <HiOutlineCalendar className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Date Updated</p>
+                  <p className="text-sm font-semibold text-slate-800">{customer.date_updated ? formatDate(customer.date_updated) : "—"}</p>
+                </div>
+              </div>
+
+              {/* Branch */}
+              <div className="flex items-start gap-3">
+                <HiOutlineOfficeBuilding className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Branch</p>
+                  <p className="text-sm font-semibold text-slate-800">{customer.branch?.branch_name ?? "—"}</p>
+                </div>
+              </div>
+
+              {/* Date Added */}
+              <div className="flex items-start gap-3">
+                <HiOutlineCalendar className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Date Added</p>
+                  <p className="text-sm font-semibold text-slate-800">{formatDate(customer.created_at)}</p>
+                </div>
+              </div>
+
+              {/* Uploaded By */}
+              <div className="flex items-start gap-3">
+                <HiOutlineUser className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Uploaded By</p>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {customer.uploader
+                      ? (customer.uploader.full_name || `${customer.uploader.firstname ?? ""} ${customer.uploader.lastname ?? ""}`.trim() || customer.uploader.username)
+                      : "—"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Total Documents */}
+              <div className="flex items-start gap-3">
+                <HiOutlineDocumentText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Documents</p>
+                  <p className="text-sm font-semibold text-slate-800">{totalDocs} file{totalDocs !== 1 ? "s" : ""}</p>
+                </div>
+              </div>
+
+            </div>
+          </div>
 
           {/* Additional Accounts card — shown when customer has extra accounts */}
           {customer.accounts?.length > 0 && (
@@ -727,9 +1159,27 @@ const CustomerView = () => {
               <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
                 <HiOutlineCreditCard className="w-4 h-4 text-blue-500" />
                 <h2 className="text-sm font-bold text-slate-900">Additional Accounts</h2>
-                <span className="ml-auto text-xs text-slate-400">{customer.accounts.length} account{customer.accounts.length !== 1 ? "s" : ""}</span>
+                <span className="ml-auto text-xs text-slate-400">{customer.accounts.length + 1} accounts</span>
               </div>
               <div className="px-5 py-4 space-y-2">
+                {/* Primary account */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">1</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-slate-800 font-mono">{customer.account_no ?? "—"}</p>
+                    <p className="text-[10px] text-slate-400">{customer.risk_level}</p>
+                  </div>
+                  {customer.date_opened && (
+                    <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                      <HiOutlineCalendar className="w-3 h-3" />
+                      {formatDate(customer.date_opened)}
+                    </span>
+                  )}
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
+                    {customer.status}
+                  </span>
+                </div>
+                {/* Additional accounts */}
                 {customer.accounts.map((acct, i) => (
                   <div key={acct.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
                     <span className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">{i + 2}</span>
@@ -743,9 +1193,9 @@ const CustomerView = () => {
                         {formatDate(acct.date_opened)}
                       </span>
                     )}
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      acct.status === "active" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"
-                    }`}>{acct.status}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
+                      {acct.status}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -829,25 +1279,37 @@ const CustomerView = () => {
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Select Account</p>
                 <div className="flex gap-2 overflow-x-auto pb-0.5">
-                  {allAccounts.map((acct) => (
-                    <button
-                      key={acct.acctIndex}
-                      onClick={() => setActiveAcctIdx(acct.acctIndex)}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border-2 flex-shrink-0 ${
-                        activeAcctIdx === acct.acctIndex
-                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                          : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
-                      }`}
-                    >
-                      <HiOutlineCreditCard className="w-3.5 h-3.5" />
-                      <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
-                      {acct.acctIndex === 1 && (
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${activeAcctIdx === 1 ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
-                          Primary
+                  {allAccounts.map((acct) => {
+                    const isActive = activeAcctIdx === acct.acctIndex;
+                    return (
+                      <button
+                        key={acct.acctIndex}
+                        onClick={() => setActiveAcctIdx(acct.acctIndex)}
+                        className={`flex flex-col gap-1 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border-2 flex-shrink-0 text-left ${
+                          isActive
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <HiOutlineCreditCard className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
+                          {acct.acctIndex === 1 && (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                              Primary
+                            </span>
+                          )}
+                        </div>
+                        <span className={`self-start px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                          isActive
+                            ? "bg-white/20 text-white"
+                            : (statusStyle[acct.status] ?? "bg-slate-100 text-slate-500")
+                        }`}>
+                          {acct.status ?? "—"}
                         </span>
-                      )}
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

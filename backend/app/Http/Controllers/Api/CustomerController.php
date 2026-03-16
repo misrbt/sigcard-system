@@ -90,6 +90,7 @@ class CustomerController extends Controller
             $customer = Customer::create([
                 'account_no' => $request->account_no ?: null,
                 'date_opened' => $request->date_opened ?: null,
+                'date_updated' => $request->date_updated ?: null,
                 'branch_id' => $authUser->hasRole('user') ? $authUser->branch_id : $request->branch_id,
                 'uploaded_by' => Auth::id(),
                 'firstname' => $request->firstname,
@@ -100,8 +101,14 @@ class CustomerController extends Controller
                 'account_type' => $request->account_type,
                 'joint_sub_type' => $request->joint_sub_type,
                 'risk_level' => $request->risk_level,
-                'status' => 'active',
+                'status' => $request->status ?? 'active',
             ]);
+
+            // Handle optional customer photo
+            if ($request->hasFile('photo')) {
+                $photoPath = $this->uploadPhoto($customer, $request->file('photo'));
+                $customer->update(['photo' => $photoPath]);
+            }
 
             // Save additional accounts for the same person (Regular accounts)
             foreach ($request->input('additionalAccounts', []) as $account) {
@@ -110,7 +117,8 @@ class CustomerController extends Controller
                     'account_no' => $account['account_no'] ?? null,
                     'risk_level' => $account['risk_level'],
                     'date_opened' => $account['date_opened'] ?? null,
-                    'status' => 'active',
+                    'date_updated' => $account['date_updated'] ?? null,
+                    'status' => $account['status'] ?? 'active',
                 ]);
             }
 
@@ -201,6 +209,7 @@ class CustomerController extends Controller
             $customer->update(array_filter([
                 'account_no' => $request->account_no ?: null,
                 'date_opened' => $request->date_opened ?: null,
+                'date_updated' => $request->date_updated ?: null,
                 'branch_id' => $request->branch_id,
                 'firstname' => $request->firstname,
                 'middlename' => $request->middlename,
@@ -211,6 +220,11 @@ class CustomerController extends Controller
                 'risk_level' => $request->risk_level,
                 'status' => $request->status,
             ], fn ($v) => ! is_null($v)));
+
+            if ($request->hasFile('photo')) {
+                $photoPath = $this->uploadPhoto($customer, $request->file('photo'));
+                $customer->update(['photo' => $photoPath]);
+            }
 
             // Sync additional accounts when provided
             if ($request->has('additionalAccounts')) {
@@ -343,13 +357,47 @@ class CustomerController extends Controller
 
     public function history(Customer $customer): JsonResponse
     {
+        // Build a map of current documents keyed by "type_personIndex"
+        $currentDocs = $customer->documents->groupBy(function (CustomerDocument $doc) {
+            return $doc->document_type.'_'.$doc->person_index;
+        })->map(fn ($docs) => [
+            'file_path' => $docs->first()->file_path,
+            'file_name' => $docs->first()->file_name,
+        ]);
+
+        // Build a grouped list of all current documents for creation events
+        $allCurrentDocs = $customer->documents->map(fn (CustomerDocument $doc) => [
+            'document_type' => $doc->document_type,
+            'person_index' => $doc->person_index,
+            'file_path' => $doc->file_path,
+            'file_name' => $doc->file_name,
+        ])->values()->all();
+
         $logs = \Spatie\Activitylog\Models\Activity::with('causer')
             ->where('subject_type', Customer::class)
             ->where('subject_id', $customer->id)
             ->latest()
             ->get()
-            ->map(function ($entry) {
+            ->map(function ($entry) use ($currentDocs, $allCurrentDocs) {
                 $props = $entry->properties->toArray();
+                $meta = collect($props)->except(['diff'])->all();
+
+                $desc = strtolower($entry->description ?? '');
+
+                // For document replacement events, attach the current document path
+                if (str_contains($desc, 'replaced') && isset($meta['document_type'])) {
+                    $key = $meta['document_type'].'_'.($meta['person_index'] ?? 1);
+                    $current = $currentDocs->get($key);
+                    if ($current) {
+                        $meta['current_file_path'] = $current['file_path'];
+                        $meta['current_file_name'] = $current['file_name'];
+                    }
+                }
+
+                // For creation events, attach all current document images
+                if (str_contains($desc, 'created') || $entry->event === 'created') {
+                    $meta['current_documents'] = $allCurrentDocs;
+                }
 
                 return [
                     'id' => $entry->id,
@@ -359,12 +407,16 @@ class CustomerController extends Controller
                         ? ['name' => optional($entry->causer)->full_name, 'email' => optional($entry->causer)->email]
                         : null,
                     'diff' => $props['diff'] ?? null,
-                    'meta' => collect($props)->except(['diff'])->all(),
+                    'meta' => $meta,
                     'created_at' => $entry->created_at->toIso8601String(),
                 ];
             });
 
-        return response()->json(['history' => $logs]);
+        return response()->json([
+            'history' => $logs,
+            'current_status' => $customer->status,
+            'current_risk_level' => $customer->risk_level,
+        ]);
     }
 
     public function deleteDocument(Customer $customer, CustomerDocument $document): JsonResponse
@@ -477,7 +529,8 @@ class CustomerController extends Controller
                 'account_no' => $request->account_no ?: null,
                 'risk_level' => $request->risk_level,
                 'date_opened' => $request->date_opened ?: null,
-                'status' => 'active',
+                'date_updated' => $request->date_updated ?: null,
+                'status' => $request->status ?? 'active',
             ]);
 
             // Store sigcard pair
@@ -541,6 +594,40 @@ class CustomerController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function updateAccount(Request $request, Customer $customer, CustomerAccount $account): JsonResponse
+    {
+        abort_if($account->customer_id !== $customer->id, 404);
+
+        $validated = $request->validate([
+            'status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
+            'risk_level' => 'nullable|in:Low Risk,Medium Risk,High Risk',
+            'account_no' => 'nullable|string|max:100',
+            'date_opened' => 'nullable|date',
+            'date_updated' => 'nullable|date',
+        ]);
+
+        $before = $account->only(['status', 'risk_level', 'account_no', 'date_opened', 'date_updated']);
+
+        $account->update(array_filter($validated, fn ($v) => ! is_null($v)));
+
+        activity()
+            ->causedBy(Auth::user())
+            ->performedOn($customer)
+            ->withProperties([
+                'action' => 'account_updated',
+                'account_id' => $account->id,
+                'account_no' => $account->account_no,
+                'before' => $before,
+                'after' => $account->fresh()->only(array_keys($before)),
+            ])
+            ->log('Customer account updated');
+
+        return response()->json([
+            'message' => 'Account updated.',
+            'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
+        ]);
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -714,6 +801,25 @@ class CustomerController extends Controller
         $originalName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
 
         return $this->sanitizeName(strtoupper($originalName)).' - '.Str::uuid().'.jpg';
+    }
+
+    /**
+     * Resize and store a customer photo, returning the stored path.
+     */
+    private function uploadPhoto(Customer $customer, UploadedFile $file): string
+    {
+        $image = $this->imageManager()->read($file->getRealPath());
+        $image->scaleDown(width: 400, height: 400);
+        $encoded = $image->toJpeg(quality: 85);
+
+        $customer->loadMissing('branch');
+        $directory = $this->buildDirectory($customer);
+        $filename = 'PHOTO.jpg';
+        $path = "{$directory}/{$filename}";
+
+        Storage::disk('public')->put($path, (string) $encoded);
+
+        return $path;
     }
 
     /**

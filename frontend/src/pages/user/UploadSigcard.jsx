@@ -42,6 +42,14 @@ const compressImage = (file, maxWidth = 1200, maxHeight = 1600, quality = 0.82) 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const RISK_LEVELS = ["Low Risk", "Medium Risk", "High Risk"];
 
+const STATUS_OPTIONS = [
+  { value: "active",      label: "Active",      color: "bg-green-50 border-green-400 text-green-700 ring-2 ring-green-400/20"   },
+  { value: "dormant",     label: "Dormant",     color: "bg-yellow-50 border-yellow-400 text-yellow-700 ring-2 ring-yellow-400/20" },
+  { value: "reactivated", label: "Reactivated", color: "bg-teal-50 border-teal-400 text-teal-700 ring-2 ring-teal-400/20"       },
+  { value: "escheat",     label: "Escheat",     color: "bg-orange-50 border-orange-400 text-orange-700 ring-2 ring-orange-400/20" },
+  { value: "closed",      label: "Closed",      color: "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-400/20"           },
+];
+
 const RISK_STYLE = {
   "Low Risk":    "bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-400/20",
   "Medium Risk": "bg-yellow-50 border-yellow-400 text-yellow-700 ring-2 ring-yellow-400/20",
@@ -84,7 +92,7 @@ const stepDescriptions = {
 
 const emptyPair    = ()  => ({ front: null, back: null });
 const emptyPerson  = ()  => ({ firstName: "", middleName: "", lastName: "", suffix: "" });
-const emptyAccount = ()  => ({ accountNo: "", riskLevel: "", dateOpened: "" });
+const emptyAccount = ()  => ({ accountNo: "", riskLevel: "", dateOpened: "", dateUpdated: "", status: "active" });
 
 const initialFiles = {
   sigcardPairs: [emptyPair()],
@@ -123,6 +131,22 @@ const RiskLevelPicker = ({ value, onChange, label = "Risk Level" }) => (
   </div>
 );
 
+const StatusPicker = ({ value, onChange }) => (
+  <div className="space-y-1.5">
+    <label className="block text-xs font-semibold text-slate-600">
+      Account Status <span className="text-red-500">*</span>
+    </label>
+    <div className="flex flex-wrap gap-2">
+      {STATUS_OPTIONS.map(({ value: v, label, color }) => (
+        <button key={v} type="button" onClick={() => onChange(v)}
+          className={`px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${value === v ? color : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
 const NameGrid = ({ values, onChange }) => (
   <div className="grid gap-4 sm:grid-cols-2">
     {[
@@ -145,7 +169,7 @@ const NameGrid = ({ values, onChange }) => (
   </div>
 );
 
-const AccountInfoRow = ({ accountNo, dateOpened, onAccountNo, onDateOpened }) => (
+const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated }) => (
   <div className="grid grid-cols-2 gap-3">
     <div className="space-y-1.5">
       <label className="block text-xs font-semibold text-slate-600">
@@ -159,6 +183,12 @@ const AccountInfoRow = ({ accountNo, dateOpened, onAccountNo, onDateOpened }) =>
         Date Opened <span className="text-red-500">*</span>
       </label>
       <input type="date" value={dateOpened} onChange={onDateOpened} className={inputCls} />
+    </div>
+    <div className="space-y-1.5">
+      <label className="block text-xs font-semibold text-slate-600">
+        Date Updated <span className="font-normal text-slate-400">(Optional)</span>
+      </label>
+      <input type="date" value={dateUpdated ?? ""} onChange={onDateUpdated} className={inputCls} />
     </div>
   </div>
 );
@@ -327,7 +357,9 @@ const UploadSigcard = () => {
   const [formData, setFormData] = useState({
     accountType: "", jointSubType: "", firstName: "", middleName: "", lastName: "",
     suffix: "", companyName: "", riskLevel: "", accountNo: "", dateOpened: "",
+    dateUpdated: "", status: "active",
   });
+  const [photoFile, setPhotoFile] = useState(null);
   const [files,              setFiles]              = useState(initialFiles);
   const [itfFiles,           setItfFiles]           = useState(initialItfFiles);
   const [additionalPersons,  setAdditionalPersons]  = useState([]);
@@ -483,9 +515,9 @@ const UploadSigcard = () => {
           additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
         return !!formData.firstName.trim() && !!formData.lastName.trim();
       case "holders":
-        if (!formData.riskLevel) return false;
+        if (!formData.riskLevel || !formData.status) return false;
         if (!formData.accountNo.trim() || !formData.dateOpened) return false;
-        return additionalAccounts.every((a) => !!a.riskLevel && !!a.accountNo.trim() && !!a.dateOpened);
+        return additionalAccounts.every((a) => !!a.riskLevel && !!a.accountNo.trim() && !!a.dateOpened && !!a.status);
       case "sigcard":
         if (isITF) return itfFiles.sigcard.every((p) => p.front || p.back);
         if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back);
@@ -506,7 +538,8 @@ const UploadSigcard = () => {
 
   const resetAll = () => {
     setStep(0);
-    setFormData({ accountType:"", jointSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", riskLevel:"", accountNo:"", dateOpened:"" });
+    setFormData({ accountType:"", jointSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", riskLevel:"", accountNo:"", dateOpened:"", dateUpdated:"", status:"active" });
+    setPhotoFile(null);
     setFiles(initialFiles);
     setItfFiles(initialItfFiles());
     setAdditionalPersons([]);
@@ -572,11 +605,14 @@ const UploadSigcard = () => {
       fd.append("middlename", formData.middleName);
       fd.append("lastname",   formData.lastName);
       fd.append("suffix",     formData.suffix);
-      fd.append("account_type", formData.accountType);
-      fd.append("risk_level",   formData.riskLevel);
-      fd.append("account_no",   formData.accountNo);
-      fd.append("date_opened",  formData.dateOpened);
-      if (user?.branch?.id) fd.append("branch_id", user.branch.id);
+      fd.append("account_type",  formData.accountType);
+      fd.append("risk_level",    formData.riskLevel);
+      fd.append("account_no",    formData.accountNo);
+      fd.append("date_opened",   formData.dateOpened);
+      fd.append("status",        formData.status || "active");
+      if (formData.dateUpdated) fd.append("date_updated", formData.dateUpdated);
+      if (photoFile)            fd.append("photo", photoFile);
+      if (user?.branch?.id)     fd.append("branch_id", user.branch.id);
 
       if (isJoint) {
         fd.append("joint_sub_type", formData.jointSubType);
@@ -619,6 +655,8 @@ const UploadSigcard = () => {
           fd.append(`additionalAccounts[${i}][account_no]`,  a.accountNo);
           fd.append(`additionalAccounts[${i}][risk_level]`,  a.riskLevel);
           fd.append(`additionalAccounts[${i}][date_opened]`, a.dateOpened);
+          fd.append(`additionalAccounts[${i}][status]`,      a.status || "active");
+          if (a.dateUpdated) fd.append(`additionalAccounts[${i}][date_updated]`, a.dateUpdated);
         });
 
         if (isCorporate) {
@@ -820,6 +858,32 @@ const UploadSigcard = () => {
                   <HiOutlinePlus className="w-4 h-4" />
                   Add Another Signatory
                 </button>
+                {/* Photo — optional */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-600">
+                    Customer Photo <span className="font-normal text-slate-400">(Optional)</span>
+                  </label>
+                  <div className="flex items-center gap-4">
+                    {photoFile ? (
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-blue-300 flex-shrink-0">
+                        <img src={URL.createObjectURL(photoFile)} alt="Photo" className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => setPhotoFile(null)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✕</button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 flex-shrink-0">
+                        <HiOutlinePhotograph className="w-8 h-8" />
+                      </div>
+                    )}
+                    <label className="cursor-pointer flex-1">
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { if (e.target.files?.[0]) setPhotoFile(e.target.files[0]); e.target.value = ""; }} />
+                      <div className="px-4 py-2.5 text-sm font-semibold text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors text-center">
+                        {photoFile ? "Change Photo" : "Upload Photo"}
+                      </div>
+                    </label>
+                  </div>
+                </div>
               </div>
             ) : isITF ? (
               <div className="space-y-5">
@@ -868,6 +932,32 @@ const UploadSigcard = () => {
                   <HiOutlinePlus className="w-4 h-4" />
                   Add Another Person
                 </button>
+                {/* Photo — optional */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-600">
+                    Customer Photo <span className="font-normal text-slate-400">(Optional)</span>
+                  </label>
+                  <div className="flex items-center gap-4">
+                    {photoFile ? (
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-blue-300 flex-shrink-0">
+                        <img src={URL.createObjectURL(photoFile)} alt="Photo" className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => setPhotoFile(null)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✕</button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 flex-shrink-0">
+                        <HiOutlinePhotograph className="w-8 h-8" />
+                      </div>
+                    )}
+                    <label className="cursor-pointer flex-1">
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { if (e.target.files?.[0]) setPhotoFile(e.target.files[0]); e.target.value = ""; }} />
+                      <div className="px-4 py-2.5 text-sm font-semibold text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors text-center">
+                        {photoFile ? "Change Photo" : "Upload Photo"}
+                      </div>
+                    </label>
+                  </div>
+                </div>
               </div>
             ) : isNonITF ? (
               <div className="space-y-5">
@@ -916,6 +1006,32 @@ const UploadSigcard = () => {
                   <HiOutlinePlus className="w-4 h-4" />
                   Add Another Person
                 </button>
+                {/* Photo — optional */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-600">
+                    Customer Photo <span className="font-normal text-slate-400">(Optional)</span>
+                  </label>
+                  <div className="flex items-center gap-4">
+                    {photoFile ? (
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-blue-300 flex-shrink-0">
+                        <img src={URL.createObjectURL(photoFile)} alt="Photo" className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => setPhotoFile(null)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✕</button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 flex-shrink-0">
+                        <HiOutlinePhotograph className="w-8 h-8" />
+                      </div>
+                    )}
+                    <label className="cursor-pointer flex-1">
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { if (e.target.files?.[0]) setPhotoFile(e.target.files[0]); e.target.value = ""; }} />
+                      <div className="px-4 py-2.5 text-sm font-semibold text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors text-center">
+                        {photoFile ? "Change Photo" : "Upload Photo"}
+                      </div>
+                    </label>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-5">
@@ -930,6 +1046,32 @@ const UploadSigcard = () => {
                   values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
                   onChange={(key, val) => setField(key, val)}
                 />
+                {/* Photo — optional */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-600">
+                    Customer Photo <span className="font-normal text-slate-400">(Optional)</span>
+                  </label>
+                  <div className="flex items-center gap-4">
+                    {photoFile ? (
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-blue-300 flex-shrink-0">
+                        <img src={URL.createObjectURL(photoFile)} alt="Photo" className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => setPhotoFile(null)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✕</button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 flex-shrink-0">
+                        <HiOutlinePhotograph className="w-8 h-8" />
+                      </div>
+                    )}
+                    <label className="cursor-pointer flex-1">
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { if (e.target.files?.[0]) setPhotoFile(e.target.files[0]); e.target.value = ""; }} />
+                      <div className="px-4 py-2.5 text-sm font-semibold text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors text-center">
+                        {photoFile ? "Change Photo" : "Upload Photo"}
+                      </div>
+                    </label>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -961,10 +1103,12 @@ const UploadSigcard = () => {
 
               <div className="border-t border-blue-100" />
 
+              <StatusPicker value={formData.status} onChange={(v) => setField("status", v)} />
               <AccountInfoRow
-                accountNo={formData.accountNo} dateOpened={formData.dateOpened}
+                accountNo={formData.accountNo} dateOpened={formData.dateOpened} dateUpdated={formData.dateUpdated}
                 onAccountNo={(e) => setField("accountNo", e.target.value)}
                 onDateOpened={(e) => setField("dateOpened", e.target.value)}
+                onDateUpdated={(e) => setField("dateUpdated", e.target.value)}
               />
             </div>
 
@@ -993,10 +1137,17 @@ const UploadSigcard = () => {
                       onChange={(v) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, riskLevel: v } : x))}
                     />
 
+                    <div className="border-t border-slate-100" />
+
+                    <StatusPicker
+                      value={a.status}
+                      onChange={(v) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, status: v } : x))}
+                    />
                     <AccountInfoRow
-                      accountNo={a.accountNo} dateOpened={a.dateOpened}
+                      accountNo={a.accountNo} dateOpened={a.dateOpened} dateUpdated={a.dateUpdated}
                       onAccountNo={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, accountNo: e.target.value } : x))}
                       onDateOpened={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, dateOpened: e.target.value } : x))}
+                      onDateUpdated={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, dateUpdated: e.target.value } : x))}
                     />
                   </div>
                 ))}

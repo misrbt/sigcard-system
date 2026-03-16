@@ -12,6 +12,7 @@ class CustomerAccount extends Model
         'account_no',
         'risk_level',
         'date_opened',
+        'date_updated',
         'status',
     ];
 
@@ -19,8 +20,9 @@ class CustomerAccount extends Model
     {
         return [
             'date_opened' => 'date:Y-m-d',
-            'created_at'  => 'datetime',
-            'updated_at'  => 'datetime',
+            'date_updated' => 'date:Y-m-d',
+            'created_at' => 'datetime',
+            'updated_at' => 'datetime',
         ];
     }
 

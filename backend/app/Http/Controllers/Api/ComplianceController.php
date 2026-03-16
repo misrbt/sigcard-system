@@ -4,15 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\CustomerDocument;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
-use Carbon\Carbon;
 
 /**
  * Compliance Controller - BSP Compliance and Audit
@@ -32,9 +31,9 @@ class ComplianceController extends Controller
     public function getDashboard(): JsonResponse
     {
         $totalCustomers = Customer::count();
-        $totalUsers     = User::count();
+        $totalUsers = User::count();
         $totalDocuments = \App\Models\CustomerDocument::count();
-        $totalSigcards  = \App\Models\CustomerDocument::where('document_type', 'sigcard_front')->count();
+        $totalSigcards = \App\Models\CustomerDocument::where('document_type', 'sigcard_front')->count();
 
         $byStatus = Customer::select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
@@ -54,13 +53,13 @@ class ComplianceController extends Controller
             ->get()
             ->map(fn (\App\Models\Branch $branch) => [
                 'branch_name' => $branch->branch_name,
-                'brak'        => $branch->brak,
-                'brcode'      => $branch->brcode,
-                'total'       => $branch->customers_count,
-                'active'      => $branch->customers->where('status', 'active')->count(),
-                'dormant'     => $branch->customers->where('status', 'dormant')->count(),
-                'escheat'     => $branch->customers->where('status', 'escheat')->count(),
-                'closed'      => $branch->customers->where('status', 'closed')->count(),
+                'brak' => $branch->brak,
+                'brcode' => $branch->brcode,
+                'total' => $branch->customers_count,
+                'active' => $branch->customers->where('status', 'active')->count(),
+                'dormant' => $branch->customers->where('status', 'dormant')->count(),
+                'escheat' => $branch->customers->where('status', 'escheat')->count(),
+                'closed' => $branch->customers->where('status', 'closed')->count(),
             ]);
 
         $sigcardsByBranch = \App\Models\CustomerDocument::where('document_type', 'sigcard_front')
@@ -72,9 +71,9 @@ class ComplianceController extends Controller
             ->get();
 
         $monthlyUploads = Customer::select(
-                DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
-                DB::raw('count(*) as count')
-            )
+            DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
+            DB::raw('count(*) as count')
+        )
             ->where('created_at', '>=', now()->subMonths(6)->startOfMonth())
             ->groupBy('month')
             ->orderBy('month')
@@ -83,7 +82,7 @@ class ComplianceController extends Controller
 
         $months = collect();
         for ($i = 5; $i >= 0; $i--) {
-            $key   = now()->subMonths($i)->format('Y-m');
+            $key = now()->subMonths($i)->format('Y-m');
             $label = now()->subMonths($i)->format('M Y');
             $months->push(['label' => $label, 'count' => $monthlyUploads->get($key)?->count ?? 0]);
         }
@@ -93,33 +92,33 @@ class ComplianceController extends Controller
             ->limit(8)
             ->get()
             ->map(fn (Customer $c) => [
-                'id'           => $c->id,
-                'full_name'    => $c->full_name,
+                'id' => $c->id,
+                'full_name' => $c->full_name,
                 'account_type' => $c->account_type,
-                'status'       => $c->status,
-                'branch'       => $c->branch?->branch_name,
-                'uploader'     => $c->uploader?->full_name,
-                'uploaded_at'  => $c->created_at->format('M d, Y'),
+                'status' => $c->status,
+                'branch' => $c->branch?->branch_name,
+                'uploader' => $c->uploader?->full_name,
+                'uploaded_at' => $c->created_at->format('M d, Y'),
             ]);
 
         return response()->json([
             'summary' => [
                 'total_customers' => $totalCustomers,
-                'total_users'     => $totalUsers,
+                'total_users' => $totalUsers,
                 'total_documents' => $totalDocuments,
-                'total_sigcards'  => $totalSigcards,
-                'active'          => $byStatus->get('active', 0),
-                'dormant'         => $byStatus->get('dormant', 0),
-                'escheat'         => $byStatus->get('escheat', 0),
-                'closed'          => $byStatus->get('closed', 0),
+                'total_sigcards' => $totalSigcards,
+                'active' => $byStatus->get('active', 0),
+                'dormant' => $byStatus->get('dormant', 0),
+                'escheat' => $byStatus->get('escheat', 0),
+                'closed' => $byStatus->get('closed', 0),
             ],
-            'by_status'          => $byStatus,
-            'by_account_type'    => $byAccountType,
-            'by_risk_level'      => $byRiskLevel,
-            'by_branch'          => $branches,
+            'by_status' => $byStatus,
+            'by_account_type' => $byAccountType,
+            'by_risk_level' => $byRiskLevel,
+            'by_branch' => $branches,
             'sigcards_by_branch' => $sigcardsByBranch,
-            'monthly_uploads'    => $months,
-            'recent_uploads'     => $recentUploads,
+            'monthly_uploads' => $months,
+            'recent_uploads' => $recentUploads,
         ]);
     }
 
@@ -135,12 +134,12 @@ class ComplianceController extends Controller
         $this->authorize('view-audit-logs');
 
         $request->validate([
-            'search'    => 'nullable|string|max:255',
-            'category'  => 'nullable|in:all,login,customer,user_management,security,system',
+            'search' => 'nullable|string|max:255',
+            'category' => 'nullable|in:all,login,customer,user_management,security,system',
             'causer_id' => 'nullable|exists:users,id',
             'date_from' => 'nullable|date',
-            'date_to'   => 'nullable|date|after_or_equal:date_from',
-            'per_page'  => 'nullable|integer|min:1|max:100',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         try {
@@ -177,16 +176,63 @@ class ComplianceController extends Controller
 
             $logs = $query->paginate($request->per_page ?? 25);
 
+            // Enrich customer document entries with current file paths for image display
+            $customerSubjectIds = $logs->getCollection()
+                ->filter(fn ($log) => $log->subject_type === Customer::class)
+                ->pluck('subject_id')
+                ->unique()
+                ->values();
+
+            if ($customerSubjectIds->isNotEmpty()) {
+                $allDocs = CustomerDocument::whereIn('customer_id', $customerSubjectIds)->get()->groupBy('customer_id');
+
+                $keyedDocsMap = $allDocs->map(fn ($docs) => $docs->mapWithKeys(fn (CustomerDocument $d) => [
+                    $d->document_type.'_'.$d->person_index => ['file_path' => $d->file_path, 'file_name' => $d->file_name],
+                ]));
+
+                $fullDocsMap = $allDocs->map(fn ($docs) => $docs->map(fn (CustomerDocument $d) => [
+                    'document_type' => $d->document_type,
+                    'person_index' => $d->person_index,
+                    'file_path' => $d->file_path,
+                    'file_name' => $d->file_name,
+                ])->values()->all());
+
+                $logs->getCollection()->transform(function ($log) use ($keyedDocsMap, $fullDocsMap) {
+                    if ($log->subject_type !== Customer::class) {
+                        return $log;
+                    }
+                    $desc = strtolower($log->description ?? '');
+                    $props = $log->properties->toArray();
+
+                    if (str_contains($desc, 'replaced') && isset($props['document_type'])) {
+                        $key = $props['document_type'].'_'.($props['person_index'] ?? 1);
+                        $current = $keyedDocsMap->get($log->subject_id, collect())->get($key);
+                        if ($current) {
+                            $props['current_file_path'] = $current['file_path'];
+                            $props['current_file_name'] = $current['file_name'];
+                            $log->properties = $props;
+                        }
+                    }
+
+                    if (str_contains($desc, 'created') || $log->event === 'created') {
+                        $props['current_documents'] = $fullDocsMap->get($log->subject_id, []);
+                        $log->properties = $props;
+                    }
+
+                    return $log;
+                });
+            }
+
             $stats = [
-                'total_today'    => Activity::whereDate('created_at', today())->count(),
-                'logins_today'   => Activity::where('description', 'like', '%login%')
-                                        ->whereDate('created_at', today())->count(),
-                'failed_today'   => Activity::where('description', 'like', '%failed%')
-                                        ->whereDate('created_at', today())->count(),
-                'customer_ops'   => Activity::where(function ($q) {
-                                            $q->where('description', 'like', '%customer%')
-                                                ->orWhere('subject_type', 'like', '%Customer%');
-                                        })->whereDate('created_at', today())->count(),
+                'total_today' => Activity::whereDate('created_at', today())->count(),
+                'logins_today' => Activity::where('description', 'like', '%login%')
+                    ->whereDate('created_at', today())->count(),
+                'failed_today' => Activity::where('description', 'like', '%failed%')
+                    ->whereDate('created_at', today())->count(),
+                'customer_ops' => Activity::where(function ($q) {
+                    $q->where('description', 'like', '%customer%')
+                        ->orWhere('subject_type', 'like', '%Customer%');
+                })->whereDate('created_at', today())->count(),
                 'total_all_time' => Activity::count(),
             ];
 
@@ -197,18 +243,18 @@ class ComplianceController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Audit logs retrieved successfully',
-                'data'    => $logs,
-                'stats'   => $stats,
-                'users'   => $users,
+                'data' => $logs,
+                'stats' => $stats,
+                'users' => $users,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving audit logs: ' . $e->getMessage());
+            Log::error('Compliance error retrieving audit logs: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve audit logs',
-                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -264,13 +310,13 @@ class ComplianceController extends Controller
             'format' => 'required|in:csv,excel,pdf,json',
             'include_sensitive' => 'boolean',
             'branch_codes' => 'nullable|array',
-            'event_types' => 'nullable|array'
+            'event_types' => 'nullable|array',
         ]);
 
         try {
             $compliance = auth()->user();
 
-            $exportId = 'AUD-EXP-' . Str::random(12);
+            $exportId = 'AUD-EXP-'.Str::random(12);
             $filename = "audit_logs_{$request->date_from}_{$request->date_to}.{$request->format}";
 
             // For BSP compliance, we need to track all export activities
@@ -281,12 +327,12 @@ class ComplianceController extends Controller
                     'export_id' => $exportId,
                     'date_range' => [
                         'from' => $request->date_from,
-                        'to' => $request->date_to
+                        'to' => $request->date_to,
                     ],
                     'format' => $request->format,
                     'include_sensitive' => $request->include_sensitive ?? false,
                     'filters' => $request->only(['branch_codes', 'event_types']),
-                    'bsp_compliance_export' => true
+                    'bsp_compliance_export' => true,
                 ])
                 ->log('Compliance officer exported audit logs');
 
@@ -303,19 +349,19 @@ class ComplianceController extends Controller
                     'expires_at' => now()->addHours(24),
                     'bsp_compliance' => [
                         'export_logged' => true,
-                        'data_integrity_hash' => hash('sha256', $exportId . now()),
-                        'retention_notice' => 'Export files are retained for 30 days as per BSP requirements'
-                    ]
-                ]
+                        'data_integrity_hash' => hash('sha256', $exportId.now()),
+                        'retention_notice' => 'Export files are retained for 30 days as per BSP requirements',
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error exporting audit logs: ' . $e->getMessage());
+            Log::error('Compliance error exporting audit logs: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to export audit logs',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -336,7 +382,7 @@ class ComplianceController extends Controller
                 'report_type' => 'nullable|in:daily,weekly,monthly,quarterly,annual',
                 'branch_code' => 'nullable|string',
                 'date_from' => 'nullable|date',
-                'date_to' => 'nullable|date|after_or_equal:date_from'
+                'date_to' => 'nullable|date|after_or_equal:date_from',
             ]);
 
             $complianceReports = [
@@ -353,8 +399,8 @@ class ComplianceController extends Controller
                     'bsp_circular_compliance' => [
                         'circular_951' => 'compliant',
                         'circular_982' => 'compliant',
-                        'circular_1048' => 'minor_deviations'
-                    ]
+                        'circular_1048' => 'minor_deviations',
+                    ],
                 ],
                 [
                     'id' => 'BSP-RPT-002',
@@ -367,7 +413,7 @@ class ComplianceController extends Controller
                     'critical_issues' => 1,
                     'suspicious_transactions' => 3,
                     'large_transactions' => 25,
-                    'cross_border_transactions' => 5
+                    'cross_border_transactions' => 5,
                 ],
                 [
                     'id' => 'BSP-RPT-003',
@@ -380,15 +426,15 @@ class ComplianceController extends Controller
                     'critical_issues' => 0,
                     'customers_reviewed' => 450,
                     'incomplete_kyc' => 12,
-                    'expired_documents' => 8
-                ]
+                    'expired_documents' => 8,
+                ],
             ];
 
             activity()
                 ->causedBy($compliance)
                 ->withProperties([
                     'action' => 'compliance_viewed_reports',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Compliance officer viewed compliance reports');
 
@@ -402,24 +448,24 @@ class ComplianceController extends Controller
                         'total_issues' => 11,
                         'critical_issues' => 1,
                         'branches_covered' => 15,
-                        'last_update' => now()->subMinutes(30)
+                        'last_update' => now()->subMinutes(30),
                     ],
                     'bsp_requirements' => [
                         'circular_951_compliance' => 'fully_compliant',
                         'circular_982_compliance' => 'fully_compliant',
                         'circular_1048_compliance' => 'minor_deviations',
-                        'next_review_date' => now()->addDays(1)->format('Y-m-d')
-                    ]
-                ]
+                        'next_review_date' => now()->addDays(1)->format('Y-m-d'),
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving reports: ' . $e->getMessage());
+            Log::error('Compliance error retrieving reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve compliance reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -437,13 +483,13 @@ class ComplianceController extends Controller
             'date_to' => 'required|date|after_or_equal:date_from',
             'branch_codes' => 'nullable|array',
             'include_recommendations' => 'boolean',
-            'format' => 'nullable|in:pdf,excel,csv'
+            'format' => 'nullable|in:pdf,excel,csv',
         ]);
 
         try {
             $compliance = auth()->user();
 
-            $reportId = 'COMP-' . strtoupper($request->report_type) . '-' . Str::random(8);
+            $reportId = 'COMP-'.strtoupper($request->report_type).'-'.Str::random(8);
 
             activity()
                 ->causedBy($compliance)
@@ -453,10 +499,10 @@ class ComplianceController extends Controller
                     'report_type' => $request->report_type,
                     'date_range' => [
                         'from' => $request->date_from,
-                        'to' => $request->date_to
+                        'to' => $request->date_to,
                     ],
                     'scope' => $request->branch_codes ?? 'all_branches',
-                    'include_recommendations' => $request->include_recommendations ?? true
+                    'include_recommendations' => $request->include_recommendations ?? true,
                 ])
                 ->log('Compliance officer generated compliance report');
 
@@ -468,7 +514,7 @@ class ComplianceController extends Controller
                     'report_type' => $request->report_type,
                     'period' => [
                         'from' => $request->date_from,
-                        'to' => $request->date_to
+                        'to' => $request->date_to,
                     ],
                     'format' => $request->format ?? 'pdf',
                     'status' => 'generating',
@@ -478,18 +524,18 @@ class ComplianceController extends Controller
                     'bsp_compliance' => [
                         'regulatory_standards_applied' => ['BSP Circular 951', 'BSP Circular 982'],
                         'data_integrity_verified' => true,
-                        'audit_trail_included' => true
-                    ]
-                ]
+                        'audit_trail_included' => true,
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error generating report: ' . $e->getMessage());
+            Log::error('Compliance error generating report: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to generate compliance report',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -512,7 +558,7 @@ class ComplianceController extends Controller
                 'assessment_type' => 'nullable|in:customer,transaction,operational,technology',
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
-                'per_page' => 'nullable|integer|min:1|max:100'
+                'per_page' => 'nullable|integer|min:1|max:100',
             ]);
 
             $riskAssessments = [
@@ -529,14 +575,14 @@ class ComplianceController extends Controller
                         'high_transaction_volume' => true,
                         'cross_border_transactions' => true,
                         'cash_intensive_business' => false,
-                        'pep_status' => false
+                        'pep_status' => false,
                     ],
                     'recommended_actions' => [
                         'enhanced_due_diligence',
                         'monthly_review',
-                        'transaction_monitoring'
+                        'transaction_monitoring',
                     ],
-                    'branch_code' => 'BR001'
+                    'branch_code' => 'BR001',
                 ],
                 [
                     'id' => 'RISK-ASSESS-002',
@@ -550,21 +596,21 @@ class ComplianceController extends Controller
                         'unusual_pattern' => true,
                         'large_amount' => true,
                         'new_beneficiary' => false,
-                        'high_risk_country' => false
+                        'high_risk_country' => false,
                     ],
                     'recommended_actions' => [
                         'verify_purpose',
-                        'source_of_funds_verification'
+                        'source_of_funds_verification',
                     ],
-                    'branch_code' => 'BR002'
-                ]
+                    'branch_code' => 'BR002',
+                ],
             ];
 
             activity()
                 ->causedBy($compliance)
                 ->withProperties([
                     'action' => 'compliance_viewed_risk_assessments',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Compliance officer viewed risk assessments');
 
@@ -576,8 +622,8 @@ class ComplianceController extends Controller
                     'pagination' => [
                         'total' => count($riskAssessments),
                         'per_page' => $request->per_page ?? 20,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'summary' => [
                     'total_assessments' => 2,
@@ -585,17 +631,17 @@ class ComplianceController extends Controller
                     'medium_risk' => 1,
                     'low_risk' => 0,
                     'pending_review' => 1,
-                    'overdue_reviews' => 0
-                ]
+                    'overdue_reviews' => 0,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving risk assessments: ' . $e->getMessage());
+            Log::error('Compliance error retrieving risk assessments: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve risk assessments',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -614,13 +660,13 @@ class ComplianceController extends Controller
             'risk_score' => 'required|integer|min:0|max:100',
             'risk_level' => 'required|in:low,medium,high,critical',
             'comments' => 'nullable|string|max:1000',
-            'recommended_actions' => 'nullable|array'
+            'recommended_actions' => 'nullable|array',
         ]);
 
         try {
             $compliance = auth()->user();
 
-            $assessmentId = 'RISK-' . strtoupper($request->assessment_type) . '-' . Str::random(8);
+            $assessmentId = 'RISK-'.strtoupper($request->assessment_type).'-'.Str::random(8);
 
             activity()
                 ->causedBy($compliance)
@@ -632,7 +678,7 @@ class ComplianceController extends Controller
                     'risk_score' => $request->risk_score,
                     'risk_level' => $request->risk_level,
                     'risk_factors' => $request->risk_factors,
-                    'recommended_actions' => $request->recommended_actions ?? []
+                    'recommended_actions' => $request->recommended_actions ?? [],
                 ])
                 ->log('Compliance officer created risk assessment');
 
@@ -649,17 +695,17 @@ class ComplianceController extends Controller
                     'created_by' => $compliance->name,
                     'created_at' => now(),
                     'next_review_date' => now()->addDays(30),
-                    'requires_manager_approval' => in_array($request->risk_level, ['high', 'critical'])
-                ]
+                    'requires_manager_approval' => in_array($request->risk_level, ['high', 'critical']),
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error creating risk assessment: ' . $e->getMessage());
+            Log::error('Compliance error creating risk assessment: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create risk assessment',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -677,7 +723,7 @@ class ComplianceController extends Controller
             'status' => 'nullable|in:pending,reviewed,approved,rejected',
             'comments' => 'nullable|string|max:1000',
             'recommended_actions' => 'nullable|array',
-            'review_notes' => 'nullable|string|max:1000'
+            'review_notes' => 'nullable|string|max:1000',
         ]);
 
         try {
@@ -690,12 +736,12 @@ class ComplianceController extends Controller
                     'assessment_id' => $assessment,
                     'updated_fields' => array_keys($request->only([
                         'risk_score', 'risk_level', 'status', 'comments',
-                        'recommended_actions', 'review_notes'
+                        'recommended_actions', 'review_notes',
                     ])),
                     'updates' => $request->only([
                         'risk_score', 'risk_level', 'status', 'comments',
-                        'recommended_actions', 'review_notes'
-                    ])
+                        'recommended_actions', 'review_notes',
+                    ]),
                 ])
                 ->log('Compliance officer updated risk assessment');
 
@@ -707,17 +753,17 @@ class ComplianceController extends Controller
                     'updated_at' => now(),
                     'updated_by' => $compliance->name,
                     'status' => $request->status ?? 'pending_review',
-                    'requires_manager_approval' => in_array($request->risk_level ?? 'medium', ['high', 'critical'])
-                ]
+                    'requires_manager_approval' => in_array($request->risk_level ?? 'medium', ['high', 'critical']),
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error updating risk assessment: ' . $e->getMessage());
+            Log::error('Compliance error updating risk assessment: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update risk assessment',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -739,7 +785,7 @@ class ComplianceController extends Controller
                 'role' => 'nullable|string',
                 'branch_code' => 'nullable|string',
                 'search' => 'nullable|string|max:100',
-                'per_page' => 'nullable|integer|min:1|max:100'
+                'per_page' => 'nullable|integer|min:1|max:100',
             ]);
 
             $query = User::query()->with(['roles', 'permissions']);
@@ -763,8 +809,8 @@ class ComplianceController extends Controller
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('employee_id', 'like', "%{$search}%");
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('employee_id', 'like', "%{$search}%");
                 });
             }
 
@@ -775,7 +821,7 @@ class ComplianceController extends Controller
                 ->withProperties([
                     'action' => 'compliance_viewed_users',
                     'filters' => $request->all(),
-                    'result_count' => $users->total()
+                    'result_count' => $users->total(),
                 ])
                 ->log('Compliance officer viewed users (read-only)');
 
@@ -786,17 +832,17 @@ class ComplianceController extends Controller
                 'meta' => [
                     'access_type' => 'read_only',
                     'compliance_view' => true,
-                    'can_modify' => false
-                ]
+                    'can_modify' => false,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving users: ' . $e->getMessage());
+            Log::error('Compliance error retrieving users: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve users',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -818,14 +864,14 @@ class ComplianceController extends Controller
                 'date_to' => 'nullable|date|after_or_equal:date_from',
                 'branch_code' => 'nullable|string',
                 'risk_level' => 'nullable|in:low,medium,high,critical',
-                'per_page' => 'nullable|integer|min:1|max:200'
+                'per_page' => 'nullable|integer|min:1|max:200',
             ]);
 
             // Placeholder data with compliance focus
             $transactions = [
                 [
                     'id' => 'TXN-001',
-                    'reference_number' => 'REF-' . Str::random(10),
+                    'reference_number' => 'REF-'.Str::random(10),
                     'type' => 'transfer',
                     'amount' => 150000.00,
                     'currency' => 'PHP',
@@ -838,11 +884,11 @@ class ComplianceController extends Controller
                     'risk_level' => 'medium',
                     'aml_checked' => true,
                     'compliance_flags' => [],
-                    'bsp_reporting_required' => true
+                    'bsp_reporting_required' => true,
                 ],
                 [
                     'id' => 'TXN-002',
-                    'reference_number' => 'REF-' . Str::random(10),
+                    'reference_number' => 'REF-'.Str::random(10),
                     'type' => 'withdrawal',
                     'amount' => 500000.00,
                     'currency' => 'PHP',
@@ -854,8 +900,8 @@ class ComplianceController extends Controller
                     'risk_level' => 'high',
                     'aml_checked' => false,
                     'compliance_flags' => ['large_amount', 'unusual_pattern'],
-                    'bsp_reporting_required' => true
-                ]
+                    'bsp_reporting_required' => true,
+                ],
             ];
 
             activity()
@@ -863,7 +909,7 @@ class ComplianceController extends Controller
                 ->withProperties([
                     'action' => 'compliance_viewed_transactions',
                     'filters' => $request->all(),
-                    'result_count' => count($transactions)
+                    'result_count' => count($transactions),
                 ])
                 ->log('Compliance officer viewed transactions (read-only)');
 
@@ -875,28 +921,28 @@ class ComplianceController extends Controller
                     'pagination' => [
                         'total' => count($transactions),
                         'per_page' => $request->per_page ?? 50,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'compliance_summary' => [
                     'high_risk_transactions' => 1,
                     'pending_compliance_review' => 1,
                     'bsp_reportable' => 2,
-                    'aml_flags' => 2
+                    'aml_flags' => 2,
                 ],
                 'meta' => [
                     'access_type' => 'read_only',
-                    'compliance_view' => true
-                ]
+                    'compliance_view' => true,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving transactions: ' . $e->getMessage());
+            Log::error('Compliance error retrieving transactions: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve transactions',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -915,7 +961,7 @@ class ComplianceController extends Controller
                 'branch_code' => 'nullable|string',
                 'risk_level' => 'nullable|in:low,medium,high,critical',
                 'kyc_status' => 'nullable|in:verified,pending,expired',
-                'per_page' => 'nullable|integer|min:1|max:100'
+                'per_page' => 'nullable|integer|min:1|max:100',
             ]);
 
             // Placeholder data
@@ -934,7 +980,7 @@ class ComplianceController extends Controller
                     'kyc_status' => 'verified',
                     'kyc_last_updated' => now()->subMonths(6),
                     'compliance_flags' => [],
-                    'dormant_status' => false
+                    'dormant_status' => false,
                 ],
                 [
                     'account_number' => '0987654321',
@@ -950,8 +996,8 @@ class ComplianceController extends Controller
                     'kyc_status' => 'verified',
                     'kyc_last_updated' => now()->subMonths(3),
                     'compliance_flags' => ['high_value_account'],
-                    'dormant_status' => false
-                ]
+                    'dormant_status' => false,
+                ],
             ];
 
             activity()
@@ -959,7 +1005,7 @@ class ComplianceController extends Controller
                 ->withProperties([
                     'action' => 'compliance_viewed_accounts',
                     'filters' => $request->all(),
-                    'result_count' => count($accounts)
+                    'result_count' => count($accounts),
                 ])
                 ->log('Compliance officer viewed accounts (read-only)');
 
@@ -971,24 +1017,24 @@ class ComplianceController extends Controller
                     'pagination' => [
                         'total' => count($accounts),
                         'per_page' => $request->per_page ?? 50,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'compliance_summary' => [
                     'high_risk_accounts' => 1,
                     'kyc_expiring_soon' => 0,
                     'dormant_accounts' => 0,
-                    'high_value_accounts' => 1
-                ]
+                    'high_value_accounts' => 1,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving accounts: ' . $e->getMessage());
+            Log::error('Compliance error retrieving accounts: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve accounts',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1007,7 +1053,7 @@ class ComplianceController extends Controller
                 'risk_level' => 'nullable|in:low,medium,high,critical',
                 'branch_code' => 'nullable|string',
                 'pep_status' => 'nullable|boolean',
-                'per_page' => 'nullable|integer|min:1|max:100'
+                'per_page' => 'nullable|integer|min:1|max:100',
             ]);
 
             // Placeholder data
@@ -1028,7 +1074,7 @@ class ComplianceController extends Controller
                     'pep_status' => false,
                     'sanctions_checked' => true,
                     'compliance_flags' => [],
-                    'documents_status' => 'complete'
+                    'documents_status' => 'complete',
                 ],
                 [
                     'id' => 'CUST-002',
@@ -1046,8 +1092,8 @@ class ComplianceController extends Controller
                     'pep_status' => true,
                     'sanctions_checked' => true,
                     'compliance_flags' => ['pep', 'high_value', 'complex_structure'],
-                    'documents_status' => 'pending_review'
-                ]
+                    'documents_status' => 'pending_review',
+                ],
             ];
 
             activity()
@@ -1055,7 +1101,7 @@ class ComplianceController extends Controller
                 ->withProperties([
                     'action' => 'compliance_viewed_customers',
                     'filters' => $request->all(),
-                    'result_count' => count($customers)
+                    'result_count' => count($customers),
                 ])
                 ->log('Compliance officer viewed customers (read-only)');
 
@@ -1067,24 +1113,24 @@ class ComplianceController extends Controller
                     'pagination' => [
                         'total' => count($customers),
                         'per_page' => $request->per_page ?? 50,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'compliance_summary' => [
                     'high_risk_customers' => 1,
                     'pep_customers' => 1,
                     'pending_kyc_review' => 1,
-                    'sanctions_alerts' => 0
-                ]
+                    'sanctions_alerts' => 0,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving customers: ' . $e->getMessage());
+            Log::error('Compliance error retrieving customers: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve customers',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1109,7 +1155,7 @@ class ComplianceController extends Controller
                     'can_generate' => true,
                     'formats' => ['pdf', 'excel'],
                     'frequency' => 'daily,weekly,monthly',
-                    'regulatory_requirement' => true
+                    'regulatory_requirement' => true,
                 ],
                 [
                     'type' => 'aml_cft',
@@ -1118,7 +1164,7 @@ class ComplianceController extends Controller
                     'can_generate' => true,
                     'formats' => ['pdf', 'excel', 'csv'],
                     'frequency' => 'daily,weekly,monthly',
-                    'regulatory_requirement' => true
+                    'regulatory_requirement' => true,
                 ],
                 [
                     'type' => 'suspicious_transactions',
@@ -1127,7 +1173,7 @@ class ComplianceController extends Controller
                     'can_generate' => true,
                     'formats' => ['pdf', 'excel'],
                     'frequency' => 'real_time,daily',
-                    'regulatory_requirement' => true
+                    'regulatory_requirement' => true,
                 ],
                 [
                     'type' => 'kyc_compliance',
@@ -1136,8 +1182,8 @@ class ComplianceController extends Controller
                     'can_generate' => true,
                     'formats' => ['pdf', 'excel'],
                     'frequency' => 'weekly,monthly',
-                    'regulatory_requirement' => true
-                ]
+                    'regulatory_requirement' => true,
+                ],
             ];
 
             activity()
@@ -1155,18 +1201,18 @@ class ComplianceController extends Controller
                         'can_generate_reports' => true,
                         'can_export_reports' => true,
                         'can_schedule_reports' => true,
-                        'can_modify_reports' => false
-                    ]
-                ]
+                        'can_modify_reports' => false,
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving reports: ' . $e->getMessage());
+            Log::error('Compliance error retrieving reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1183,13 +1229,13 @@ class ComplianceController extends Controller
             'format' => 'nullable|in:pdf,excel,csv',
             'branch_codes' => 'nullable|array',
             'include_sensitive_data' => 'boolean',
-            'regulatory_submission' => 'boolean'
+            'regulatory_submission' => 'boolean',
         ]);
 
         try {
             $compliance = auth()->user();
 
-            $reportId = 'COMP-RPT-' . strtoupper($request->type) . '-' . Str::random(8);
+            $reportId = 'COMP-RPT-'.strtoupper($request->type).'-'.Str::random(8);
 
             activity()
                 ->causedBy($compliance)
@@ -1199,10 +1245,10 @@ class ComplianceController extends Controller
                     'report_type' => $request->type,
                     'date_range' => [
                         'from' => $request->from_date,
-                        'to' => $request->to_date
+                        'to' => $request->to_date,
                     ],
                     'format' => $request->format ?? 'pdf',
-                    'regulatory_submission' => $request->regulatory_submission ?? false
+                    'regulatory_submission' => $request->regulatory_submission ?? false,
                 ])
                 ->log('Compliance officer generated specialized report');
 
@@ -1214,24 +1260,24 @@ class ComplianceController extends Controller
                     'type' => $request->type,
                     'period' => [
                         'from' => $request->from_date,
-                        'to' => $request->to_date
+                        'to' => $request->to_date,
                     ],
                     'format' => $request->format ?? 'pdf',
                     'status' => 'generating',
                     'estimated_completion' => now()->addMinutes(15),
                     'download_url' => "/api/compliance/reports/download/{$reportId}",
                     'expires_at' => now()->addDays(30),
-                    'regulatory_submission' => $request->regulatory_submission ?? false
-                ]
+                    'regulatory_submission' => $request->regulatory_submission ?? false,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error generating specialized report: ' . $e->getMessage());
+            Log::error('Compliance error generating specialized report: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to generate specialized report',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1246,7 +1292,7 @@ class ComplianceController extends Controller
         $request->validate([
             'report_id' => 'required|string',
             'format' => 'required|in:pdf,excel,csv,json',
-            'encryption_required' => 'boolean'
+            'encryption_required' => 'boolean',
         ]);
 
         try {
@@ -1258,7 +1304,7 @@ class ComplianceController extends Controller
                     'action' => 'compliance_exported_report',
                     'report_id' => $request->report_id,
                     'format' => $request->format,
-                    'encryption_required' => $request->encryption_required ?? true
+                    'encryption_required' => $request->encryption_required ?? true,
                 ])
                 ->log('Compliance officer exported report');
 
@@ -1266,22 +1312,22 @@ class ComplianceController extends Controller
                 'success' => true,
                 'message' => 'Report export initiated successfully',
                 'data' => [
-                    'export_id' => 'EXP-' . $request->report_id,
+                    'export_id' => 'EXP-'.$request->report_id,
                     'report_id' => $request->report_id,
                     'format' => $request->format,
                     'encryption_applied' => $request->encryption_required ?? true,
                     'download_url' => "/api/compliance/exports/download/{$request->report_id}",
-                    'expires_at' => now()->addHours(24)
-                ]
+                    'expires_at' => now()->addHours(24),
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error exporting report: ' . $e->getMessage());
+            Log::error('Compliance error exporting report: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to export report',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1297,7 +1343,7 @@ class ComplianceController extends Controller
             $request->validate([
                 'period' => 'nullable|in:daily,weekly,monthly,quarterly,annual',
                 'report_type' => 'nullable|in:balance_sheet,income_statement,cash_flow,regulatory',
-                'branch_code' => 'nullable|string'
+                'branch_code' => 'nullable|string',
             ]);
 
             $financialReports = [
@@ -1310,8 +1356,8 @@ class ComplianceController extends Controller
                         'tier2_capital' => 30000000.00,
                         'capital_adequacy_ratio' => 15.5,
                         'bsp_minimum_requirement' => 10.0,
-                        'compliance_status' => 'compliant'
-                    ]
+                        'compliance_status' => 'compliant',
+                    ],
                 ],
                 [
                     'type' => 'liquidity_coverage',
@@ -1321,16 +1367,16 @@ class ComplianceController extends Controller
                         'net_cash_outflows' => 50000000.00,
                         'liquidity_coverage_ratio' => 150.0,
                         'bsp_minimum_requirement' => 100.0,
-                        'compliance_status' => 'compliant'
-                    ]
-                ]
+                        'compliance_status' => 'compliant',
+                    ],
+                ],
             ];
 
             activity()
                 ->causedBy($compliance)
                 ->withProperties([
                     'action' => 'compliance_viewed_financial_reports',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Compliance officer viewed financial reports');
 
@@ -1342,18 +1388,18 @@ class ComplianceController extends Controller
                     'compliance_overview' => [
                         'capital_adequacy' => 'compliant',
                         'liquidity_requirements' => 'compliant',
-                        'regulatory_ratios' => 'within_limits'
-                    ]
-                ]
+                        'regulatory_ratios' => 'within_limits',
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving financial reports: ' . $e->getMessage());
+            Log::error('Compliance error retrieving financial reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve financial reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1370,7 +1416,7 @@ class ComplianceController extends Controller
                 'report_type' => 'nullable|in:bsp_submission,amlc_report,dof_filing,monthly_report',
                 'submission_status' => 'nullable|in:draft,pending,submitted,approved',
                 'date_from' => 'nullable|date',
-                'date_to' => 'nullable|date|after_or_equal:date_from'
+                'date_to' => 'nullable|date|after_or_equal:date_from',
             ]);
 
             $regulatoryReports = [
@@ -1383,7 +1429,7 @@ class ComplianceController extends Controller
                     'status' => 'draft',
                     'completion_percentage' => 85,
                     'last_updated' => now()->subHours(2),
-                    'regulatory_body' => 'Bangko Sentral ng Pilipinas'
+                    'regulatory_body' => 'Bangko Sentral ng Pilipinas',
                 ],
                 [
                     'id' => 'AMLC-002',
@@ -1394,15 +1440,15 @@ class ComplianceController extends Controller
                     'status' => 'pending_submission',
                     'completion_percentage' => 100,
                     'last_updated' => now()->subHours(1),
-                    'regulatory_body' => 'Anti-Money Laundering Council'
-                ]
+                    'regulatory_body' => 'Anti-Money Laundering Council',
+                ],
             ];
 
             activity()
                 ->causedBy($compliance)
                 ->withProperties([
                     'action' => 'compliance_viewed_regulatory_reports',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Compliance officer viewed regulatory reports');
 
@@ -1415,18 +1461,18 @@ class ComplianceController extends Controller
                         'overdue_reports' => 0,
                         'due_this_week' => 2,
                         'pending_submission' => 1,
-                        'draft_reports' => 1
-                    ]
-                ]
+                        'draft_reports' => 1,
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving regulatory reports: ' . $e->getMessage());
+            Log::error('Compliance error retrieving regulatory reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve regulatory reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1446,7 +1492,7 @@ class ComplianceController extends Controller
             'status' => 'nullable|in:success,failed,locked',
             'ip_address' => 'nullable|ip',
             'user_id' => 'nullable|exists:users,id',
-            'per_page' => 'nullable|integer|min:1|max:200'
+            'per_page' => 'nullable|integer|min:1|max:200',
         ]);
 
         try {
@@ -1497,7 +1543,7 @@ class ComplianceController extends Controller
                 ->withProperties([
                     'action' => 'compliance_viewed_login_attempts',
                     'filters' => $request->all(),
-                    'result_count' => $attempts->total()
+                    'result_count' => $attempts->total(),
                 ])
                 ->log('Compliance officer viewed login attempts');
 
@@ -1509,17 +1555,17 @@ class ComplianceController extends Controller
                 'risk_indicators' => [
                     'brute_force_detected' => $securityAnalytics['failed_attempts_last_24h'] > 100,
                     'mass_lockouts' => $securityAnalytics['locked_accounts_today'] > 10,
-                    'geographical_anomalies' => false // Would be calculated based on IP analysis
-                ]
+                    'geographical_anomalies' => false, // Would be calculated based on IP analysis
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving login attempts: ' . $e->getMessage());
+            Log::error('Compliance error retrieving login attempts: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve login attempts',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1536,7 +1582,7 @@ class ComplianceController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'component' => 'nullable|string',
-            'per_page' => 'nullable|integer|min:1|max:200'
+            'per_page' => 'nullable|integer|min:1|max:200',
         ]);
 
         try {
@@ -1549,22 +1595,22 @@ class ComplianceController extends Controller
                     'level' => 'warning',
                     'component' => 'authentication',
                     'message' => 'Multiple failed login attempts detected from IP 192.168.1.100',
-                    'context' => ['ip' => '192.168.1.100', 'attempts' => 5]
+                    'context' => ['ip' => '192.168.1.100', 'attempts' => 5],
                 ],
                 [
                     'timestamp' => now()->subMinutes(30),
                     'level' => 'info',
                     'component' => 'transaction_processing',
                     'message' => 'High-value transaction processed successfully',
-                    'context' => ['amount' => 500000, 'reference' => 'TXN-12345']
+                    'context' => ['amount' => 500000, 'reference' => 'TXN-12345'],
                 ],
                 [
                     'timestamp' => now()->subHours(1),
                     'level' => 'error',
                     'component' => 'database',
                     'message' => 'Database connection timeout during peak hours',
-                    'context' => ['duration' => '30s', 'queries_affected' => 25]
-                ]
+                    'context' => ['duration' => '30s', 'queries_affected' => 25],
+                ],
             ];
 
             activity()
@@ -1572,7 +1618,7 @@ class ComplianceController extends Controller
                 ->withProperties([
                     'action' => 'compliance_viewed_system_logs',
                     'filters' => $request->all(),
-                    'result_count' => count($systemLogs)
+                    'result_count' => count($systemLogs),
                 ])
                 ->log('Compliance officer viewed system logs');
 
@@ -1584,24 +1630,24 @@ class ComplianceController extends Controller
                     'pagination' => [
                         'total' => count($systemLogs),
                         'per_page' => $request->per_page ?? 100,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'log_summary' => [
                     'error_count' => 1,
                     'warning_count' => 1,
                     'info_count' => 1,
-                    'critical_issues' => 0
-                ]
+                    'critical_issues' => 0,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving system logs: ' . $e->getMessage());
+            Log::error('Compliance error retrieving system logs: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve system logs',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1618,7 +1664,7 @@ class ComplianceController extends Controller
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'severity' => 'nullable|in:low,medium,high,critical',
             'event_type' => 'nullable|in:authentication,authorization,data_access,configuration_change',
-            'per_page' => 'nullable|integer|min:1|max:200'
+            'per_page' => 'nullable|integer|min:1|max:200',
         ]);
 
         try {
@@ -1627,7 +1673,7 @@ class ComplianceController extends Controller
             $securityEvents = [
                 'failed_login', 'account_locked', 'password_reset', 'unauthorized_access',
                 'privilege_escalation', 'data_export', 'system_configuration_change',
-                'suspicious_transaction', 'high_value_transaction'
+                'suspicious_transaction', 'high_value_transaction',
             ];
 
             $query = Activity::whereIn('description', $securityEvents)
@@ -1665,7 +1711,7 @@ class ComplianceController extends Controller
                 ->withProperties([
                     'action' => 'compliance_viewed_security_events',
                     'filters' => $request->all(),
-                    'result_count' => $events->total()
+                    'result_count' => $events->total(),
                 ])
                 ->log('Compliance officer viewed security events');
 
@@ -1680,18 +1726,18 @@ class ComplianceController extends Controller
                     'recommendations' => [
                         'Implement additional MFA for high-risk accounts',
                         'Review and update access controls',
-                        'Enhance monitoring for unusual transaction patterns'
-                    ]
-                ]
+                        'Enhance monitoring for unusual transaction patterns',
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving security events: ' . $e->getMessage());
+            Log::error('Compliance error retrieving security events: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve security events',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1712,7 +1758,7 @@ class ComplianceController extends Controller
                 'branch_code' => 'nullable|string',
                 'metric_type' => 'nullable|in:transactions,accounts,customers,compliance',
                 'date_from' => 'nullable|date',
-                'date_to' => 'nullable|date|after_or_equal:date_from'
+                'date_to' => 'nullable|date|after_or_equal:date_from',
             ]);
 
             $branchData = [
@@ -1728,7 +1774,7 @@ class ComplianceController extends Controller
                     'aml_alerts' => 3,
                     'staff_count' => 12,
                     'last_audit_date' => now()->subMonths(3),
-                    'next_audit_due' => now()->addMonths(9)
+                    'next_audit_due' => now()->addMonths(9),
                 ],
                 [
                     'branch_code' => 'BR002',
@@ -1742,15 +1788,15 @@ class ComplianceController extends Controller
                     'aml_alerts' => 8,
                     'staff_count' => 10,
                     'last_audit_date' => now()->subMonths(6),
-                    'next_audit_due' => now()->addMonths(6)
-                ]
+                    'next_audit_due' => now()->addMonths(6),
+                ],
             ];
 
             activity()
                 ->causedBy($compliance)
                 ->withProperties([
                     'action' => 'compliance_viewed_branch_data',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Compliance officer viewed branch data');
 
@@ -1763,18 +1809,18 @@ class ComplianceController extends Controller
                         'average_compliance_score' => 92.1,
                         'total_high_risk_transactions' => 37,
                         'total_aml_alerts' => 11,
-                        'branches_due_for_audit' => 1
-                    ]
-                ]
+                        'branches_due_for_audit' => 1,
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving branch data: ' . $e->getMessage());
+            Log::error('Compliance error retrieving branch data: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve branch data',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1790,7 +1836,7 @@ class ComplianceController extends Controller
             $request->validate([
                 'branch_code' => 'nullable|string',
                 'report_type' => 'nullable|in:compliance,performance,risk,audit',
-                'period' => 'nullable|in:daily,weekly,monthly,quarterly'
+                'period' => 'nullable|in:daily,weekly,monthly,quarterly',
             ]);
 
             $branchReports = [
@@ -1804,7 +1850,7 @@ class ComplianceController extends Controller
                             'status' => 'compliant',
                             'score' => 95.5,
                             'last_updated' => now()->subHours(6),
-                            'issues' => []
+                            'issues' => [],
                         ],
                         [
                             'type' => 'risk',
@@ -1812,9 +1858,9 @@ class ComplianceController extends Controller
                             'status' => 'medium_risk',
                             'score' => 72.3,
                             'last_updated' => now()->subDays(1),
-                            'issues' => ['high_cash_transactions', 'unusual_customer_behavior']
-                        ]
-                    ]
+                            'issues' => ['high_cash_transactions', 'unusual_customer_behavior'],
+                        ],
+                    ],
                 ],
                 [
                     'branch_code' => 'BR002',
@@ -1826,7 +1872,7 @@ class ComplianceController extends Controller
                             'status' => 'minor_issues',
                             'score' => 88.7,
                             'last_updated' => now()->subHours(4),
-                            'issues' => ['kyc_documentation_gaps']
+                            'issues' => ['kyc_documentation_gaps'],
                         ],
                         [
                             'type' => 'risk',
@@ -1834,33 +1880,33 @@ class ComplianceController extends Controller
                             'status' => 'high_risk',
                             'score' => 82.1,
                             'last_updated' => now()->subDays(1),
-                            'issues' => ['multiple_aml_alerts', 'staff_training_overdue']
-                        ]
-                    ]
-                ]
+                            'issues' => ['multiple_aml_alerts', 'staff_training_overdue'],
+                        ],
+                    ],
+                ],
             ];
 
             activity()
                 ->causedBy($compliance)
                 ->withProperties([
                     'action' => 'compliance_viewed_branch_reports',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Compliance officer viewed branch reports');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Branch reports retrieved successfully',
-                'data' => $branchReports
+                'data' => $branchReports,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error retrieving branch reports: ' . $e->getMessage());
+            Log::error('Compliance error retrieving branch reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve branch reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }

@@ -20,6 +20,8 @@ class Customer extends Model
     protected $fillable = [
         'account_no',
         'date_opened',
+        'date_updated',
+        'photo',
         'branch_id',
         'uploaded_by',
         'firstname',
@@ -37,6 +39,7 @@ class Customer extends Model
     {
         return [
             'date_opened' => 'date:Y-m-d',
+            'date_updated' => 'date:Y-m-d',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

@@ -7,6 +7,7 @@ import RolePermissionMatrix from "../pages/admin/RolePermissionMatrix";
 import AuditLogs from "../pages/admin/AuditLogs";
 import SystemSettings from "../pages/admin/SystemSettings";
 import DataManagement from "../pages/admin/DataManagement";
+import BranchManagement from "../pages/admin/BranchManagement";
 import AdminCustomerProfiles from "../pages/admin/CustomerProfiles";
 import AdminCustomerView from "../pages/admin/CustomerView";
 import AddAccount from "../pages/user/AddAccount.jsx";
@@ -61,6 +62,16 @@ const AdminRoutes = () => {
           <ProtectedRoute roles={["admin"]}>
             <AppLayout userRole="admin">
               <SystemSettings />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/branches"
+        element={
+          <ProtectedRoute roles={["admin"]}>
+            <AppLayout userRole="admin">
+              <BranchManagement />
             </AppLayout>
           </ProtectedRoute>
         }

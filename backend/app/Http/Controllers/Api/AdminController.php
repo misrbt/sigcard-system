@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\CreateUserRequest;
-use App\Http\Requests\UpdateUserRequest;
-use App\Http\Requests\CreateRoleRequest;
-use App\Http\Requests\UpdateRoleRequest;
 use App\Http\Requests\CreatePermissionRequest;
+use App\Http\Requests\CreateRoleRequest;
+use App\Http\Requests\CreateUserRequest;
 use App\Http\Requests\SystemSettingsRequest;
+use App\Http\Requests\UpdateRoleRequest;
+use App\Http\Requests\UpdateUserRequest;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\CustomerDocument;
@@ -16,22 +16,18 @@ use App\Models\User;
 use App\Services\BSPAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
-use Spatie\Permission\Models\Role;
-use Spatie\Permission\Models\Permission;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Spatie\Activitylog\Models\Activity;
-use Carbon\Carbon;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class AdminController extends Controller
 {
-
     // =============================================
     // DASHBOARD STATS
     // =============================================
@@ -41,10 +37,12 @@ class AdminController extends Controller
      */
     public function getDashboardStats(): JsonResponse
     {
-        $totalCustomers  = Customer::count();
-        $totalUsers      = User::count();
-        $totalDocuments  = CustomerDocument::count();
-        $totalSigcards   = CustomerDocument::where('document_type', 'sigcard_front')->count();
+        $totalCustomers = Customer::count();
+        $totalUsers = User::count();
+        $totalDocuments = CustomerDocument::count();
+        $totalSigcards = CustomerDocument::where('document_type', 'sigcard_front')->count();
+        $todayUploads = Customer::whereDate('created_at', today())->count();
+        $totalBranches = Branch::where('branch_name', '!=', 'Head Office')->count();
 
         $byStatus = Customer::select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
@@ -58,42 +56,77 @@ class AdminController extends Controller
             ->groupBy('risk_level')
             ->pluck('count', 'risk_level');
 
-        // Customers per branch
+        // Sigcard counts per branch (keyed by branch_id)
+        $sigcardCounts = CustomerDocument::where('document_type', 'sigcard_front')
+            ->join('customers', 'customer_documents.customer_id', '=', 'customers.id')
+            ->select('customers.branch_id', DB::raw('count(*) as count'))
+            ->groupBy('customers.branch_id')
+            ->pluck('count', 'branch_id');
+
+        // Document counts per branch (keyed by branch_id)
+        $documentCounts = CustomerDocument::join('customers', 'customer_documents.customer_id', '=', 'customers.id')
+            ->select('customers.branch_id', DB::raw('count(*) as count'))
+            ->groupBy('customers.branch_id')
+            ->pluck('count', 'branch_id');
+
+        // Users per branch
+        $userCounts = User::select('branch_id', DB::raw('count(*) as count'))
+            ->whereNotNull('branch_id')
+            ->groupBy('branch_id')
+            ->pluck('count', 'branch_id');
+
+        // Account type counts per branch
+        $accountTypeCounts = Customer::select('branch_id', 'account_type', DB::raw('count(*) as count'))
+            ->groupBy('branch_id', 'account_type')
+            ->get()
+            ->groupBy('branch_id')
+            ->map(fn ($items) => $items->pluck('count', 'account_type'));
+
+        // Risk level counts per branch
+        $riskLevelCounts = Customer::select('branch_id', 'risk_level', DB::raw('count(*) as count'))
+            ->groupBy('branch_id', 'risk_level')
+            ->get()
+            ->groupBy('branch_id')
+            ->map(fn ($items) => $items->pluck('count', 'risk_level'));
+
+        // Customers per branch with enriched data
         $branches = Branch::withCount('customers')
             ->with(['customers' => function ($q) {
                 $q->select('id', 'branch_id', 'status');
             }])
             ->orderBy('brcode')
             ->get()
-            ->map(function (Branch $branch) {
+            ->map(function (Branch $branch) use ($sigcardCounts, $documentCounts, $userCounts, $accountTypeCounts, $riskLevelCounts) {
                 $statusCounts = $branch->customers->countBy('status');
+                $branchAccountTypes = $accountTypeCounts->get($branch->id, collect());
+                $branchRiskLevels = $riskLevelCounts->get($branch->id, collect());
 
                 return [
-                    'branch_name'    => $branch->branch_name,
-                    'brak'           => $branch->brak,
-                    'brcode'         => $branch->brcode,
-                    'total'          => $branch->customers_count,
-                    'active'         => $statusCounts->get('active', 0),
-                    'dormant'        => $statusCounts->get('dormant', 0),
-                    'escheat'        => $statusCounts->get('escheat', 0),
-                    'closed'         => $statusCounts->get('closed', 0),
+                    'branch_name' => $branch->branch_name,
+                    'brak' => $branch->brak,
+                    'brcode' => $branch->brcode,
+                    'total' => $branch->customers_count,
+                    'active' => $statusCounts->get('active', 0),
+                    'dormant' => $statusCounts->get('dormant', 0),
+                    'escheat' => $statusCounts->get('escheat', 0),
+                    'closed' => $statusCounts->get('closed', 0),
+                    'sigcards' => $sigcardCounts->get($branch->id, 0),
+                    'documents' => $documentCounts->get($branch->id, 0),
+                    'users' => $userCounts->get($branch->id, 0),
+                    'individual' => $branchAccountTypes->get('Individual', 0),
+                    'joint' => $branchAccountTypes->get('Joint', 0),
+                    'corporate' => $branchAccountTypes->get('Corporate', 0),
+                    'low_risk' => $branchRiskLevels->get('Low Risk', 0),
+                    'medium_risk' => $branchRiskLevels->get('Medium Risk', 0),
+                    'high_risk' => $branchRiskLevels->get('High Risk', 0),
                 ];
             });
 
-        // Sigcard uploads per branch
-        $sigcardsByBranch = CustomerDocument::where('document_type', 'sigcard_front')
-            ->join('customers', 'customer_documents.customer_id', '=', 'customers.id')
-            ->join('branches', 'customers.branch_id', '=', 'branches.id')
-            ->select('branches.branch_name', 'branches.brak', DB::raw('count(*) as count'))
-            ->groupBy('branches.id', 'branches.branch_name', 'branches.brak')
-            ->orderBy('count', 'desc')
-            ->get();
-
         // Monthly customer uploads — last 6 months
         $monthlyUploads = Customer::select(
-                DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
-                DB::raw('count(*) as count')
-            )
+            DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
+            DB::raw('count(*) as count')
+        )
             ->where('created_at', '>=', now()->subMonths(6)->startOfMonth())
             ->groupBy('month')
             ->orderBy('month')
@@ -102,44 +135,45 @@ class AdminController extends Controller
 
         $months = collect();
         for ($i = 5; $i >= 0; $i--) {
-            $key    = now()->subMonths($i)->format('Y-m');
-            $label  = now()->subMonths($i)->format('M Y');
+            $key = now()->subMonths($i)->format('Y-m');
+            $label = now()->subMonths($i)->format('M Y');
             $months->push(['label' => $label, 'count' => $monthlyUploads->get($key)?->count ?? 0]);
         }
 
-        // Recent 8 customer uploads
+        // Recent 10 customer uploads
         $recentUploads = Customer::with(['branch', 'uploader'])
             ->latest()
-            ->limit(8)
+            ->limit(10)
             ->get()
-            ->map(fn(Customer $c) => [
-                'id'           => $c->id,
-                'full_name'    => $c->full_name,
+            ->map(fn (Customer $c) => [
+                'id' => $c->id,
+                'full_name' => $c->full_name,
                 'account_type' => $c->account_type,
-                'status'       => $c->status,
-                'branch'       => $c->branch?->branch_name,
-                'uploader'     => $c->uploader?->full_name,
-                'uploaded_at'  => $c->created_at->format('M d, Y'),
+                'status' => $c->status,
+                'branch' => $c->branch?->branch_name,
+                'uploader' => $c->uploader?->full_name,
+                'uploaded_at' => $c->created_at->format('M d, Y'),
             ]);
 
         return response()->json([
             'summary' => [
                 'total_customers' => $totalCustomers,
-                'total_users'     => $totalUsers,
+                'total_users' => $totalUsers,
                 'total_documents' => $totalDocuments,
-                'total_sigcards'  => $totalSigcards,
-                'active'          => $byStatus->get('active', 0),
-                'dormant'         => $byStatus->get('dormant', 0),
-                'escheat'         => $byStatus->get('escheat', 0),
-                'closed'          => $byStatus->get('closed', 0),
+                'total_sigcards' => $totalSigcards,
+                'today_uploads' => $todayUploads,
+                'total_branches' => $totalBranches,
+                'active' => $byStatus->get('active', 0),
+                'dormant' => $byStatus->get('dormant', 0),
+                'escheat' => $byStatus->get('escheat', 0),
+                'closed' => $byStatus->get('closed', 0),
             ],
-            'by_status'          => $byStatus,
-            'by_account_type'    => $byAccountType,
-            'by_risk_level'      => $byRiskLevel,
-            'by_branch'          => $branches,
-            'sigcards_by_branch' => $sigcardsByBranch,
-            'monthly_uploads'    => $months,
-            'recent_uploads'     => $recentUploads,
+            'by_status' => $byStatus,
+            'by_account_type' => $byAccountType,
+            'by_risk_level' => $byRiskLevel,
+            'by_branch' => $branches,
+            'monthly_uploads' => $months,
+            'recent_uploads' => $recentUploads,
         ]);
     }
 
@@ -175,19 +209,19 @@ class AdminController extends Controller
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('firstname', 'like', "%{$search}%")
-                      ->orWhere('lastname', 'like', "%{$search}%")
-                      ->orWhere('username', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%");
+                        ->orWhere('lastname', 'like', "%{$search}%")
+                        ->orWhere('username', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
                 });
             }
 
-            $allowed  = ['firstname', 'lastname', 'email', 'username', 'status', 'created_at', 'last_login_at'];
-            $sortBy   = in_array($request->sort_by, $allowed) ? $request->sort_by : 'created_at';
-            $sortDir  = $request->sort_dir === 'asc' ? 'asc' : 'desc';
+            $allowed = ['firstname', 'lastname', 'email', 'username', 'status', 'created_at', 'last_login_at'];
+            $sortBy = in_array($request->sort_by, $allowed) ? $request->sort_by : 'created_at';
+            $sortDir = $request->sort_dir === 'asc' ? 'asc' : 'desc';
             $query->orderBy($sortBy, $sortDir);
 
-            $perPage  = min((int) ($request->per_page ?? 15), 100);
-            $users    = $query->paginate($perPage);
+            $perPage = min((int) ($request->per_page ?? 15), 100);
+            $users = $query->paginate($perPage);
 
             activity()
                 ->causedBy(auth()->user())
@@ -203,16 +237,16 @@ class AdminController extends Controller
                     'total_inactive' => User::where('status', 'inactive')->count(),
                     'total_suspended' => User::where('status', 'suspended')->count(),
                     'total_locked' => User::whereNotNull('account_locked_at')->count(),
-                ]
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving users: ' . $e->getMessage());
+            Log::error('Error retrieving users: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve users',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -228,10 +262,10 @@ class AdminController extends Controller
             $temporaryPassword = 'abc_123';
 
             $userData = $request->validated();
-            $userData['password']              = Hash::make($temporaryPassword);
+            $userData['password'] = Hash::make($temporaryPassword);
             $userData['force_password_change'] = true;
-            $userData['password_changed_at']   = now();
-            $userData['password_expires_at']   = null;
+            $userData['password_changed_at'] = now();
+            $userData['password_expires_at'] = null;
 
             $user = User::create($userData);
 
@@ -247,25 +281,25 @@ class AdminController extends Controller
                 ->performedOn($user)
                 ->withProperties([
                     'action' => 'user_created',
-                    'user_data' => $user->only(['firstname', 'lastname', 'email', 'branch_id'])
+                    'user_data' => $user->only(['firstname', 'lastname', 'email', 'branch_id']),
                 ])
                 ->log('Admin created new user');
 
             return response()->json([
-                'success'            => true,
-                'message'            => 'User created successfully. They must log in with the temporary password and set a new one.',
+                'success' => true,
+                'message' => 'User created successfully. They must log in with the temporary password and set a new one.',
                 'temporary_password' => $temporaryPassword,
-                'data'               => $user->load(['roles', 'permissions']),
+                'data' => $user->load(['roles', 'permissions']),
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error creating user: ' . $e->getMessage());
+            Log::error('Error creating user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -306,24 +340,24 @@ class AdminController extends Controller
                 ->withProperties([
                     'action' => 'user_updated',
                     'original_data' => $originalData,
-                    'updated_data' => $user->fresh()->toArray()
+                    'updated_data' => $user->fresh()->toArray(),
                 ])
                 ->log('Admin updated user');
 
             return response()->json([
                 'success' => true,
                 'message' => 'User updated successfully',
-                'data' => $user->fresh()->load(['roles', 'permissions'])
+                'data' => $user->fresh()->load(['roles', 'permissions']),
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error updating user: ' . $e->getMessage());
+            Log::error('Error updating user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -340,7 +374,7 @@ class AdminController extends Controller
             if ($user->hasRole('admin')) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete admin user'
+                    'message' => 'Cannot delete admin user',
                 ], 403);
             }
 
@@ -348,7 +382,7 @@ class AdminController extends Controller
             if ($user->id === auth()->id()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete your own account'
+                    'message' => 'Cannot delete your own account',
                 ], 403);
             }
 
@@ -357,8 +391,8 @@ class AdminController extends Controller
             // Instead of hard delete, deactivate user for BSP compliance
             $user->update([
                 'status' => 'inactive',
-                'email' => $user->email . '_deleted_' . time(),
-                'employee_id' => $user->employee_id . '_deleted_' . time(),
+                'email' => $user->email.'_deleted_'.time(),
+                'employee_id' => $user->employee_id.'_deleted_'.time(),
             ]);
 
             activity()
@@ -366,22 +400,22 @@ class AdminController extends Controller
                 ->performedOn($user)
                 ->withProperties([
                     'action' => 'user_deleted',
-                    'user_data' => $userData
+                    'user_data' => $userData,
                 ])
                 ->log('Admin deleted user');
 
             return response()->json([
                 'success' => true,
-                'message' => 'User deleted successfully'
+                'message' => 'User deleted successfully',
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error deleting user: ' . $e->getMessage());
+            Log::error('Error deleting user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -397,7 +431,7 @@ class AdminController extends Controller
             $user->update([
                 'status' => 'active',
                 'account_locked_at' => null,
-                'failed_login_attempts' => 0
+                'failed_login_attempts' => 0,
             ]);
 
             activity()
@@ -409,16 +443,16 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User account activated successfully',
-                'data' => $user->fresh()
+                'data' => $user->fresh(),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error activating user: ' . $e->getMessage());
+            Log::error('Error activating user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to activate user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -435,7 +469,7 @@ class AdminController extends Controller
             if ($user->hasRole('admin')) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot deactivate admin user'
+                    'message' => 'Cannot deactivate admin user',
                 ], 403);
             }
 
@@ -443,7 +477,7 @@ class AdminController extends Controller
             if ($user->id === auth()->id()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot deactivate your own account'
+                    'message' => 'Cannot deactivate your own account',
                 ], 403);
             }
 
@@ -461,16 +495,16 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User account deactivated successfully',
-                'data' => $user->fresh()
+                'data' => $user->fresh(),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error deactivating user: ' . $e->getMessage());
+            Log::error('Error deactivating user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to deactivate user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -485,7 +519,7 @@ class AdminController extends Controller
         try {
             $user->update([
                 'account_locked_at' => null,
-                'failed_login_attempts' => 0
+                'failed_login_attempts' => 0,
             ]);
 
             activity()
@@ -497,16 +531,16 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User account unlocked successfully',
-                'data' => $user->fresh()
+                'data' => $user->fresh(),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error unlocking user: ' . $e->getMessage());
+            Log::error('Error unlocking user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to unlock user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -545,16 +579,16 @@ class AdminController extends Controller
                 'data' => [
                     'temporary_password' => $temporaryPassword,
                     'force_change_required' => true,
-                ]
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error resetting password: ' . $e->getMessage());
+            Log::error('Error resetting password: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reset password',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -581,16 +615,16 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Roles retrieved successfully',
-                'data' => $roles
+                'data' => $roles,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving roles: ' . $e->getMessage());
+            Log::error('Error retrieving roles: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve roles',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -617,24 +651,24 @@ class AdminController extends Controller
                 ->performedOn($role)
                 ->withProperties([
                     'action' => 'role_created',
-                    'role_data' => $role->toArray()
+                    'role_data' => $role->toArray(),
                 ])
                 ->log('Admin created new role');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Role created successfully',
-                'data' => $role->load('permissions')
+                'data' => $role->load('permissions'),
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error creating role: ' . $e->getMessage());
+            Log::error('Error creating role: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create role',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -663,24 +697,24 @@ class AdminController extends Controller
                 ->withProperties([
                     'action' => 'role_updated',
                     'original_data' => $originalData,
-                    'updated_data' => $role->fresh()->toArray()
+                    'updated_data' => $role->fresh()->toArray(),
                 ])
                 ->log('Admin updated role');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Role updated successfully',
-                'data' => $role->fresh()->load('permissions')
+                'data' => $role->fresh()->load('permissions'),
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error updating role: ' . $e->getMessage());
+            Log::error('Error updating role: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update role',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -697,7 +731,7 @@ class AdminController extends Controller
             if ($role->name === 'super-admin') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete super-admin role'
+                    'message' => 'Cannot delete super-admin role',
                 ], 403);
             }
 
@@ -705,7 +739,7 @@ class AdminController extends Controller
             if ($role->users()->count() > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete role that is assigned to users'
+                    'message' => 'Cannot delete role that is assigned to users',
                 ], 403);
             }
 
@@ -716,22 +750,22 @@ class AdminController extends Controller
                 ->causedBy(auth()->user())
                 ->withProperties([
                     'action' => 'role_deleted',
-                    'role_data' => $roleData
+                    'role_data' => $roleData,
                 ])
                 ->log('Admin deleted role');
 
             return response()->json([
                 'success' => true,
-                'message' => 'Role deleted successfully'
+                'message' => 'Role deleted successfully',
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error deleting role: ' . $e->getMessage());
+            Log::error('Error deleting role: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete role',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -745,7 +779,7 @@ class AdminController extends Controller
 
         $request->validate([
             'roles' => 'required|array',
-            'roles.*' => 'exists:roles,name'
+            'roles.*' => 'exists:roles,name',
         ]);
 
         try {
@@ -756,23 +790,23 @@ class AdminController extends Controller
                 ->performedOn($user)
                 ->withProperties([
                     'action' => 'roles_assigned',
-                    'roles' => $request->roles
+                    'roles' => $request->roles,
                 ])
                 ->log('Admin assigned roles to user');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Roles assigned successfully',
-                'data' => $user->fresh()->load(['roles', 'permissions'])
+                'data' => $user->fresh()->load(['roles', 'permissions']),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error assigning role: ' . $e->getMessage());
+            Log::error('Error assigning role: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to assign role',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -786,7 +820,7 @@ class AdminController extends Controller
 
         $request->validate([
             'roles' => 'required|array',
-            'roles.*' => 'exists:roles,name'
+            'roles.*' => 'exists:roles,name',
         ]);
 
         try {
@@ -794,7 +828,7 @@ class AdminController extends Controller
             if ($user->hasRole('admin') && in_array('admin', $request->roles)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot remove admin role from admin user'
+                    'message' => 'Cannot remove admin role from admin user',
                 ], 403);
             }
 
@@ -805,23 +839,23 @@ class AdminController extends Controller
                 ->performedOn($user)
                 ->withProperties([
                     'action' => 'roles_removed',
-                    'roles' => $request->roles
+                    'roles' => $request->roles,
                 ])
                 ->log('Admin removed roles from user');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Roles removed successfully',
-                'data' => $user->fresh()->load(['roles', 'permissions'])
+                'data' => $user->fresh()->load(['roles', 'permissions']),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error removing role: ' . $e->getMessage());
+            Log::error('Error removing role: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to remove role',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -848,16 +882,16 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Permissions retrieved successfully',
-                'data' => $permissions
+                'data' => $permissions,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving permissions: ' . $e->getMessage());
+            Log::error('Error retrieving permissions: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve permissions',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -875,23 +909,23 @@ class AdminController extends Controller
                 ->performedOn($permission)
                 ->withProperties([
                     'action' => 'permission_created',
-                    'permission_data' => $permission->toArray()
+                    'permission_data' => $permission->toArray(),
                 ])
                 ->log('Admin created new permission');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Permission created successfully',
-                'data' => $permission
+                'data' => $permission,
             ], 201);
 
         } catch (\Exception $e) {
-            Log::error('Error creating permission: ' . $e->getMessage());
+            Log::error('Error creating permission: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create permission',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -907,7 +941,7 @@ class AdminController extends Controller
             'target_type' => 'required|in:user,role',
             'target_id' => 'required|integer',
             'permissions' => 'required|array',
-            'permissions.*' => 'exists:permissions,name'
+            'permissions.*' => 'exists:permissions,name',
         ]);
 
         try {
@@ -927,23 +961,23 @@ class AdminController extends Controller
                 ->withProperties([
                     'action' => 'permissions_assigned',
                     'target_type' => $request->target_type,
-                    'permissions' => $request->permissions
+                    'permissions' => $request->permissions,
                 ])
                 ->log('Admin assigned permissions');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Permissions assigned successfully',
-                'data' => $target->fresh()->load('permissions')
+                'data' => $target->fresh()->load('permissions'),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error assigning permission: ' . $e->getMessage());
+            Log::error('Error assigning permission: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to assign permission',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -983,16 +1017,16 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'System settings retrieved successfully',
-                'data' => $settings
+                'data' => $settings,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving system settings: ' . $e->getMessage());
+            Log::error('Error retrieving system settings: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve system settings',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1014,23 +1048,23 @@ class AdminController extends Controller
                 ->causedBy(auth()->user())
                 ->withProperties([
                     'action' => 'updated_system_settings',
-                    'settings' => $settings
+                    'settings' => $settings,
                 ])
                 ->log('Admin updated system settings');
 
             return response()->json([
                 'success' => true,
                 'message' => 'System settings updated successfully',
-                'data' => $settings
+                'data' => $settings,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error updating system settings: ' . $e->getMessage());
+            Log::error('Error updating system settings: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update system settings',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1046,7 +1080,7 @@ class AdminController extends Controller
             'level' => 'nullable|in:emergency,alert,critical,error,warning,notice,info,debug',
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
-            'per_page' => 'nullable|integer|min:1|max:100'
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         try {
@@ -1066,23 +1100,23 @@ class AdminController extends Controller
                 ->causedBy(auth()->user())
                 ->withProperties([
                     'action' => 'viewed_system_logs',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Admin viewed system logs');
 
             return response()->json([
                 'success' => true,
                 'message' => 'System logs retrieved successfully',
-                'data' => $logs
+                'data' => $logs,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving system logs: ' . $e->getMessage());
+            Log::error('Error retrieving system logs: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve system logs',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1095,19 +1129,19 @@ class AdminController extends Controller
         $this->authorize('backup-system');
 
         try {
-            $backupName = 'backup_' . now()->format('Y_m_d_H_i_s');
+            $backupName = 'backup_'.now()->format('Y_m_d_H_i_s');
 
             // Run backup command
             Artisan::call('backup:run', [
                 '--only-db' => true,
-                '--filename' => $backupName
+                '--filename' => $backupName,
             ]);
 
             activity()
                 ->causedBy(auth()->user())
                 ->withProperties([
                     'action' => 'system_backup_created',
-                    'backup_name' => $backupName
+                    'backup_name' => $backupName,
                 ])
                 ->log('Admin created system backup');
 
@@ -1116,17 +1150,17 @@ class AdminController extends Controller
                 'message' => 'System backup created successfully',
                 'data' => [
                     'backup_name' => $backupName,
-                    'created_at' => now()->toISOString()
-                ]
+                    'created_at' => now()->toISOString(),
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error creating backup: ' . $e->getMessage());
+            Log::error('Error creating backup: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create backup',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1139,7 +1173,7 @@ class AdminController extends Controller
         $this->authorize('restore-system');
 
         $request->validate([
-            'backup_file' => 'required|string'
+            'backup_file' => 'required|string',
         ]);
 
         try {
@@ -1150,7 +1184,7 @@ class AdminController extends Controller
                 ->causedBy(auth()->user())
                 ->withProperties([
                     'action' => 'system_restore_attempted',
-                    'backup_file' => $request->backup_file
+                    'backup_file' => $request->backup_file,
                 ])
                 ->log('Admin attempted system restore');
 
@@ -1159,17 +1193,17 @@ class AdminController extends Controller
                 'message' => 'System restoration initiated. Please monitor system status.',
                 'data' => [
                     'backup_file' => $request->backup_file,
-                    'initiated_at' => now()->toISOString()
-                ]
+                    'initiated_at' => now()->toISOString(),
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error restoring system: ' . $e->getMessage());
+            Log::error('Error restoring system: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to restore system',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1186,12 +1220,12 @@ class AdminController extends Controller
         $this->authorize('view-audit-logs');
 
         $request->validate([
-            'search'    => 'nullable|string|max:255',
-            'category'  => 'nullable|in:all,login,customer,user_management,security,system',
+            'search' => 'nullable|string|max:255',
+            'category' => 'nullable|in:all,login,customer,user_management,security,system',
             'causer_id' => 'nullable|exists:users,id',
             'date_from' => 'nullable|date',
-            'date_to'   => 'nullable|date|after_or_equal:date_from',
-            'per_page'  => 'nullable|integer|min:1|max:100',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         try {
@@ -1228,40 +1262,91 @@ class AdminController extends Controller
 
             $logs = $query->paginate($request->per_page ?? 25);
 
+            // Enrich customer document entries with current file paths for image display
+            $customerSubjectIds = $logs->getCollection()
+                ->filter(fn ($log) => $log->subject_type === Customer::class)
+                ->pluck('subject_id')
+                ->unique()
+                ->values();
+
+            if ($customerSubjectIds->isNotEmpty()) {
+                $allDocs = CustomerDocument::whereIn('customer_id', $customerSubjectIds)->get()->groupBy('customer_id');
+
+                // Keyed map for replacement lookups: customerId -> { "type_personIndex" -> {path,name} }
+                $keyedDocsMap = $allDocs->map(fn ($docs) => $docs->mapWithKeys(fn (CustomerDocument $d) => [
+                    $d->document_type.'_'.$d->person_index => ['file_path' => $d->file_path, 'file_name' => $d->file_name],
+                ]));
+
+                // Full list for creation events: customerId -> [ {type, index, path, name}, ... ]
+                $fullDocsMap = $allDocs->map(fn ($docs) => $docs->map(fn (CustomerDocument $d) => [
+                    'document_type' => $d->document_type,
+                    'person_index' => $d->person_index,
+                    'file_path' => $d->file_path,
+                    'file_name' => $d->file_name,
+                ])->values()->all());
+
+                $logs->getCollection()->transform(function ($log) use ($keyedDocsMap, $fullDocsMap) {
+                    if ($log->subject_type !== Customer::class) {
+                        return $log;
+                    }
+                    $desc = strtolower($log->description ?? '');
+                    $props = $log->properties->toArray();
+
+                    // Document replacement: attach current file path for side-by-side comparison
+                    if (str_contains($desc, 'replaced') && isset($props['document_type'])) {
+                        $key = $props['document_type'].'_'.($props['person_index'] ?? 1);
+                        $current = $keyedDocsMap->get($log->subject_id, collect())->get($key);
+                        if ($current) {
+                            $props['current_file_path'] = $current['file_path'];
+                            $props['current_file_name'] = $current['file_name'];
+                            $log->properties = $props;
+                        }
+                    }
+
+                    // Creation: attach all current documents for image gallery
+                    if (str_contains($desc, 'created') || $log->event === 'created') {
+                        $props['current_documents'] = $fullDocsMap->get($log->subject_id, []);
+                        $log->properties = $props;
+                    }
+
+                    return $log;
+                });
+            }
+
             // Daily summary stats (not logged to avoid infinite loop)
             $stats = [
-                'total_today'    => Activity::whereDate('created_at', today())->count(),
-                'logins_today'   => Activity::where('description', 'like', '%login%')
-                                        ->whereDate('created_at', today())->count(),
-                'failed_today'   => Activity::where('description', 'like', '%failed%')
-                                        ->whereDate('created_at', today())->count(),
-                'customer_ops'   => Activity::where(function ($q) {
-                                            $q->where('description', 'like', '%customer%')
-                                                ->orWhere('subject_type', 'like', '%Customer%');
-                                        })->whereDate('created_at', today())->count(),
+                'total_today' => Activity::whereDate('created_at', today())->count(),
+                'logins_today' => Activity::where('description', 'like', '%login%')
+                    ->whereDate('created_at', today())->count(),
+                'failed_today' => Activity::where('description', 'like', '%failed%')
+                    ->whereDate('created_at', today())->count(),
+                'customer_ops' => Activity::where(function ($q) {
+                    $q->where('description', 'like', '%customer%')
+                        ->orWhere('subject_type', 'like', '%Customer%');
+                })->whereDate('created_at', today())->count(),
                 'total_all_time' => Activity::count(),
             ];
 
             // Users list for filter dropdown
             $users = User::select('id', 'firstname', 'lastname', 'email')
                 ->orderBy('firstname')->get()
-                ->map(fn(User $u) => ['id' => $u->id, 'name' => $u->full_name, 'email' => $u->email]);
+                ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->full_name, 'email' => $u->email]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Audit logs retrieved successfully',
-                'data'    => $logs,
-                'stats'   => $stats,
-                'users'   => $users,
+                'data' => $logs,
+                'stats' => $stats,
+                'users' => $users,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving audit logs: ' . $e->getMessage());
+            Log::error('Error retrieving audit logs: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve audit logs',
-                'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1277,48 +1362,84 @@ class AdminController extends Controller
         $modelMap = [
             'customer' => \App\Models\Customer::class,
             'document' => \App\Models\CustomerDocument::class,
-            'user'     => User::class,
+            'user' => User::class,
         ];
 
-        if (!array_key_exists($subjectType, $modelMap)) {
+        if (! array_key_exists($subjectType, $modelMap)) {
             return response()->json(['success' => false, 'message' => 'Invalid subject type.'], 422);
         }
 
         $modelClass = $modelMap[$subjectType];
-        $model      = $modelClass::find($subjectId);
+        $model = $modelClass::find($subjectId);
+
+        // For customer subjects, build maps of current documents for image display
+        $currentDocs = collect();
+        $allCurrentDocs = [];
+        if ($subjectType === 'customer' && $model) {
+            $docs = $model->documents;
+            $currentDocs = $docs->groupBy(fn (CustomerDocument $d) => $d->document_type.'_'.$d->person_index)
+                ->map(fn ($group) => [
+                    'file_path' => $group->first()->file_path,
+                    'file_name' => $group->first()->file_name,
+                ]);
+            $allCurrentDocs = $docs->map(fn (CustomerDocument $d) => [
+                'document_type' => $d->document_type,
+                'person_index' => $d->person_index,
+                'file_path' => $d->file_path,
+                'file_name' => $d->file_name,
+            ])->values()->all();
+        }
 
         $query = Activity::where('subject_type', $modelClass)
             ->where('subject_id', $subjectId)
             ->with('causer')
             ->latest();
 
-        // Also pull operational logs that were performed on this subject
-        $history = $query->get()->map(function (Activity $entry) {
+        $history = $query->get()->map(function (Activity $entry) use ($currentDocs, $allCurrentDocs, $subjectType) {
             $props = $entry->properties->toArray();
+            $meta = collect($props)->except(['old', 'attributes', 'diff'])->all();
+            $desc = strtolower($entry->description ?? '');
+
+            if ($subjectType === 'customer') {
+                // Attach current document path for replacement events
+                if (str_contains($desc, 'replaced') && isset($meta['document_type'])) {
+                    $key = $meta['document_type'].'_'.($meta['person_index'] ?? 1);
+                    $current = $currentDocs->get($key);
+                    if ($current) {
+                        $meta['current_file_path'] = $current['file_path'];
+                        $meta['current_file_name'] = $current['file_name'];
+                    }
+                }
+
+                // Attach all current documents for creation events
+                if (str_contains($desc, 'created') || $entry->event === 'created') {
+                    $meta['current_documents'] = $allCurrentDocs;
+                }
+            }
 
             return [
-                'id'          => $entry->id,
-                'event'       => $entry->event,
-                'log_name'    => $entry->log_name,
+                'id' => $entry->id,
+                'event' => $entry->event,
+                'log_name' => $entry->log_name,
                 'description' => $entry->description,
-                'causer'      => $entry->causer
+                'causer' => $entry->causer
                     ? ['name' => optional($entry->causer)->full_name, 'email' => optional($entry->causer)->email]
                     : null,
-                'old'         => $props['old']        ?? null,
-                'attributes'  => $props['attributes'] ?? null,
-                'diff'        => $props['diff']        ?? null,
-                'meta'        => collect($props)->except(['old', 'attributes', 'diff'])->all(),
-                'created_at'  => $entry->created_at->toIso8601String(),
+                'old' => $props['old'] ?? null,
+                'attributes' => $props['attributes'] ?? null,
+                'diff' => $props['diff'] ?? null,
+                'meta' => $meta,
+                'created_at' => $entry->created_at->toIso8601String(),
             ];
         });
 
         return response()->json([
-            'success'  => true,
-            'subject'  => $model ? [
-                'id'       => $model->id,
-                'label'    => method_exists($model, 'getFullNameAttribute') ? $model->full_name : "#{$subjectId}",
+            'success' => true,
+            'subject' => $model ? [
+                'id' => $model->id,
+                'label' => method_exists($model, 'getFullNameAttribute') ? $model->full_name : "#{$subjectId}",
             ] : null,
-            'history'  => $history,
+            'history' => $history,
         ]);
     }
 
@@ -1374,7 +1495,7 @@ class AdminController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'status' => 'nullable|in:success,failed,locked',
-            'per_page' => 'nullable|integer|min:1|max:100'
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         try {
@@ -1400,7 +1521,7 @@ class AdminController extends Controller
                 ->causedBy(auth()->user())
                 ->withProperties([
                     'action' => 'viewed_login_attempts',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Admin viewed login attempts');
 
@@ -1415,16 +1536,16 @@ class AdminController extends Controller
                     'successful_logins_last_24h' => Activity::where('description', 'like', '%successful%login%')
                         ->where('created_at', '>=', now()->subDay())
                         ->count(),
-                ]
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving login attempts: ' . $e->getMessage());
+            Log::error('Error retrieving login attempts: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve login attempts',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1440,13 +1561,13 @@ class AdminController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'severity' => 'nullable|in:low,medium,high,critical',
-            'per_page' => 'nullable|integer|min:1|max:100'
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         try {
             $securityEvents = [
                 'failed_login', 'account_locked', 'password_reset', 'unauthorized_access',
-                'privilege_escalation', 'data_export', 'system_configuration_change'
+                'privilege_escalation', 'data_export', 'system_configuration_change',
             ];
 
             $query = Activity::whereIn('description', $securityEvents)
@@ -1467,7 +1588,7 @@ class AdminController extends Controller
                 ->causedBy(auth()->user())
                 ->withProperties([
                     'action' => 'viewed_security_events',
-                    'filters' => $request->all()
+                    'filters' => $request->all(),
                 ])
                 ->log('Admin viewed security events');
 
@@ -1482,16 +1603,16 @@ class AdminController extends Controller
                     'locked_accounts_last_24h' => User::whereNotNull('account_locked_at')
                         ->where('account_locked_at', '>=', now()->subDay())
                         ->count(),
-                ]
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error retrieving security events: ' . $e->getMessage());
+            Log::error('Error retrieving security events: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve security events',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1506,25 +1627,136 @@ class AdminController extends Controller
      */
     public function getBranchHierarchy(): JsonResponse
     {
-        $branches = Branch::with('children')
+        $branches = Branch::with(['children.users.roles', 'children.customers', 'users.roles', 'customers', 'parent'])
             ->orderByRaw('parent_id IS NOT NULL')
             ->orderBy('branch_name')
             ->get()
-            ->map(fn(Branch $b) => [
-                'id'          => $b->id,
+            ->map(fn (Branch $b) => [
+                'id' => $b->id,
                 'branch_name' => $b->branch_name,
-                'brak'        => $b->brak,
-                'brcode'      => $b->brcode,
-                'parent_id'   => $b->parent_id,
-                'children'    => $b->children->map(fn(Branch $c) => [
-                    'id'          => $c->id,
+                'brak' => $b->brak,
+                'brcode' => $b->brcode,
+                'parent_id' => $b->parent_id,
+                'parent_name' => $b->parent?->branch_name,
+                'users_count' => $b->users->count(),
+                'customers_count' => $b->customers->count(),
+                'users' => $b->users->map(fn ($u) => [
+                    'id' => $u->id,
+                    'full_name' => $u->full_name,
+                    'username' => $u->username,
+                    'email' => $u->email,
+                    'status' => $u->status,
+                    'roles' => $u->roles->pluck('name'),
+                ]),
+                'children' => $b->children->map(fn (Branch $c) => [
+                    'id' => $c->id,
                     'branch_name' => $c->branch_name,
-                    'brak'        => $c->brak,
-                    'brcode'      => $c->brcode,
+                    'brak' => $c->brak,
+                    'brcode' => $c->brcode,
+                    'users_count' => $c->users->count(),
+                    'customers_count' => $c->customers->count(),
                 ])->values(),
             ]);
 
         return response()->json(['data' => $branches]);
+    }
+
+    /**
+     * Create a new branch.
+     */
+    public function storeBranch(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'branch_name' => 'required|string|max:255|unique:branches,branch_name',
+            'brak' => 'required|string|max:50|unique:branches,brak',
+            'brcode' => 'required|string|max:10|unique:branches,brcode',
+            'parent_id' => 'nullable|exists:branches,id',
+        ]);
+
+        $branch = Branch::create($validated);
+
+        activity()
+            ->causedBy(Auth::user())
+            ->performedOn($branch)
+            ->withProperties(['action' => 'branch_created'])
+            ->log('Branch created');
+
+        return response()->json([
+            'message' => 'Branch created successfully.',
+            'branch' => $branch->fresh(['parent', 'children']),
+        ], 201);
+    }
+
+    /**
+     * Update branch details.
+     */
+    public function updateBranch(Request $request, Branch $branch): JsonResponse
+    {
+        $validated = $request->validate([
+            'branch_name' => 'required|string|max:255|unique:branches,branch_name,'.$branch->id,
+            'brak' => 'required|string|max:50|unique:branches,brak,'.$branch->id,
+            'brcode' => 'required|string|max:10|unique:branches,brcode,'.$branch->id,
+            'parent_id' => 'nullable|exists:branches,id',
+        ]);
+
+        if (isset($validated['parent_id']) && $validated['parent_id'] == $branch->id) {
+            return response()->json(['message' => 'A branch cannot be its own parent.'], 422);
+        }
+
+        if (isset($validated['parent_id']) && $validated['parent_id'] && $branch->children()->exists()) {
+            return response()->json([
+                'message' => 'Cannot assign a parent to a branch that already has child branches. Remove children first.',
+            ], 422);
+        }
+
+        $branch->update($validated);
+
+        activity()
+            ->causedBy(Auth::user())
+            ->performedOn($branch)
+            ->withProperties(['action' => 'branch_updated'])
+            ->log('Branch updated');
+
+        return response()->json([
+            'message' => 'Branch updated successfully.',
+            'branch' => $branch->fresh(['parent', 'children']),
+        ]);
+    }
+
+    /**
+     * Delete a branch (only if no users or customers are assigned).
+     */
+    public function deleteBranch(Branch $branch): JsonResponse
+    {
+        if ($branch->users()->exists()) {
+            return response()->json([
+                'message' => 'Cannot delete branch with assigned users. Reassign users first.',
+            ], 422);
+        }
+
+        if ($branch->customers()->exists()) {
+            return response()->json([
+                'message' => 'Cannot delete branch with assigned customers. Reassign customers first.',
+            ], 422);
+        }
+
+        if ($branch->children()->exists()) {
+            return response()->json([
+                'message' => 'Cannot delete branch with child branches. Remove children first.',
+            ], 422);
+        }
+
+        $branchName = $branch->branch_name;
+
+        activity()
+            ->causedBy(Auth::user())
+            ->performedOn($branch)
+            ->withProperties(['action' => 'branch_deleted', 'branch_name' => $branchName])
+            ->log('Branch deleted');
+
+        $branch->delete();
+
+        return response()->json(['message' => "Branch '{$branchName}' deleted successfully."]);
     }
 
     /**
@@ -1557,14 +1789,14 @@ class AdminController extends Controller
             ->causedBy(Auth::user())
             ->performedOn($branch)
             ->withProperties([
-                'action'    => 'branch_parent_updated',
+                'action' => 'branch_parent_updated',
                 'parent_id' => $parentId,
             ])
             ->log('Branch hierarchy updated');
 
         return response()->json([
             'message' => 'Branch hierarchy updated successfully.',
-            'branch'  => $branch->fresh(['parent', 'children']),
+            'branch' => $branch->fresh(['parent', 'children']),
         ]);
     }
 }

@@ -601,11 +601,6 @@ const EditCustomerDocs = () => {
                     >
                       <HiOutlineUser className="w-3.5 h-3.5" />
                       <span>{person.label}</span>
-                      {person.name && (
-                        <span className={`text-xs ${isActive ? "text-white/60" : "text-white/30"}`}>
-                          {person.name}
-                        </span>
-                      )}
                       {pCount > 0 && (
                         <span className="bg-amber-400 text-amber-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
                           {pCount}

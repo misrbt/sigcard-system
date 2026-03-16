@@ -19,6 +19,9 @@ class StoreCustomerRequest extends FormRequest
         return [
             'account_no' => 'nullable|string|max:100',
             'date_opened' => 'nullable|date',
+            'date_updated' => 'nullable|date',
+            'status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
+            'photo' => 'nullable|image|max:10240',
 
             // Primary holder (Person 1)
             'firstname' => 'required|string|max:255',
@@ -38,6 +41,8 @@ class StoreCustomerRequest extends FormRequest
             'additionalAccounts.*.account_no' => 'nullable|string|max:100',
             'additionalAccounts.*.risk_level' => 'required_with:additionalAccounts|in:Low Risk,Medium Risk,High Risk',
             'additionalAccounts.*.date_opened' => 'nullable|date',
+            'additionalAccounts.*.date_updated' => 'nullable|date',
+            'additionalAccounts.*.status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
 
             // Additional holders (Person 2+) — required for Joint accounts
             'additionalPersons' => 'nullable|array',

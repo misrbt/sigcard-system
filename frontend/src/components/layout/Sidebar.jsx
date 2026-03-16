@@ -7,6 +7,7 @@ import {
   MdSecurity,
   MdPersonSearch,
   MdAccountTree,
+  MdBusiness,
 } from "react-icons/md";
 import logo from "../../assets/images/logos.png";
 
@@ -20,6 +21,7 @@ const Sidebar = ({ isOpen, userRole, onToggle }) => {
       { path: "/admin/roles",      icon: MdSecurity,    label: "Roles & Permissions"},
       { path: "/admin/audit-logs", icon: MdHistory,     label: "Audit Logs"        },
       { path: "/admin/customers",       icon: MdPersonSearch, label: "Customer Profiles" },
+      { path: "/admin/branches",        icon: MdBusiness,     label: "Branches"          },
       { path: "/admin/data-management", icon: MdAccountTree,  label: "Data Management"   },
       { path: "/admin/settings",        icon: MdSettings,     label: "Settings"          },
     ],

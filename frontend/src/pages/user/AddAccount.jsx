@@ -43,6 +43,14 @@ const RISK_STYLE = {
   "High Risk":   "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-400/20",
 };
 
+const STATUS_OPTIONS = [
+  { value: "active",      label: "Active",      cls: "bg-green-50 border-green-400 text-green-700 ring-2 ring-green-400/20" },
+  { value: "dormant",     label: "Dormant",     cls: "bg-yellow-50 border-yellow-400 text-yellow-700 ring-2 ring-yellow-400/20" },
+  { value: "reactivated", label: "Reactivated", cls: "bg-teal-50 border-teal-400 text-teal-700 ring-2 ring-teal-400/20" },
+  { value: "escheat",     label: "Escheat",     cls: "bg-orange-50 border-orange-400 text-orange-700 ring-2 ring-orange-400/20" },
+  { value: "closed",      label: "Closed",      cls: "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-400/20" },
+];
+
 const steps = [
   { key: "accountInfo", title: "Account Info"         },
   { key: "sigcard",     title: "Sigcard Upload"        },
@@ -73,6 +81,22 @@ const RiskLevelPicker = ({ value, onChange }) => (
         <button key={risk} type="button" onClick={() => onChange(risk)}
           className={`px-3 py-2.5 rounded-xl border-2 text-xs font-semibold transition-all ${value === risk ? RISK_STYLE[risk] : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
           {risk}
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
+const StatusPicker = ({ value, onChange }) => (
+  <div className="space-y-1.5">
+    <label className="block text-xs font-semibold text-slate-600">
+      Account Status <span className="text-red-500">*</span>
+    </label>
+    <div className="flex flex-wrap gap-2">
+      {STATUS_OPTIONS.map(({ value: v, label, cls }) => (
+        <button key={v} type="button" onClick={() => onChange(v)}
+          className={`px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${value === v ? cls : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
+          {label}
         </button>
       ))}
     </div>
@@ -192,7 +216,7 @@ const AddAccount = () => {
 
   const [customer,       setCustomer]       = useState(null);
   const [step,           setStep]           = useState(0);
-  const [accountInfo,    setAccountInfo]    = useState({ accountNo: "", riskLevel: "", dateOpened: "" });
+  const [accountInfo,    setAccountInfo]    = useState({ accountNo: "", riskLevel: "", dateOpened: "", dateUpdated: "", status: "active" });
   const [sigcardPair,    setSigcardPair]    = useState(emptyPair());
   const [naisPair,       setNaisPair]       = useState(emptyPair());
   const [privacyPair,    setPrivacyPair]    = useState(emptyPair());
@@ -213,7 +237,7 @@ const AddAccount = () => {
 
   const isStepValid = useMemo(() => {
     switch (steps[step].key) {
-      case "accountInfo": return !!accountInfo.riskLevel;
+      case "accountInfo": return !!accountInfo.riskLevel && !!accountInfo.status;
       case "sigcard":     return !!(sigcardPair.front && sigcardPair.back);
       case "nais":        return true;
       case "privacy":     return !!(privacyPair.front && privacyPair.back);
@@ -247,8 +271,10 @@ const AddAccount = () => {
 
       const fd = new FormData();
       fd.append("risk_level",  accountInfo.riskLevel);
+      fd.append("status",      accountInfo.status || "active");
       fd.append("account_no",  accountInfo.accountNo);
       fd.append("date_opened", accountInfo.dateOpened);
+      if (accountInfo.dateUpdated) fd.append("date_updated", accountInfo.dateUpdated);
 
       if (cSigFront)  fd.append("sigcardPairs[0][front]", cSigFront);
       if (cSigBack)   fd.append("sigcardPairs[0][back]",  cSigBack);
@@ -289,6 +315,7 @@ const AddAccount = () => {
         return (
           <div className="space-y-6">
             <RiskLevelPicker value={accountInfo.riskLevel} onChange={(v) => setAccountInfo((p) => ({ ...p, riskLevel: v }))} />
+            <StatusPicker value={accountInfo.status} onChange={(v) => setAccountInfo((p) => ({ ...p, status: v }))} />
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="block text-xs font-semibold text-slate-600">Account No.</label>
@@ -300,6 +327,14 @@ const AddAccount = () => {
                 <label className="block text-xs font-semibold text-slate-600">Date Opened</label>
                 <input type="date" value={accountInfo.dateOpened}
                   onChange={(e) => setAccountInfo((p) => ({ ...p, dateOpened: e.target.value }))}
+                  className={inputCls} />
+              </div>
+              <div className="space-y-1.5 col-span-2">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Date Updated <span className="font-normal text-slate-400">(Optional)</span>
+                </label>
+                <input type="date" value={accountInfo.dateUpdated}
+                  onChange={(e) => setAccountInfo((p) => ({ ...p, dateUpdated: e.target.value }))}
                   className={inputCls} />
               </div>
             </div>

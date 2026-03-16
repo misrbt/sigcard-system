@@ -12,6 +12,7 @@ import {
   HiOutlineShieldCheck,
   HiOutlineCreditCard,
   HiOutlinePencilAlt,
+  HiOutlineUser,
   HiOutlineUsers,
   HiOutlineX,
   HiOutlineEye,
@@ -79,6 +80,48 @@ const initials = (customer) => {
   const f = customer?.firstname?.[0] ?? "";
   const l = customer?.lastname?.[0]  ?? "";
   return (f + l).toUpperCase() || "?";
+};
+
+// ── AccountsCell — collapsed summary, expandable on click ────────────────────
+const AccountsCell = ({ c }) => {
+  const [open, setOpen] = useState(false);
+  const allAccts = [
+    { account_no: c.account_no, status: c.status, risk_level: c.risk_level },
+    ...(c.accounts ?? []).map((a) => ({ account_no: a.account_no, status: a.status, risk_level: a.risk_level })),
+  ];
+
+  if (allAccts.length === 1) {
+    return <span className="text-[11px] text-slate-600 font-mono">{c.account_no ?? "—"}</span>;
+  }
+
+  return (
+    <div className="min-w-0">
+      {/* Collapsed pill — click to expand */}
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 hover:border-blue-400 transition-colors group"
+      >
+        <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">
+          {allAccts.length}
+        </span>
+        <span className="text-[11px] font-semibold text-blue-700">accounts</span>
+        <HiOutlineChevronRight className={`w-3 h-3 text-blue-400 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+      </button>
+
+      {/* Expanded list */}
+      {open && (
+        <div className="mt-1.5 space-y-1 pl-0.5">
+          {allAccts.map((a, i) => (
+            <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white border border-slate-100 shadow-sm">
+              <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">{i + 1}</span>
+              <span className="text-[11px] text-slate-700 font-mono flex-1 min-w-0 truncate">{a.account_no ?? "—"}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${statusStyle[a.status] ?? "bg-slate-100 text-slate-500"}`}>{a.status ?? "—"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ── Image Viewer (fullscreen carousel + zoom/pan) ────────────────────────────
@@ -420,11 +463,6 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                   >
                     <HiOutlineCreditCard className="w-3.5 h-3.5" />
                     <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
-                    {acct.acctIndex === 1 && (
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${activeAcctIdx === 1 ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
-                        Primary
-                      </span>
-                    )}
                   </button>
                 ))}
               </div>
@@ -588,23 +626,95 @@ const ModalOverlay = ({ onClose, children }) => {
   );
 };
 
-// ── Edit Info Modal (name, account type, risk level) ─────────────────────────
+// ── Edit Info Modals (CustomerProfiles) ───────────────────────────────────────
 const RISK_LEVELS_EDIT = ["Low Risk", "Medium Risk", "High Risk"];
 
 const emptyHolder = () => ({ firstname: "", middlename: "", lastname: "", suffix: "", risk_level: "Low Risk" });
 
-const EditInfoModal = ({ customer, onClose, onSaved }) => {
+const editInputCls = "w-full px-3 py-2.5 text-sm text-gray-900 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all";
+
+const ProfileModalShell = ({ title, subtitle, onClose, onBack, children, onSave, saving }) => (
+  <ModalOverlay onClose={onClose}>
+    <div className="w-full max-w-xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 flex-shrink-0">
+        <div>
+          <h2 className="text-lg font-bold text-white">{title}</h2>
+          <p className="text-xs text-white/70">{subtitle}</p>
+        </div>
+        <button onClick={onClose} className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors">
+          <HiOutlineX className="w-5 h-5" />
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">{children}</div>
+      <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+        {onBack
+          ? <button onClick={onBack} className="text-sm font-semibold text-slate-500 hover:text-slate-700 flex items-center gap-1">
+              <HiOutlineChevronLeft className="w-4 h-4" /> Back
+            </button>
+          : <span />
+        }
+        <div className="flex items-center gap-2.5">
+          <button onClick={onClose} className="px-5 py-2.5 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
+            Cancel
+          </button>
+          {onSave && (
+            <button onClick={onSave} disabled={saving}
+              className="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl shadow hover:opacity-90 disabled:opacity-60 transition-all">
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  </ModalOverlay>
+);
+
+// Choice modal — ask what to edit
+const EditChoiceModal = ({ customer, onClose, onPick }) => (
+  <ProfileModalShell
+    title="Edit Info"
+    subtitle={`${customerId(customer.id)} • ${customer.full_name}`}
+    onClose={onClose}
+  >
+    <p className="text-xs text-slate-500">Select what you would like to edit.</p>
+    <div className="grid grid-cols-2 gap-3">
+      <button
+        onClick={() => onPick("customer")}
+        className="flex flex-col items-center gap-3 px-4 py-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all group text-center"
+      >
+        <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+          <HiOutlineUser className="w-6 h-6 text-blue-600" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-slate-800">Customer Info</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Name, account type, holders</p>
+        </div>
+      </button>
+      <button
+        onClick={() => onPick("account")}
+        className="flex flex-col items-center gap-3 px-4 py-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all group text-center"
+      >
+        <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+          <HiOutlineCreditCard className="w-6 h-6 text-indigo-600" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-slate-800">Account Info</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Risk level, account no., dates</p>
+        </div>
+      </button>
+    </div>
+  </ProfileModalShell>
+);
+
+// Edit customer personal info — name, account type, holders
+const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
   const [form, setForm] = useState({
-    account_no:   customer.account_no   ?? "",
-    date_opened:  customer.date_opened  ?? "",
     firstname:    customer.firstname    ?? "",
     middlename:   customer.middlename   ?? "",
     lastname:     customer.lastname     ?? "",
     suffix:       customer.suffix       ?? "",
     account_type: customer.account_type ?? "Regular",
-    risk_level:   customer.risk_level   ?? "Low Risk",
   });
-
   const [holders, setHolders] = useState(
     (customer.holders ?? []).map((h) => ({
       firstname:  h.firstname,
@@ -614,176 +724,256 @@ const EditInfoModal = ({ customer, onClose, onSaved }) => {
       risk_level: h.risk_level,
     }))
   );
-
   const { saving, save } = useModalSave(customer.id, onSaved, onClose);
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
   const setHolder = (i, field, val) =>
     setHolders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
-
   const isJoint = form.account_type === "Joint";
 
   const handleSave = () => {
     const payload = { ...form };
     if (isJoint) {
       payload.additionalPersons = holders.map((h) => ({
-        firstname:  h.firstname,
-        middlename: h.middlename,
-        lastname:   h.lastname,
-        suffix:     h.suffix,
-        risk_level: h.risk_level,
+        firstname: h.firstname, middlename: h.middlename,
+        lastname: h.lastname, suffix: h.suffix, risk_level: h.risk_level,
       }));
     }
     save(payload);
   };
 
-  const inputCls = "w-full px-3 py-2.5 text-sm text-gray-900 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all";
-
   return (
-    <ModalOverlay onClose={onClose}>
-      <div className="w-full max-w-xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-bold text-white">Edit Customer Info</h2>
-            <p className="text-xs text-white/70">{customerId(customer.id)} • {customer.full_name}</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors">
-            <HiOutlineX className="w-5 h-5" />
-          </button>
+    <ProfileModalShell
+      title="Edit Customer Info"
+      subtitle={`${customerId(customer.id)} • ${customer.full_name}`}
+      onClose={onClose}
+      onBack={onBack}
+      onSave={handleSave}
+      saving={saving}
+    >
+      {/* Account Type */}
+      <div>
+        <label className="block text-xs font-semibold text-slate-600 mb-1">Account Type</label>
+        <select value={form.account_type} onChange={set("account_type")} className={editInputCls}>
+          <option>Regular</option>
+          <option>Joint</option>
+          <option>Corporate</option>
+        </select>
+      </div>
+
+      {/* Primary holder */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">1</div>
+          <p className="text-xs font-bold text-slate-700">{isJoint ? "Person 1 — Primary Account Holder" : "Account Holder"}</p>
         </div>
-
-        {/* Body */}
-        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
-
-          {/* Account type + primary risk (or joint notice) */}
+        <div className="pl-3 border-l-2 border-slate-100 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Account Type</label>
-              <select value={form.account_type} onChange={set("account_type")} className={inputCls}>
-                <option>Regular</option>
-                <option>Joint</option>
-                <option>Corporate</option>
-              </select>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">First Name *</label>
+              <input value={form.firstname} onChange={set("firstname")} className={editInputCls} />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Risk Level {isJoint && <span className="font-normal text-slate-400">(Person 1)</span>}
-              </label>
-              <select value={form.risk_level} onChange={set("risk_level")} className={inputCls}>
-                {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
-              </select>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name *</label>
+              <input value={form.lastname} onChange={set("lastname")} className={editInputCls} />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Middle Name</label>
+              <input value={form.middlename} onChange={set("middlename")} className={editInputCls} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Suffix</label>
+              <input value={form.suffix} onChange={set("suffix")} placeholder="Jr., Sr., III…" className={editInputCls} />
+            </div>
+          </div>
+        </div>
+      </div>
 
-          {/* Account No. + Date Opened */}
+      {/* Additional holders for Joint */}
+      {isJoint && (
+        <div className="space-y-4">
+          {holders.map((h, i) => (
+            <div key={i} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">{i + 2}</div>
+                <p className="text-xs font-bold text-slate-700">Person {i + 2} — Secondary Account Holder</p>
+                {holders.length > 1 && (
+                  <button type="button" onClick={() => setHolders((prev) => prev.filter((_, idx) => idx !== i))}
+                    className="ml-auto text-[11px] font-medium text-red-500 hover:text-red-700">Remove</button>
+                )}
+              </div>
+              <div className="pl-3 border-l-2 border-slate-100 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">First Name *</label>
+                    <input value={h.firstname} onChange={(e) => setHolder(i, "firstname", e.target.value)} className={editInputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name *</label>
+                    <input value={h.lastname} onChange={(e) => setHolder(i, "lastname", e.target.value)} className={editInputCls} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Middle Name</label>
+                    <input value={h.middlename} onChange={(e) => setHolder(i, "middlename", e.target.value)} className={editInputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Suffix</label>
+                    <input value={h.suffix} onChange={(e) => setHolder(i, "suffix", e.target.value)} placeholder="Jr., Sr., III…" className={editInputCls} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Risk Level</label>
+                  <select value={h.risk_level} onChange={(e) => setHolder(i, "risk_level", e.target.value)} className={editInputCls}>
+                    {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+          <button type="button"
+            onClick={() => setHolders((prev) => [...prev, emptyHolder()])}
+            className="flex items-center gap-2 text-xs font-semibold text-purple-600 hover:text-purple-800 border-2 border-dashed border-purple-200 hover:border-purple-400 rounded-xl px-4 py-2.5 w-full justify-center transition-all">
+            <HiOutlineUsers className="w-4 h-4" />
+            Add Another Holder
+          </button>
+        </div>
+      )}
+    </ProfileModalShell>
+  );
+};
+
+// Edit account details — risk level, account no., dates (no status)
+const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
+  // Build all accounts list
+  const allAccounts = [
+    { id: null, type: "primary", label: "Primary Account", account_no: customer.account_no, risk_level: customer.risk_level, date_opened: customer.date_opened, date_updated: customer.date_updated, status: customer.status },
+    ...(customer.accounts ?? []).map((a, i) => ({
+      id: a.id, type: "additional", label: `Account ${i + 2}`,
+      account_no: a.account_no, risk_level: a.risk_level,
+      date_opened: a.date_opened, date_updated: a.date_updated, status: a.status,
+    })),
+  ];
+
+  const isMulti = allAccounts.length > 1;
+
+  const [step, setStep] = useState(isMulti ? "select" : "edit");
+  const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
+  const [saving, setSaving] = useState(false);
+
+  const initForm = (acct) => ({
+    risk_level:   acct.risk_level   ?? "Low Risk",
+    account_no:   acct.account_no   ?? "",
+    date_opened:  acct.date_opened  ? acct.date_opened.substring(0, 10)  : "",
+    date_updated: acct.date_updated ? acct.date_updated.substring(0, 10) : "",
+  });
+
+  const [form, setForm] = useState(isMulti ? null : initForm(allAccounts[0]));
+
+  const handleSelectAcct = (acct) => {
+    setSelectedAcct(acct);
+    setForm(initForm(acct));
+    setStep("edit");
+  };
+
+  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (selectedAcct.type === "primary") {
+        await api.put(`/customers/${customer.id}`, form);
+      } else {
+        await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, form);
+      }
+      await Swal.fire({
+        icon: "success", title: "Account Updated", text: "Changes have been saved.",
+        confirmButtonColor: "#2563eb", timer: 2000, timerProgressBar: true,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      const msg = err?.response?.data?.message ?? "Something went wrong.";
+      Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ProfileModalShell
+      title={step === "select" ? "Select Account" : "Edit Account Info"}
+      subtitle={`${customerId(customer.id)} • ${customer.full_name}`}
+      onClose={onClose}
+      onBack={step === "select" ? onBack : (isMulti ? () => setStep("select") : onBack)}
+      onSave={step === "edit" ? handleSave : null}
+      saving={saving}
+    >
+      {/* Step: account picker */}
+      {step === "select" && (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500 font-medium">Which account would you like to edit?</p>
+          {allAccounts.map((acct, i) => (
+            <button
+              key={acct.id ?? "primary"}
+              onClick={() => handleSelectAcct(acct)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
+            >
+              <span className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold text-slate-800">{acct.label}</span>
+                  {acct.type === "primary" && (
+                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Primary</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status ?? "—"}</span>
+                <p className="text-[10px] text-slate-400 mt-0.5">{acct.risk_level ?? "—"}</p>
+              </div>
+              <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Step: edit form */}
+      {step === "edit" && form && (
+        <>
+          {isMulti && (
+            <div className="px-3 py-2 rounded-xl bg-blue-50 border border-blue-100">
+              <p className="text-[11px] text-slate-500">Editing: <span className="font-bold text-slate-800">{selectedAcct.label}</span>
+                {selectedAcct.account_no && <span className="font-mono ml-1">({selectedAcct.account_no})</span>}
+              </p>
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Risk Level</label>
+            <select value={form.risk_level} onChange={set("risk_level")} className={editInputCls}>
+              {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
+            </select>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Account No.</label>
-              <input value={form.account_no} onChange={set("account_no")} placeholder="e.g. 1234-5678-9012" maxLength={100} className={inputCls} />
+              <input value={form.account_no} onChange={set("account_no")} placeholder="e.g. 1234-5678-9012" maxLength={100} className={editInputCls} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Date Opened</label>
-              <input type="date" value={form.date_opened} onChange={set("date_opened")} className={inputCls} />
+              <input type="date" value={form.date_opened} onChange={set("date_opened")} className={editInputCls} />
             </div>
           </div>
-
-          {/* Primary holder (Person 1) */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">1</div>
-              <p className="text-xs font-bold text-slate-700">{isJoint ? "Person 1 — Primary Account Holder" : "Account Holder"}</p>
-            </div>
-            <div className="pl-3 border-l-2 border-slate-100 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">First Name *</label>
-                  <input value={form.firstname} onChange={set("firstname")} className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name *</label>
-                  <input value={form.lastname} onChange={set("lastname")} className={inputCls} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Middle Name</label>
-                  <input value={form.middlename} onChange={set("middlename")} className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Suffix</label>
-                  <input value={form.suffix} onChange={set("suffix")} placeholder="Jr., Sr., III…" className={inputCls} />
-                </div>
-              </div>
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Date Updated <span className="font-normal text-slate-400">(Optional)</span></label>
+            <input type="date" value={form.date_updated} onChange={set("date_updated")} className={editInputCls} />
           </div>
-
-          {/* Additional holders for Joint */}
-          {isJoint && (
-            <div className="space-y-4">
-              {holders.map((h, i) => (
-                <div key={i} className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">{i + 2}</div>
-                    <p className="text-xs font-bold text-slate-700">Person {i + 2} — Secondary Account Holder</p>
-                    {holders.length > 1 && (
-                      <button type="button" onClick={() => setHolders((prev) => prev.filter((_, idx) => idx !== i))}
-                        className="ml-auto text-[11px] font-medium text-red-500 hover:text-red-700">Remove</button>
-                    )}
-                  </div>
-                  <div className="pl-3 border-l-2 border-slate-100 space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">First Name *</label>
-                        <input value={h.firstname} onChange={(e) => setHolder(i, "firstname", e.target.value)} className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name *</label>
-                        <input value={h.lastname} onChange={(e) => setHolder(i, "lastname", e.target.value)} className={inputCls} />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Middle Name</label>
-                        <input value={h.middlename} onChange={(e) => setHolder(i, "middlename", e.target.value)} className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Suffix</label>
-                        <input value={h.suffix} onChange={(e) => setHolder(i, "suffix", e.target.value)} placeholder="Jr., Sr., III…" className={inputCls} />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Risk Level</label>
-                      <select value={h.risk_level} onChange={(e) => setHolder(i, "risk_level", e.target.value)} className={inputCls}>
-                        {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <button type="button"
-                onClick={() => setHolders((prev) => [...prev, emptyHolder()])}
-                className="flex items-center gap-2 text-xs font-semibold text-purple-600 hover:text-purple-800 border-2 border-dashed border-purple-200 hover:border-purple-400 rounded-xl px-4 py-2.5 w-full justify-center transition-all">
-                <HiOutlineUsers className="w-4 h-4" />
-                Add Another Holder
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-          <button onClick={onClose}
-            className="px-5 py-2.5 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={saving}
-            className="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl shadow hover:opacity-90 disabled:opacity-60 transition-all">
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
-        </div>
-      </div>
-    </ModalOverlay>
+        </>
+      )}
+    </ProfileModalShell>
   );
 };
 
@@ -799,10 +989,56 @@ const STATUS_CONFIG = {
 };
 
 const EditStatusModal = ({ customer, onClose, onSaved }) => {
-  const [status, setStatus] = useState(customer.status ?? "active");
-  const { saving, save } = useModalSave(customer.id, onSaved, onClose);
-  const isUnchanged = status === customer.status;
-  const selected = STATUS_CONFIG[status];
+  // Build all accounts: primary first, then additional
+  const allAccounts = [
+    { id: null, type: "primary", account_no: customer.account_no, status: customer.status, label: "Primary Account" },
+    ...(customer.accounts ?? []).map((a, i) => ({
+      id: a.id, type: "additional", account_no: a.account_no, status: a.status, label: `Account ${i + 2}`,
+    })),
+  ];
+
+  const isMulti = allAccounts.length > 1;
+
+  // step: "select" (account picker, only for multi) | "pick" (status picker)
+  const [step, setStep]               = useState(isMulti ? "select" : "pick");
+  const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
+  const [status, setStatus]           = useState(isMulti ? null : (customer.status ?? "active"));
+  const [saving, setSaving]           = useState(false);
+
+  const handleSelectAcct = (acct) => {
+    setSelectedAcct(acct);
+    setStatus(acct.status ?? "active");
+    setStep("pick");
+  };
+
+  const isUnchanged = status === selectedAcct?.status;
+  const selected    = STATUS_CONFIG[status];
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (selectedAcct.type === "primary") {
+        await api.put(`/customers/${customer.id}`, { status });
+      } else {
+        await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, { status });
+      }
+      await Swal.fire({
+        icon: "success",
+        title: "Status Updated",
+        text: "Account status has been saved.",
+        confirmButtonColor: "#2563eb",
+        timer: 2000,
+        timerProgressBar: true,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      const msg = err?.response?.data?.message ?? "Something went wrong.";
+      Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -811,7 +1047,9 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Update Account Status</h2>
+            <h2 className="text-base font-bold text-slate-900">
+              {step === "select" ? "Select Account" : "Update Account Status"}
+            </h2>
             <p className="text-xs text-slate-400 mt-0.5">{customer.full_name}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
@@ -819,83 +1057,134 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
           </button>
         </div>
 
-        {/* Current status indicator */}
-        <div className="px-6 pt-5 pb-1">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Current Status</p>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
-            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_CONFIG[customer.status]?.dot ?? "bg-slate-400"}`} />
-            <span className="text-sm font-semibold text-slate-700 capitalize">{customer.status}</span>
-          </div>
-        </div>
-
-        {/* Status options */}
-        <div className="px-6 pt-4 pb-5 space-y-2">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Select New Status</p>
-          {STATUS_OPTIONS.map((s) => {
-            const cfg       = STATUS_CONFIG[s];
-            const isActive  = status === s;
-            const isCurrent = customer.status === s;
-            return (
+        {/* Step: Select which account */}
+        {step === "select" && (
+          <div className="px-6 py-5 space-y-2">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
+              Which account's status would you like to change?
+            </p>
+            {allAccounts.map((acct, i) => (
               <button
-                key={s}
-                onClick={() => setStatus(s)}
-                className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl border-2 transition-all text-left
-                  ${isActive
-                    ? `${cfg.bg} ${cfg.ring} ring-2 border-transparent shadow-sm`
-                    : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                  }`}
+                key={acct.id ?? "primary"}
+                onClick={() => handleSelectAcct(acct)}
+                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
               >
-                {/* Radio dot */}
-                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all
-                  ${isActive ? `${cfg.dot} border-transparent` : "border-slate-300 bg-white"}`}>
-                  {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                </div>
-
-                {/* Label + description */}
+                <span className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
+                  {i + 1}
+                </span>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-bold capitalize ${isActive ? cfg.text : "text-slate-700"}`}>
-                      {cfg.label}
-                    </span>
-                    {isCurrent && (
-                      <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
-                        Current
-                      </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-bold text-slate-800">{acct.label}</span>
+                    {acct.type === "primary" && (
+                      <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Primary</span>
                     )}
                   </div>
-                  <p className={`text-[11px] mt-0.5 ${isActive ? cfg.text + "/70" : "text-slate-400"}`}>
-                    {cfg.desc}
-                  </p>
+                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
                 </div>
-
-                {/* Status dot */}
-                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
+                  {acct.status ?? "—"}
+                </span>
+                <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
               </button>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
-          <p className="text-xs text-slate-400">
-            {isUnchanged
-              ? "No changes made"
-              : <span>Changing to <strong className={`capitalize ${selected.text}`}>{status}</strong></span>
-            }
-          </p>
-          <div className="flex items-center gap-2.5">
+        {/* Step: Pick new status */}
+        {step === "pick" && (
+          <>
+            {/* Back button for multi */}
+            {isMulti && (
+              <div className="px-6 pt-4 pb-0">
+                <button
+                  onClick={() => setStep("select")}
+                  className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline"
+                >
+                  <HiOutlineChevronLeft className="w-3.5 h-3.5" /> Back to account selection
+                </button>
+                <p className="text-[11px] text-slate-500 mt-1.5 font-medium">
+                  Changing status for: <span className="text-slate-800 font-bold">{selectedAcct.label}</span>
+                  {selectedAcct.account_no && <span className="font-mono ml-1">({selectedAcct.account_no})</span>}
+                </p>
+              </div>
+            )}
+
+            {/* Current status indicator */}
+            <div className="px-6 pt-4 pb-1">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Current Status</p>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
+                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_CONFIG[selectedAcct.status]?.dot ?? "bg-slate-400"}`} />
+                <span className="text-sm font-semibold text-slate-700 capitalize">{selectedAcct.status}</span>
+              </div>
+            </div>
+
+            {/* Status options */}
+            <div className="px-6 pt-4 pb-5 space-y-2">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Select New Status</p>
+              {STATUS_OPTIONS.map((s) => {
+                const cfg       = STATUS_CONFIG[s];
+                const isActive  = status === s;
+                const isCurrent = selectedAcct.status === s;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStatus(s)}
+                    className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl border-2 transition-all text-left
+                      ${isActive
+                        ? `${cfg.bg} ${cfg.ring} ring-2 border-transparent shadow-sm`
+                        : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all
+                      ${isActive ? `${cfg.dot} border-transparent` : "border-slate-300 bg-white"}`}>
+                      {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold capitalize ${isActive ? cfg.text : "text-slate-700"}`}>{cfg.label}</span>
+                        {isCurrent && (
+                          <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">Current</span>
+                        )}
+                      </div>
+                      <p className={`text-[11px] mt-0.5 ${isActive ? cfg.text + "/70" : "text-slate-400"}`}>{cfg.desc}</p>
+                    </div>
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
+              <p className="text-xs text-slate-400">
+                {isUnchanged
+                  ? "No changes made"
+                  : <span>Changing to <strong className={`capitalize ${selected?.text}`}>{status}</strong></span>
+                }
+              </p>
+              <div className="flex items-center gap-2.5">
+                <button onClick={onClose}
+                  className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleSave} disabled={saving || isUnchanged}
+                  className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow transition-all disabled:opacity-50 disabled:shadow-none bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90">
+                  {saving ? "Saving…" : "Confirm Update"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Footer for select step */}
+        {step === "select" && (
+          <div className="flex justify-end px-6 py-4 border-t border-slate-100 bg-slate-50">
             <button onClick={onClose}
               className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
               Cancel
             </button>
-            <button onClick={() => save({ status })} disabled={saving || isUnchanged}
-              className={`px-5 py-2 text-sm font-bold text-white rounded-xl shadow transition-all disabled:opacity-50 disabled:shadow-none
-                ${selected ? `bg-gradient-to-r from-${selected.dot.replace("bg-", "")} to-${selected.dot.replace("bg-", "")}` : ""}
-                bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90`}>
-              {saving ? "Saving…" : "Confirm Update"}
-            </button>
           </div>
-        </div>
+        )}
       </div>
     </ModalOverlay>
   );
@@ -931,6 +1220,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
 
   // Edit modals
   const [editInfoCustomer, setEditInfoCustomer]       = useState(null);
+  const [editInfoMode, setEditInfoMode]               = useState(null); // "choice" | "customer" | "account"
   const [editStatusCustomer, setEditStatusCustomer]   = useState(null);
 
   // Quick search
@@ -1023,14 +1313,30 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="bg-gray-50 text-slate-900">
-      {/* Edit Info Modal — hidden for cashier */}
+      {/* Edit Info Modals — hidden for cashier */}
       {!isReadOnly && (
         <AnimatePresence>
-          {editInfoCustomer && (
-            <EditInfoModal
+          {editInfoCustomer && editInfoMode === "choice" && (
+            <EditChoiceModal
               customer={editInfoCustomer}
-              onClose={() => setEditInfoCustomer(null)}
+              onClose={() => { setEditInfoCustomer(null); setEditInfoMode(null); }}
+              onPick={(mode) => setEditInfoMode(mode)}
+            />
+          )}
+          {editInfoCustomer && editInfoMode === "customer" && (
+            <EditCustomerInfoModal
+              customer={editInfoCustomer}
+              onClose={() => { setEditInfoCustomer(null); setEditInfoMode(null); }}
               onSaved={fetchCustomers}
+              onBack={() => setEditInfoMode("choice")}
+            />
+          )}
+          {editInfoCustomer && editInfoMode === "account" && (
+            <EditAccountInfoModal
+              customer={editInfoCustomer}
+              onClose={() => { setEditInfoCustomer(null); setEditInfoMode(null); }}
+              onSaved={fetchCustomers}
+              onBack={() => setEditInfoMode("choice")}
             />
           )}
         </AnimatePresence>
@@ -1183,7 +1489,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
-                      {["Full Name", "Account No.", "Account Type", "Risk Level", "Status", "Date Added", "Action"].map((h) => (
+                      {["Full Name", "Accounts", "Account Type", "Risk Level", "Status", "Date Added", "Action"].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600">
                           {h}
                         </th>
@@ -1216,8 +1522,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                           {/* Full Name */}
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">
-                                {initials(c)}
+                              <div className="w-7 h-7 rounded-full flex-shrink-0 overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-[10px]">
+                                {c.photo
+                                  ? <img src={storageUrl(c.photo)} alt={c.full_name} className="w-full h-full object-cover" />
+                                  : initials(c)
+                                }
                               </div>
                               <div className="min-w-0">
                                 <span className="text-xs font-semibold text-slate-900 block truncate">{c.full_name ?? "—"}</span>
@@ -1229,9 +1538,9 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                               </div>
                             </div>
                           </td>
-                          {/* Account No. */}
-                          <td className="px-4 py-2.5 text-[11px] text-slate-600 font-mono">
-                            {c.account_no ?? "—"}
+                          {/* Accounts */}
+                          <td className="px-4 py-2.5">
+                            <AccountsCell c={c} />
                           </td>
                           {/* Account Type */}
                           <td className="px-4 py-2.5">
@@ -1247,9 +1556,13 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                           </td>
                           {/* Status */}
                           <td className="px-4 py-2.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
-                              {c.status ?? "—"}
-                            </span>
+                            {(c.accounts?.length ?? 0) > 0 ? (
+                              <span className="text-[10px] text-slate-400 font-medium">{c.accounts.length + 1} accounts</span>
+                            ) : (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
+                                {c.status ?? "—"}
+                              </span>
+                            )}
                           </td>
                           {/* Date */}
                           <td className="px-4 py-2.5 text-[11px] text-slate-500">
@@ -1269,7 +1582,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                               {!isReadOnly && (
                                 <>
                                   <button
-                                    onClick={() => setEditInfoCustomer(c)}
+                                    onClick={() => { setEditInfoCustomer(c); setEditInfoMode("choice"); }}
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 hover:border-blue-400 transition-colors"
                                     title="Edit customer info"
                                   >
@@ -1414,8 +1727,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                   onClick={() => { setSelectedCustomer(c); setShowDropdown(false); setQuickQuery(""); }}
                                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 text-left border-b border-slate-100 last:border-0 transition-colors group"
                                 >
-                                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                                    {initials(c)}
+                                  <div className="w-9 h-9 rounded-full flex-shrink-0 overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
+                                    {c.photo
+                                      ? <img src={storageUrl(c.photo)} alt={c.full_name} className="w-full h-full object-cover" />
+                                      : initials(c)
+                                    }
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-semibold text-slate-900 truncate group-hover:text-blue-700">{c.full_name}</p>

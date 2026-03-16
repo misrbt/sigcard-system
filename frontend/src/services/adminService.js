@@ -30,6 +30,9 @@ export const adminService = {
   // Branches
   getBranches: () => api.get('/branches'),
   getBranchHierarchy: () => api.get('/admin/branch-hierarchy'),
+  createBranch: (data) => api.post('/admin/branches', data),
+  updateBranch: (id, data) => api.put(`/admin/branches/${id}`, data),
+  deleteBranch: (id) => api.delete(`/admin/branches/${id}`),
   updateBranchParent: (branchId, parentId) => api.put(`/admin/branches/${branchId}/parent`, { parent_id: parentId }),
 
   // System Settings

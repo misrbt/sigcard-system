@@ -1,21 +1,20 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\AdminController;
-use App\Http\Controllers\Api\ManagerController;
-use App\Http\Controllers\Api\ComplianceController;
-use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\CashierController;
+use App\Http\Controllers\Api\ComplianceController;
+use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\ManagerController;
+use App\Http\Controllers\Api\UserController;
+use Illuminate\Support\Facades\Route;
 
 Route::get('/test', function () {
     return response()->json([
         'message' => 'API is working!',
         'timestamp' => now(),
-        'laravel_version' => app()->version()
+        'laravel_version' => app()->version(),
     ]);
 });
 
@@ -86,6 +85,9 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/security-events', [AdminController::class, 'getSecurityEvents']);
 
         Route::get('/branch-hierarchy', [AdminController::class, 'getBranchHierarchy']);
+        Route::post('/branches', [AdminController::class, 'storeBranch']);
+        Route::put('/branches/{branch}', [AdminController::class, 'updateBranch']);
+        Route::delete('/branches/{branch}', [AdminController::class, 'deleteBranch']);
         Route::put('/branches/{branch}/parent', [AdminController::class, 'updateBranchParent']);
     });
 
@@ -162,6 +164,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::delete('/{customer}/documents/{document}', [CustomerController::class, 'deleteDocument']);
         Route::post('/{customer}/replace-document', [CustomerController::class, 'replaceDocument']);
         Route::post('/{customer}/add-account', [CustomerController::class, 'addAccount']);
+        Route::put('/{customer}/accounts/{account}', [CustomerController::class, 'updateAccount']);
     });
 
     // Compliance Audit Routes
@@ -210,7 +213,7 @@ Route::get('/bsp/compliance-info', function () {
                 'risk_based_authentication' => true,
                 'role_based_access_control' => true,
                 'concurrent_session_limiting' => true,
-                'password_expiry_policy' => true
+                'password_expiry_policy' => true,
             ],
             'security_standards' => [
                 'max_login_attempts' => 5,
@@ -218,8 +221,8 @@ Route::get('/bsp/compliance-info', function () {
                 'password_expiry_days' => 90,
                 'session_timeout_minutes' => 30,
                 'max_concurrent_sessions' => 3,
-                'minimum_password_length' => 12
-            ]
-        ]
+                'minimum_password_length' => 12,
+            ],
+        ],
     ]);
 });

@@ -12,9 +12,15 @@ import {
   FaExclamationTriangle, FaCheckCircle, FaCog, FaArrowRight,
   FaPlus, FaTrash, FaEdit,
 } from 'react-icons/fa';
+import { HiOutlineX } from 'react-icons/hi';
 import { adminService } from '../../services/adminService';
 import api from '../../services/api';
 import Pagination from '../../components/ui/Pagination';
+
+const storageUrl = (path) => {
+  const base = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api").replace(/\/api$/, "");
+  return `${base}/storage/${path}`;
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -427,31 +433,180 @@ const MetaProperties = ({ meta }) => {
 };
 
 // ── Properties panel ─────────────────────────────────────────────────────────
+// ── Clickable image thumbnail with fullscreen preview ─────────────────────────
+const ImageThumb = ({ src, label, borderColor = 'border-gray-200' }) => {
+  const [preview, setPreview] = useState(false);
+  return (
+    <>
+      <button onClick={() => setPreview(true)} className="text-left group">
+        <div className={`rounded-lg border-2 ${borderColor} bg-white overflow-hidden hover:shadow-md transition-all`}>
+          <img src={src} alt={label} className="w-full h-36 object-contain bg-white group-hover:opacity-90 transition-opacity" />
+        </div>
+        {label && <p className="text-[10px] text-gray-500 font-medium mt-1 truncate">{label}</p>}
+      </button>
+      {preview && (
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4" onClick={() => setPreview(false)}>
+          <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setPreview(false)}
+              className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900 z-10">
+              <HiOutlineX className="w-4 h-4" />
+            </button>
+            <div className="bg-white rounded-xl shadow-2xl p-2">
+              {label && <p className="text-xs font-semibold text-gray-700 mb-2 px-2">{label}</p>}
+              <img src={src} alt={label} className="max-h-[80vh] rounded-lg object-contain" />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// ── Document replacement side-by-side comparison ──────────────────────────────
+const DocComparisonPanel = ({ props }) => {
+  const docType = DOC_TYPE_LABELS[props.document_type] ?? props.document_type ?? 'Document';
+  const personSuffix = props.person_index > 1 ? ` (${personLabel(props.person_index)})` : '';
+
+  return (
+    <div className="bg-gradient-to-r from-orange-50 to-blue-50 rounded-xl border border-gray-200 p-4 mt-2">
+      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+        Document Comparison — {docType}{personSuffix}
+      </p>
+      <div className="grid grid-cols-2 gap-4">
+        {/* Old (Archived) */}
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="w-2 h-2 rounded-full bg-orange-500" />
+            <span className="text-[10px] font-bold text-orange-600 uppercase">Before (Archived)</span>
+          </div>
+          {props.archived_file_path ? (
+            <ImageThumb src={storageUrl(props.archived_file_path)} label={props.replaced_file} borderColor="border-orange-200" />
+          ) : (
+            <div className="w-full h-36 rounded-lg border-2 border-dashed border-orange-200 bg-white flex items-center justify-center">
+              <span className="text-xs text-gray-400">No archived image</span>
+            </div>
+          )}
+        </div>
+        {/* New (Current) */}
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="text-[10px] font-bold text-blue-600 uppercase">After (Current)</span>
+          </div>
+          {props.current_file_path ? (
+            <ImageThumb src={storageUrl(props.current_file_path)} label={props.current_file_name ?? props.new_file_name} borderColor="border-blue-200" />
+          ) : props.new_file_name ? (
+            <div className="w-full h-36 rounded-lg border-2 border-dashed border-blue-200 bg-white flex items-center justify-center text-center px-2">
+              <span className="text-xs text-gray-400">Document has since been replaced again</span>
+            </div>
+          ) : (
+            <div className="w-full h-36 rounded-lg border-2 border-dashed border-blue-200 bg-white flex items-center justify-center">
+              <span className="text-xs text-gray-400">No preview</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Status change visual card ─────────────────────────────────────────────────
+const StatusChangePanel = ({ diff }) => {
+  const statusRow = diff?.find((r) => r.field === 'status');
+  const riskRow = diff?.find((r) => r.field === 'risk_level');
+  if (!statusRow && !riskRow) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 mt-2 space-y-3">
+      {statusRow && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Account Status Change</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <ValueBadge value={statusRow.before} field="status" />
+            <FaArrowRight className="text-gray-300 text-sm" />
+            <ValueBadge value={statusRow.after} field="status" />
+          </div>
+        </div>
+      )}
+      {riskRow && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Risk Level Change</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-gray-600">{riskRow.before ?? 'not set'}</span>
+            <FaArrowRight className="text-gray-300 text-sm" />
+            <span className="text-xs font-medium text-gray-600">{riskRow.after ?? 'not set'}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Current documents image gallery (for creation events) ─────────────────────
+const CurrentDocsGallery = ({ docs }) => {
+  if (!docs || !Array.isArray(docs) || docs.length === 0) return null;
+  return (
+    <div className="bg-green-50 rounded-xl border border-green-200 p-4 mt-2">
+      <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider mb-3">Current Document Images</p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        {docs.map((doc, idx) => {
+          const label = (DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type) +
+            (doc.person_index > 1 ? ` (P${doc.person_index})` : '');
+          return (
+            <ImageThumb key={idx} src={storageUrl(doc.file_path)} label={label} borderColor="border-green-200" />
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ── Properties panel (enhanced with images + status changes) ──────────────────
 const PropertiesPanel = ({ log }) => {
   const props  = log.properties ?? {};
   const diff   = parseDiff(props);
   const meta   = Object.fromEntries(
-    Object.entries(props).filter(([k]) => !['old', 'attributes', 'diff'].includes(k))
+    Object.entries(props).filter(([k]) => !['old', 'attributes', 'diff', 'current_file_path', 'current_file_name', 'current_documents'].includes(k))
   );
   const hasDiff = diff && diff.length > 0;
   const hasMeta = Object.keys(meta).length > 0;
 
-  if (!hasDiff && !hasMeta) return <p className="text-xs text-gray-400 italic">No additional details.</p>;
+  const desc = (log.description ?? '').toLowerCase();
+  const isDocReplaced = desc.includes('replaced');
+  const isCreated = desc.includes('created') || log.event === 'created';
+  const hasStatusChange = hasDiff && diff.some((r) => r.field === 'status' || r.field === 'risk_level');
+
+  if (!hasDiff && !hasMeta && !isDocReplaced) return <p className="text-xs text-gray-400 italic">No additional details.</p>;
 
   return (
     <div className="space-y-3">
+      {/* Status/risk change visualization */}
+      {hasStatusChange && <StatusChangePanel diff={diff} />}
+
+      {/* Field changes table */}
       {hasDiff && (
         <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
             {log.event === 'created' ? 'Information Recorded' : log.event === 'deleted' ? 'Information at Time of Removal' : 'What Was Changed'}
           </p>
           <div className="bg-white rounded-lg border border-gray-100 px-3">
-            {diff.map((row) => (
+            {diff.filter((r) => !(hasStatusChange && (r.field === 'status' || r.field === 'risk_level'))).map((row) => (
               <DiffRow key={row.field} field={row.field} before={row.before} after={row.after} />
             ))}
           </div>
         </div>
       )}
+
+      {/* Document replacement: side-by-side image comparison */}
+      {isDocReplaced && (props.archived_file_path || props.current_file_path) && (
+        <DocComparisonPanel props={props} />
+      )}
+
+      {/* Creation: show current document images */}
+      {isCreated && props.current_documents && (
+        <CurrentDocsGallery docs={props.current_documents} />
+      )}
+
       {hasMeta && <MetaProperties meta={meta} />}
     </div>
   );
@@ -540,6 +695,11 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose }) => {
                     diff:       entry.diff,
                   });
                   const hasDiff = diff && diff.length > 0;
+                  const meta = entry.meta ?? {};
+                  const desc = (entry.description ?? '').toLowerCase();
+                  const isDocReplaced = desc.includes('replaced');
+                  const isCreated = desc.includes('created') || entry.event === 'created';
+                  const hasStatusChange = hasDiff && diff.some((r) => r.field === 'status' || r.field === 'risk_level');
 
                   return (
                     <div key={entry.id} className="flex gap-4 relative">
@@ -561,20 +721,35 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose }) => {
                             {entry.event === 'created' ? 'Record Created' : entry.event === 'deleted' ? 'Record Removed' : entry.event === 'updated' ? 'Record Updated' : 'Action'}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600 mb-2">{humanizeDescription(entry.description, entry)}</p>
+                        <p className="text-sm text-gray-600 mb-2">{humanizeDescription(entry.description, entry.meta ?? entry)}</p>
 
-                        {/* Diff table */}
+                        {/* Status/risk change visualization */}
+                        {hasStatusChange && <StatusChangePanel diff={diff} />}
+
+                        {/* Diff table (excluding status/risk already shown above) */}
                         {hasDiff && (
-                          <div className="bg-gray-50 rounded-xl px-3 border border-gray-100">
-                            {diff.map((row) => (
+                          <div className="bg-gray-50 rounded-xl px-3 border border-gray-100 mt-2">
+                            {diff.filter((r) => !(hasStatusChange && (r.field === 'status' || r.field === 'risk_level'))).map((row) => (
                               <DiffRow key={row.field} field={row.field} before={row.before} after={row.after} />
                             ))}
                           </div>
                         )}
 
-                        {/* Meta */}
-                        {entry.meta && Object.keys(entry.meta).filter(k => !['action'].includes(k)).length > 0 && (
-                          <MetaProperties meta={entry.meta} />
+                        {/* Document replacement: side-by-side image comparison */}
+                        {isDocReplaced && (meta.archived_file_path || meta.current_file_path) && (
+                          <DocComparisonPanel props={meta} />
+                        )}
+
+                        {/* Creation: show current document images */}
+                        {isCreated && meta.current_documents && (
+                          <CurrentDocsGallery docs={meta.current_documents} />
+                        )}
+
+                        {/* Meta (exclude image-related keys already rendered above) */}
+                        {meta && Object.keys(meta).filter(k => !['action', 'current_file_path', 'current_file_name', 'current_documents'].includes(k)).length > 0 && (
+                          <MetaProperties meta={Object.fromEntries(
+                            Object.entries(meta).filter(([k]) => !['action', 'current_file_path', 'current_file_name', 'current_documents'].includes(k))
+                          )} />
                         )}
 
                         <p className="text-xs text-gray-400 mt-2" title={formatDate(entry.created_at)}>
