@@ -45,6 +45,14 @@ class BSPAuthService
     }
 
     /**
+     * Get the admin-configured concurrent sessions limit (0 = disabled).
+     */
+    public static function getConcurrentSessionsLimit(): int
+    {
+        return (int) Cache::get('system_setting_concurrent_sessions_limit', self::MAX_CONCURRENT_SESSIONS);
+    }
+
+    /**
      * Get the admin-configured token expiration in minutes.
      */
     public static function getTokenExpirationMinutes(): int
@@ -219,9 +227,15 @@ class BSPAuthService
      */
     private function checkRateLimit(Request $request): void
     {
+        $maxAttempts = (int) Cache::get('system_setting_max_login_attempts', self::MAX_LOGIN_ATTEMPTS);
+
+        if ($maxAttempts === 0) {
+            return;
+        }
+
         $key = $this->throttleKey($request);
 
-        if (RateLimiter::tooManyAttempts($key, self::MAX_LOGIN_ATTEMPTS)) {
+        if (RateLimiter::tooManyAttempts($key, $maxAttempts)) {
             $seconds = RateLimiter::availableIn($key);
 
             $this->logSecurityEvent($request, 'Rate limit exceeded');
@@ -239,9 +253,15 @@ class BSPAuthService
      */
     private function checkConcurrentSessions(User $user): void
     {
+        $limit = self::getConcurrentSessionsLimit();
+
+        if ($limit === 0) {
+            return;
+        }
+
         $activeSessions = Cache::get("user_sessions_{$user->id}", []);
 
-        if (count($activeSessions) >= self::MAX_CONCURRENT_SESSIONS) {
+        if (count($activeSessions) >= $limit) {
             throw ValidationException::withMessages([
                 'session' => ['Maximum concurrent sessions reached. Please logout from other devices.']
             ]);

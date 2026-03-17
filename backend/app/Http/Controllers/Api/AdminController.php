@@ -997,6 +997,7 @@ class AdminController extends Controller
             $settings = [
                 'session_timeout' => (int) Cache::get('system_setting_session_timeout', config('session.lifetime', 120)),
                 'token_expiration' => (int) Cache::get('system_setting_token_expiration', config('sanctum.expiration', 30)),
+                'concurrent_sessions_limit' => (int) Cache::get('system_setting_concurrent_sessions_limit', 3),
                 'password_expiry_enabled' => (bool) Cache::get('system_setting_password_expiry_enabled', false),
                 'password_expiry_days' => (int) Cache::get('system_setting_password_expiry_days', 90),
                 'max_login_attempts' => (int) Cache::get('system_setting_max_login_attempts', 5),

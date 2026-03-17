@@ -95,6 +95,12 @@ const SystemSettings = () => {
           type: "number",
           help: "How long an account stays locked after exceeding max login attempts.",
         },
+        {
+          key: "concurrent_sessions_limit",
+          label: "Concurrent Sessions Limit",
+          type: "number",
+          help: "Maximum number of simultaneous logins per user. Set to 0 to disable this restriction.",
+        },
       ],
     },
     {
@@ -120,7 +126,7 @@ const SystemSettings = () => {
           key: "max_login_attempts",
           label: "Max Login Attempts",
           type: "number",
-          help: "Number of failed login attempts before the account is locked.",
+          help: "Number of failed login attempts before the account is locked. Set to 0 to disable rate limiting.",
         },
         {
           key: "require_two_factor",
