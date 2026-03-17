@@ -226,6 +226,7 @@ const EditCustomerDocs = () => {
   const [activePerson, setActivePerson]   = useState(1);
   const [newPairs, setNewPairs]           = useState({}); // { "sigcard": [{front:null,back:null}], ... }
   const otherInputRef = useRef(null);
+  const [removingDocId, setRemovingDocId] = useState(null);
 
   // ── Load customer ──────────────────────────────────────────────────────────
   const loadCustomer = useCallback(async () => {
@@ -242,6 +243,36 @@ const EditCustomerDocs = () => {
   }, [id]);
 
   useEffect(() => { loadCustomer(); }, [loadCustomer]);
+
+  // ── Remove existing other doc ──────────────────────────────────────────────
+  const handleRemoveOtherDoc = async (doc) => {
+    const result = await Swal.fire({
+      title: "Remove Document?",
+      text: `This will permanently delete "${doc.file_name || "this document"}". This cannot be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, Remove",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+
+    setRemovingDocId(doc.id);
+    try {
+      await api.delete(`/customers/${id}/documents/${doc.id}`);
+      setCustomer((prev) => ({
+        ...prev,
+        documents: (prev.documents ?? []).filter((d) => d.id !== doc.id),
+      }));
+      Swal.fire({ icon: "success", title: "Removed", text: "Document has been deleted.", timer: 1500, showConfirmButton: false });
+    } catch (err) {
+      const msg = err?.response?.data?.message ?? "Failed to remove document.";
+      Swal.fire({ icon: "error", title: "Error", text: msg, confirmButtonColor: "#dc2626" });
+    } finally {
+      setRemovingDocId(null);
+    }
+  };
 
   // ── Derived helpers ────────────────────────────────────────────────────────
   const getDoc        = (type, pi) => customer?.documents?.find((d) => d.document_type === type && d.person_index === pi) ?? null;
@@ -1041,6 +1072,18 @@ const EditCustomerDocs = () => {
                               <div className="absolute inset-x-0 bottom-0 bg-black/50 py-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <p className="text-[8px] text-white truncate">{doc.file_name}</p>
                               </div>
+                              {/* Remove button */}
+                              <button
+                                onClick={() => handleRemoveOtherDoc(doc)}
+                                disabled={removingDocId === doc.id}
+                                className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-600 transition-all disabled:opacity-60 shadow"
+                                title="Remove this document"
+                              >
+                                {removingDocId === doc.id
+                                  ? <span className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin block" />
+                                  : <HiOutlineX className="w-3 h-3" />
+                                }
+                              </button>
                             </div>
                           ))}
                         </div>

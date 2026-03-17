@@ -5,7 +5,7 @@ import { ROLE_PRIORITY } from '../constants/roles';
 export const AuthContext = createContext(null);
 
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes (matches backend session_timeout)
-const TOKEN_REFRESH_INTERVAL = 25 * 60 * 1000; // refresh every 25 min (token lives 30 min)
+const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // refresh every 10 min (safe for short token lifetimes)
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
 
 export const AuthProvider = ({ children }) => {
@@ -127,12 +127,14 @@ export const AuthProvider = ({ children }) => {
   }, [isAuthenticated, startSessionWatchers, stopSessionWatchers]);
 
   // listen for 401s from any API call (token expired server-side)
+  // NOTE: do NOT set sessionExpired here — that flag is reserved for genuine
+  // inactivity timeouts so the login page shows the correct message.
+  // A server-side 401 (e.g. token too short, revoked) just clears auth quietly.
   useEffect(() => {
     const id = api.interceptors.response.use(
       (res) => res,
       (err) => {
         if (err.response?.status === 401 && isAuthenticated) {
-          setSessionExpired(true);
           clearAuth();
         }
         return Promise.reject(err);
