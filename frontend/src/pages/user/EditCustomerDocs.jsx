@@ -277,6 +277,7 @@ const EditCustomerDocs = () => {
   // ── Derived helpers ────────────────────────────────────────────────────────
   const getDoc        = (type, pi) => customer?.documents?.find((d) => d.document_type === type && d.person_index === pi) ?? null;
   const getAllDocs     = (type, pi) => (customer?.documents ?? []).filter((d) => d.document_type === type && d.person_index === pi);
+  const getAllDocsOfType = (type) => (customer?.documents ?? []).filter((d) => d.document_type === type);
   const setPendingFile = (type, pi, file) => {
     const key = `${type}__${pi}`;
     setPending((p) => ({ ...p, [key]: file }));
@@ -376,9 +377,9 @@ const EditCustomerDocs = () => {
   const tabPending = (group) => {
     if (group.key === "other") return newOtherFiles.length;
     if (isCorporate && group.key === "sigcard") {
-      // Count pending shared fronts + per-signatory backs
+      // Count pending fronts (each has unique person_index) + per-signatory backs
       let count = 0;
-      const existingFronts = getAllDocs(group.front, 1);
+      const existingFronts = getAllDocsOfType(group.front);
       existingFronts.forEach((doc) => { if (pending[`${group.front}__${doc.id}`]) count++; });
       allPersons.forEach((p) => {
         const backDoc = getDoc(group.back, p.index);
@@ -435,11 +436,20 @@ const EditCustomerDocs = () => {
     for (const [groupKey, pairs] of Object.entries(newPairs)) {
       const group = DOC_GROUPS.find((g) => g.key === groupKey);
       if (!group) continue;
-      // Corporate sigcard new pairs are fronts at person_index=1
-      const pi = isSharedDoc(groupKey) ? 1 : (isCorporate && groupKey === "sigcard") ? 1 : activePerson;
-      for (const pair of pairs) {
-        if (pair.front) pairEntries.push({ type: group.front, pi, file: pair.front });
-        if (pair.back)  pairEntries.push({ type: group.back,  pi, file: pair.back });
+      if (isCorporate && groupKey === "sigcard") {
+        // Corporate sigcard new fronts: each gets next available person_index
+        const existingFrontCount = getAllDocsOfType(group.front).length;
+        for (let i = 0; i < pairs.length; i++) {
+          const pi = existingFrontCount + i + 1;
+          if (pairs[i].front) pairEntries.push({ type: group.front, pi, file: pairs[i].front });
+          if (pairs[i].back)  pairEntries.push({ type: group.back,  pi, file: pairs[i].back });
+        }
+      } else {
+        const pi = isSharedDoc(groupKey) ? 1 : activePerson;
+        for (const pair of pairs) {
+          if (pair.front) pairEntries.push({ type: group.front, pi, file: pair.front });
+          if (pair.back)  pairEntries.push({ type: group.back,  pi, file: pair.back });
+        }
       }
     }
     const total = entries.length + pairEntries.length + newOtherFiles.length;
@@ -451,14 +461,29 @@ const EditCustomerDocs = () => {
 
     try {
       // Upload pending replacements
+      // For corporate sigcard fronts, build a positional person_index map
+      // so each front gets a unique person_index (1, 2, 3…) regardless of
+      // what the DB currently stores (old data may have all fronts at person_index=1).
+      const corpFrontPiMap = {};
+      if (isCorporate) {
+        const allFronts = getAllDocsOfType("sigcard_front");
+        allFronts.forEach((doc, idx) => { corpFrontPiMap[doc.id] = idx + 1; });
+      }
+
       for (const [key, file] of entries) {
         const parts = key.split("__");
         const document_type = parts[0];
         const secondPart = parts[1];
         // Determine if secondPart is a doc ID (for shared doc replacements) or person_index
         const matchingDoc = (customer?.documents ?? []).find((d) => d.id === parseInt(secondPart));
-        const person_index = matchingDoc ? matchingDoc.person_index : parseInt(secondPart);
+        let person_index = matchingDoc ? matchingDoc.person_index : parseInt(secondPart);
         const document_id = matchingDoc ? matchingDoc.id : null;
+
+        // Corporate sigcard fronts: use positional index to avoid filename collisions
+        if (isCorporate && document_type === "sigcard_front" && matchingDoc) {
+          person_index = corpFrontPiMap[matchingDoc.id] ?? person_index;
+        }
+
         try { await uploadOne(key, document_type, person_index, file, document_id); }
         catch { failed++; }
         setSaveProgress({ done: ++done, total });
@@ -745,7 +770,7 @@ const EditCustomerDocs = () => {
             {/* ── Corporate Sigcard — custom layout ──────────────────────── */}
             {isCorporate && activeTab === "sigcard" && (() => {
               const group = DOC_GROUPS.find((g) => g.key === "sigcard");
-              const existingFronts = getAllDocs(group.front, 1);
+              const existingFronts = getAllDocsOfType(group.front);
               const addedPairs = newPairs["sigcard"] ?? [];
 
               return (

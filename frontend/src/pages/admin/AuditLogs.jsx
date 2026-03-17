@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MdSearch, MdRefresh, MdExpandMore, MdExpandLess,
   MdFilterList, MdClose, MdHistory, MdSecurity,
   MdPerson, MdSettings, MdLogin, MdBadge, MdTimeline,
+  MdAccessTime, MdVisibility, MdDownload,
 } from 'react-icons/md';
 import {
   FaIdCard, FaUserShield, FaSignInAlt, FaSignOutAlt,
   FaUserPlus, FaUserEdit, FaUserTimes, FaKey, FaLock,
   FaUnlock, FaShieldAlt, FaDatabase, FaFileAlt,
   FaExclamationTriangle, FaCheckCircle, FaCog, FaArrowRight,
-  FaPlus, FaTrash, FaEdit,
+  FaPlus, FaTrash, FaEdit, FaCalendarAlt,
 } from 'react-icons/fa';
 import { HiOutlineX } from 'react-icons/hi';
 import { adminService } from '../../services/adminService';
@@ -25,12 +26,12 @@ const storageUrl = (path) => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  { key: 'all',             label: 'All Activity',    icon: MdHistory   },
-  { key: 'login',           label: 'Login Activity',  icon: MdLogin     },
-  { key: 'customer',        label: 'Customer Records',icon: MdBadge     },
-  { key: 'user_management', label: 'Staff Accounts',  icon: MdPerson    },
-  { key: 'security',        label: 'Security',        icon: MdSecurity  },
-  { key: 'system',          label: 'System',          icon: MdSettings  },
+  { key: 'all',             label: 'All Activity',     icon: MdHistory,  color: 'blue'   },
+  { key: 'login',           label: 'Login Activity',   icon: MdLogin,    color: 'green'  },
+  { key: 'customer',        label: 'Customer Records', icon: MdBadge,    color: 'indigo' },
+  { key: 'user_management', label: 'Staff Accounts',   icon: MdPerson,   color: 'purple' },
+  { key: 'security',        label: 'Security',         icon: MdSecurity, color: 'red'    },
+  { key: 'system',          label: 'System',           icon: MdSettings, color: 'slate'  },
 ];
 
 const DOC_TYPE_LABELS = {
@@ -51,10 +52,10 @@ const STATUS_LABELS = {
 };
 
 const STATUS_COLORS = {
-  active:  'bg-green-100 text-green-700',
-  dormant: 'bg-yellow-100 text-yellow-700',
-  escheat: 'bg-orange-100 text-orange-700',
-  closed:  'bg-red-100 text-red-700',
+  active:  'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  dormant: 'bg-amber-100 text-amber-700 border border-amber-200',
+  escheat: 'bg-orange-100 text-orange-700 border border-orange-200',
+  closed:  'bg-red-100 text-red-700 border border-red-200',
 };
 
 const FIELD_LABELS = {
@@ -76,12 +77,10 @@ const FIELD_LABELS = {
   name:          'Full Name',
 };
 
-// Hidden meta fields that add no value for non-technical readers
 const META_EXCLUDE = new Set([
   'action', 'log_name', 'ip_address', 'user_agent',
 ]);
 
-// Friendly meta field labels shown in the detail panel
 const META_LABELS = {
   full_name:           'Customer Name',
   account_type:        'Account Type',
@@ -97,7 +96,28 @@ const META_LABELS = {
   ip:                  'From IP Address',
 };
 
-/** Convert bytes to a readable string */
+// Severity mapping for left-border color coding
+const SEVERITY_MAP = {
+  success:  { border: 'border-l-emerald-400', dot: 'bg-emerald-400' },
+  info:     { border: 'border-l-blue-400',    dot: 'bg-blue-400'    },
+  warning:  { border: 'border-l-amber-400',   dot: 'bg-amber-400'   },
+  danger:   { border: 'border-l-red-400',     dot: 'bg-red-400'     },
+  neutral:  { border: 'border-l-gray-300',    dot: 'bg-gray-300'    },
+};
+
+const getSeverity = (description = '') => {
+  const d = description.toLowerCase();
+  if (d.includes('fail') || d.includes('locked') || d.includes('delet') || d.includes('too many'))
+    return 'danger';
+  if (d.includes('success') || d.includes('authenticated') || d.includes('creat') || d.includes('unlock'))
+    return 'success';
+  if (d.includes('security') || d.includes('password') || d.includes('2fa') || d.includes('permission') || d.includes('role'))
+    return 'warning';
+  if (d.includes('updat') || d.includes('replaced') || d.includes('changed'))
+    return 'info';
+  return 'neutral';
+};
+
 const formatBytes = (bytes) => {
   const n = Number(bytes);
   if (isNaN(n)) return bytes;
@@ -106,21 +126,18 @@ const formatBytes = (bytes) => {
   return `${(n / 1048576).toFixed(1)} MB`;
 };
 
-/** Ordinal suffix: 1 → 1st, 2 → 2nd */
 const ordinal = (n) => {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
-/** Translate person_index numbers to human labels */
 const personLabel = (index) => {
   const n = Number(index);
   if (n === 1) return 'Primary Account Holder';
   return `${ordinal(n)} Account Holder (Joint)`;
 };
 
-/** Plain-English description for an audit log entry */
 const humanizeDescription = (description = '', properties = {}) => {
   const d   = description.toLowerCase();
   const who = properties.full_name ? ` for ${properties.full_name}` : '';
@@ -179,10 +196,9 @@ const humanizeDescription = (description = '', properties = {}) => {
   if (d.includes('restore'))
     return 'System data was restored from a backup.';
 
-  return description; // fallback — return as-is if no match
+  return description;
 };
 
-/** Readable label for the subject (what record was acted upon) */
 const humanizeSubject = (log) => {
   const props = log.properties ?? {};
   if (props.full_name) return props.full_name;
@@ -199,42 +215,42 @@ const humanizeSubject = (log) => {
 const resolveLogMeta = (description = '', event = '') => {
   const d = description.toLowerCase();
   if (d.includes('login') && (d.includes('success') || d.includes('authenticated')))
-    return { icon: FaSignInAlt,       color: 'text-green-600',  bg: 'bg-green-50',   badge: 'bg-green-100 text-green-700',    label: 'Signed In'       };
+    return { icon: FaSignInAlt,       color: 'text-emerald-600', bg: 'bg-emerald-50',  badge: 'bg-emerald-100 text-emerald-700 border border-emerald-200',   label: 'Signed In'       };
   if (d.includes('failed') || d.includes('invalid') || (d.includes('login') && d.includes('fail')))
-    return { icon: FaExclamationTriangle, color: 'text-red-600', bg: 'bg-red-50',   badge: 'bg-red-100 text-red-700',        label: 'Login Failed'    };
+    return { icon: FaExclamationTriangle, color: 'text-red-600', bg: 'bg-red-50',     badge: 'bg-red-100 text-red-700 border border-red-200',               label: 'Login Failed'    };
   if (d.includes('logout') || d.includes('logged out'))
-    return { icon: FaSignOutAlt,      color: 'text-gray-500',   bg: 'bg-gray-50',    badge: 'bg-gray-100 text-gray-600',      label: 'Signed Out'      };
+    return { icon: FaSignOutAlt,      color: 'text-gray-500',    bg: 'bg-gray-50',     badge: 'bg-gray-100 text-gray-600 border border-gray-200',            label: 'Signed Out'      };
   if (d.includes('locked'))
-    return { icon: FaLock,            color: 'text-orange-600', bg: 'bg-orange-50',  badge: 'bg-orange-100 text-orange-700',  label: 'Account Locked'  };
+    return { icon: FaLock,            color: 'text-orange-600',  bg: 'bg-orange-50',   badge: 'bg-orange-100 text-orange-700 border border-orange-200',      label: 'Account Locked'  };
   if (d.includes('unlock'))
-    return { icon: FaUnlock,          color: 'text-yellow-600', bg: 'bg-yellow-50',  badge: 'bg-yellow-100 text-yellow-700',  label: 'Account Unlocked'};
+    return { icon: FaUnlock,          color: 'text-yellow-600',  bg: 'bg-yellow-50',   badge: 'bg-yellow-100 text-yellow-700 border border-yellow-200',      label: 'Account Unlocked'};
   if (d.includes('password'))
-    return { icon: FaKey,             color: 'text-purple-600', bg: 'bg-purple-50',  badge: 'bg-purple-100 text-purple-700',  label: 'Password Change' };
+    return { icon: FaKey,             color: 'text-purple-600',  bg: 'bg-purple-50',   badge: 'bg-purple-100 text-purple-700 border border-purple-200',      label: 'Password Change' };
   if (d.includes('2fa') || d.includes('two-factor'))
-    return { icon: FaShieldAlt,       color: 'text-indigo-600', bg: 'bg-indigo-50',  badge: 'bg-indigo-100 text-indigo-700',  label: '2-Step Verify'   };
+    return { icon: FaShieldAlt,       color: 'text-indigo-600',  bg: 'bg-indigo-50',   badge: 'bg-indigo-100 text-indigo-700 border border-indigo-200',      label: '2-Step Verify'   };
   if (d.includes('document replaced'))
-    return { icon: FaEdit,            color: 'text-cyan-600',   bg: 'bg-cyan-50',    badge: 'bg-cyan-100 text-cyan-700',      label: 'Doc Replaced'    };
+    return { icon: FaEdit,            color: 'text-cyan-600',    bg: 'bg-cyan-50',     badge: 'bg-cyan-100 text-cyan-700 border border-cyan-200',            label: 'Doc Replaced'    };
   if (d.includes('document') || d.includes('sigcard') || d.includes('nais') || d.includes('privacy'))
-    return { icon: FaFileAlt,         color: 'text-teal-600',   bg: 'bg-teal-50',    badge: 'bg-teal-100 text-teal-700',      label: 'Document'        };
+    return { icon: FaFileAlt,         color: 'text-teal-600',    bg: 'bg-teal-50',     badge: 'bg-teal-100 text-teal-700 border border-teal-200',            label: 'Document'        };
   if ((d.includes('customer') || d.includes('sigcard record')) && (d.includes('creat') || event === 'created'))
-    return { icon: FaIdCard,          color: 'text-blue-600',   bg: 'bg-blue-50',    badge: 'bg-blue-100 text-blue-700',      label: 'Customer Added'  };
+    return { icon: FaIdCard,          color: 'text-blue-600',    bg: 'bg-blue-50',     badge: 'bg-blue-100 text-blue-700 border border-blue-200',            label: 'Customer Added'  };
   if ((d.includes('customer') || d.includes('sigcard record')) && (d.includes('updat') || event === 'updated'))
-    return { icon: FaEdit,            color: 'text-sky-600',    bg: 'bg-sky-50',     badge: 'bg-sky-100 text-sky-700',        label: 'Customer Updated'};
+    return { icon: FaEdit,            color: 'text-sky-600',     bg: 'bg-sky-50',      badge: 'bg-sky-100 text-sky-700 border border-sky-200',               label: 'Customer Updated'};
   if ((d.includes('customer') || d.includes('sigcard record')) && (d.includes('delet') || event === 'deleted'))
-    return { icon: FaTrash,           color: 'text-red-500',    bg: 'bg-red-50',     badge: 'bg-red-100 text-red-600',        label: 'Customer Removed'};
+    return { icon: FaTrash,           color: 'text-red-500',     bg: 'bg-red-50',      badge: 'bg-red-100 text-red-600 border border-red-200',               label: 'Customer Removed'};
   if (d.includes('user') && d.includes('creat'))
-    return { icon: FaUserPlus,        color: 'text-green-600',  bg: 'bg-green-50',   badge: 'bg-green-100 text-green-700',    label: 'Staff Added'     };
+    return { icon: FaUserPlus,        color: 'text-emerald-600', bg: 'bg-emerald-50',  badge: 'bg-emerald-100 text-emerald-700 border border-emerald-200',   label: 'Staff Added'     };
   if (d.includes('user') && d.includes('updat'))
-    return { icon: FaUserEdit,        color: 'text-blue-600',   bg: 'bg-blue-50',    badge: 'bg-blue-100 text-blue-700',      label: 'Staff Updated'   };
+    return { icon: FaUserEdit,        color: 'text-blue-600',    bg: 'bg-blue-50',     badge: 'bg-blue-100 text-blue-700 border border-blue-200',            label: 'Staff Updated'   };
   if (d.includes('user') && d.includes('delet'))
-    return { icon: FaUserTimes,       color: 'text-red-600',    bg: 'bg-red-50',     badge: 'bg-red-100 text-red-700',        label: 'Staff Removed'   };
+    return { icon: FaUserTimes,       color: 'text-red-600',     bg: 'bg-red-50',      badge: 'bg-red-100 text-red-700 border border-red-200',               label: 'Staff Removed'   };
   if (d.includes('role') || d.includes('permission'))
-    return { icon: FaUserShield,      color: 'text-violet-600', bg: 'bg-violet-50',  badge: 'bg-violet-100 text-violet-700',  label: 'Access Changed'  };
+    return { icon: FaUserShield,      color: 'text-violet-600',  bg: 'bg-violet-50',   badge: 'bg-violet-100 text-violet-700 border border-violet-200',      label: 'Access Changed'  };
   if (d.includes('settings') || d.includes('system'))
-    return { icon: FaCog,             color: 'text-slate-600',  bg: 'bg-slate-50',   badge: 'bg-slate-100 text-slate-700',    label: 'System'          };
+    return { icon: FaCog,             color: 'text-slate-600',   bg: 'bg-slate-50',    badge: 'bg-slate-100 text-slate-700 border border-slate-200',         label: 'System'          };
   if (d.includes('backup') || d.includes('restore'))
-    return { icon: FaDatabase,        color: 'text-amber-600',  bg: 'bg-amber-50',   badge: 'bg-amber-100 text-amber-700',    label: 'Backup'          };
-  return     { icon: FaCheckCircle,   color: 'text-gray-500',   bg: 'bg-gray-50',    badge: 'bg-gray-100 text-gray-600',      label: 'Action'          };
+    return { icon: FaDatabase,        color: 'text-amber-600',   bg: 'bg-amber-50',    badge: 'bg-amber-100 text-amber-700 border border-amber-200',        label: 'Backup'          };
+  return     { icon: FaCheckCircle,   color: 'text-gray-500',    bg: 'bg-gray-50',     badge: 'bg-gray-100 text-gray-600 border border-gray-200',            label: 'Action'          };
 };
 
 const formatDate = (dateStr) => {
@@ -248,57 +264,74 @@ const formatDate = (dateStr) => {
 const formatRelative = (dateStr) => {
   if (!dateStr) return '';
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-  if (diff < 60)    return `${diff}s ago`;
+  if (diff < 60)    return 'Just now';
   if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return `${Math.floor(diff / 604800)}w ago`;
+};
+
+const formatDateShort = (dateStr) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const today = new Date();
+  const isToday = d.toDateString() === today.toDateString();
+  if (isToday) {
+    return d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+  }
+  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) + ' ' +
+    d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
 };
 
 // ── Before/After diff component ───────────────────────────────────────────────
 
 const ValueBadge = ({ value, field }) => {
   if (value === null || value === undefined) {
-    return <span className="italic text-gray-400 text-xs">not set</span>;
+    return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs italic text-gray-400 bg-gray-50 border border-dashed border-gray-200">not set</span>;
   }
   const v = String(value);
   if (field === 'status') {
     const cls = STATUS_COLORS[v] ?? 'bg-gray-100 text-gray-600';
-    return <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{STATUS_LABELS[v] ?? v}</span>;
+    return <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{STATUS_LABELS[v] ?? v}</span>;
   }
   if (field === 'document_type') {
-    return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-100 text-teal-700">{DOC_TYPE_LABELS[v] ?? v}</span>;
+    return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-100 text-teal-700 border border-teal-200">{DOC_TYPE_LABELS[v] ?? v}</span>;
   }
   if (field === 'file_size') {
-    return <span className="text-xs text-gray-700">{formatBytes(v)}</span>;
+    return <span className="text-xs font-medium text-gray-700 font-mono">{formatBytes(v)}</span>;
   }
   if (field === 'person_index') {
-    return <span className="text-xs text-gray-700">{personLabel(v)}</span>;
+    return <span className="text-xs font-medium text-gray-700">{personLabel(v)}</span>;
   }
-  return <span className="text-xs text-gray-700 break-all">{v}</span>;
+  return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-gray-700 bg-gray-50 border border-gray-200 break-all">{v}</span>;
 };
 
 const DiffRow = ({ field, before, after }) => (
-  <div className="flex items-start gap-2 py-2.5 border-b border-gray-100 last:border-0 flex-wrap">
-    <span className="text-xs font-semibold text-gray-500 w-32 flex-shrink-0 pt-0.5">
+  <div className="flex items-start gap-3 py-3 border-b border-gray-100/80 last:border-0">
+    <span className="text-xs font-semibold text-gray-500 w-36 flex-shrink-0 pt-0.5 uppercase tracking-wide">
       {FIELD_LABELS[field] ?? field.replace(/_/g, ' ')}
     </span>
-    <div className="flex items-center gap-2 flex-wrap">
-      <ValueBadge value={before} field={field} />
-      <FaArrowRight className="text-gray-300 text-xs flex-shrink-0" />
-      <ValueBadge value={after} field={field} />
+    <div className="flex items-center gap-2 flex-wrap min-w-0">
+      <div className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-red-300 flex-shrink-0" />
+        <ValueBadge value={before} field={field} />
+      </div>
+      <FaArrowRight className="text-gray-300 text-[10px] flex-shrink-0" />
+      <div className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+        <ValueBadge value={after} field={field} />
+      </div>
     </div>
   </div>
 );
 
 const parseDiff = (properties) => {
   if (!properties) return null;
-
   if (properties.diff && typeof properties.diff === 'object') {
     return Object.entries(properties.diff).map(([field, { before, after }]) => ({
       field, before, after,
     }));
   }
-
   if (properties.old && properties.attributes) {
     return Object.keys(properties.attributes).map((field) => ({
       field,
@@ -306,23 +339,19 @@ const parseDiff = (properties) => {
       after:  properties.attributes[field],
     }));
   }
-
   if (!properties.old && properties.attributes) {
     return Object.entries(properties.attributes).map(([field, after]) => ({
       field, before: null, after,
     }));
   }
-
   if (properties.old && !properties.attributes) {
     return Object.entries(properties.old).map(([field, before]) => ({
       field, before, after: null,
     }));
   }
-
   return null;
 };
 
-/** Render document upload summary in human-readable form */
 const DocumentsSummary = ({ docs }) => {
   if (!docs || typeof docs !== 'object') return null;
   const entries = Object.entries(docs).filter(([, count]) => Number(count) > 0);
@@ -330,7 +359,7 @@ const DocumentsSummary = ({ docs }) => {
   return (
     <div className="flex flex-wrap gap-1.5 mt-1">
       {entries.map(([type, count]) => (
-        <span key={type} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-teal-100 text-teal-700 font-medium">
+        <span key={type} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-teal-50 text-teal-700 font-medium border border-teal-200">
           {DOC_TYPE_LABELS[type] ?? type}: {count}
         </span>
       ))}
@@ -338,37 +367,34 @@ const DocumentsSummary = ({ docs }) => {
   );
 };
 
-/** Render meaningful meta properties, skipping technical noise */
 const MetaProperties = ({ meta }) => {
   if (!meta || Object.keys(meta).length === 0) return null;
   const entries = Object.entries(meta).filter(([k]) => !META_EXCLUDE.has(k));
   if (entries.length === 0) return null;
 
   return (
-    <div className="space-y-2 mt-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
       {entries.map(([key, val]) => {
         const label = META_LABELS[key] ?? FIELD_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-        // Documents uploaded — special rendering
         if (key === 'documents_uploaded' && typeof val === 'object') {
           return (
-            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-1">{label}</p>
+            <div key={key} className="sm:col-span-2 bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-wider">{label}</p>
               <DocumentsSummary docs={val} />
             </div>
           );
         }
 
-        // Filters object — show as readable list
         if (key === 'filters' && typeof val === 'object') {
           const visible = Object.entries(val).filter(([, v]) => v !== null && v !== '' && v !== undefined);
           if (visible.length === 0) return null;
           return (
-            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-1">{label}</p>
+            <div key={key} className="sm:col-span-2 bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-wider">{label}</p>
               <div className="flex flex-wrap gap-1.5">
                 {visible.map(([fk, fv]) => (
-                  <span key={fk} className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                  <span key={fk} className="text-xs px-2 py-0.5 rounded-md bg-gray-50 text-gray-600 border border-gray-200 font-mono">
                     {fk.replace(/_/g, ' ')}: {String(fv)}
                   </span>
                 ))}
@@ -377,53 +403,48 @@ const MetaProperties = ({ meta }) => {
           );
         }
 
-        // Diff object — skip here (rendered separately via DiffRow)
         if (key === 'diff' || typeof val === 'object') return null;
 
-        // person_index — humanize
         if (key === 'person_index') {
           return (
-            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-0.5">{label}</p>
-              <p className="text-sm text-gray-700">{personLabel(val)}</p>
+            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">{label}</p>
+              <p className="text-sm text-gray-700 font-medium">{personLabel(val)}</p>
             </div>
           );
         }
 
-        // file_size — humanize
         if (key === 'file_size') {
           return (
-            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-0.5">{label}</p>
-              <p className="text-sm text-gray-700">{formatBytes(val)}</p>
+            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">{label}</p>
+              <p className="text-sm text-gray-700 font-mono">{formatBytes(val)}</p>
             </div>
           );
         }
 
-        // document_type
         if (key === 'document_type') {
           return (
-            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-0.5">{label}</p>
+            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">{label}</p>
               <p className="text-sm text-gray-700">{DOC_TYPE_LABELS[val] ?? val}</p>
             </div>
           );
         }
 
-        // status
         if (key === 'status') {
           const cls = STATUS_COLORS[val] ?? 'bg-gray-100 text-gray-600';
           return (
-            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-0.5">{label}</p>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{STATUS_LABELS[val] ?? val}</span>
+            <div key={key} className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider">{label}</p>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{STATUS_LABELS[val] ?? val}</span>
             </div>
           );
         }
 
         return (
-          <div key={key} className="bg-white rounded-lg p-3 border border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 mb-0.5">{label}</p>
+          <div key={key} className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+            <p className="text-[10px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">{label}</p>
             <p className="text-sm text-gray-700 break-words">{String(val)}</p>
           </div>
         );
@@ -432,28 +453,27 @@ const MetaProperties = ({ meta }) => {
   );
 };
 
-// ── Properties panel ─────────────────────────────────────────────────────────
 // ── Clickable image thumbnail with fullscreen preview ─────────────────────────
 const ImageThumb = ({ src, label, borderColor = 'border-gray-200' }) => {
   const [preview, setPreview] = useState(false);
   return (
     <>
       <button onClick={() => setPreview(true)} className="text-left group">
-        <div className={`rounded-lg border-2 ${borderColor} bg-white overflow-hidden hover:shadow-md transition-all`}>
-          <img src={src} alt={label} className="w-full h-36 object-contain bg-white group-hover:opacity-90 transition-opacity" />
+        <div className={`rounded-xl border-2 ${borderColor} bg-white overflow-hidden hover:shadow-lg transition-all duration-200`}>
+          <img src={src} alt={label} className="w-full h-36 object-contain bg-white group-hover:scale-105 transition-transform duration-200" />
         </div>
-        {label && <p className="text-[10px] text-gray-500 font-medium mt-1 truncate">{label}</p>}
+        {label && <p className="text-[10px] text-gray-500 font-medium mt-1.5 truncate">{label}</p>}
       </button>
       {preview && (
-        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4" onClick={() => setPreview(false)}>
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreview(false)}>
           <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setPreview(false)}
-              className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900 z-10">
+              className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900 z-10 transition-colors">
               <HiOutlineX className="w-4 h-4" />
             </button>
-            <div className="bg-white rounded-xl shadow-2xl p-2">
+            <div className="bg-white rounded-2xl shadow-2xl p-3">
               {label && <p className="text-xs font-semibold text-gray-700 mb-2 px-2">{label}</p>}
-              <img src={src} alt={label} className="max-h-[80vh] rounded-lg object-contain" />
+              <img src={src} alt={label} className="max-h-[80vh] rounded-xl object-contain" />
             </div>
           </div>
         </div>
@@ -468,40 +488,39 @@ const DocComparisonPanel = ({ props }) => {
   const personSuffix = props.person_index > 1 ? ` (${personLabel(props.person_index)})` : '';
 
   return (
-    <div className="bg-gradient-to-r from-orange-50 to-blue-50 rounded-xl border border-gray-200 p-4 mt-2">
-      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+    <div className="bg-gradient-to-r from-orange-50/80 to-blue-50/80 rounded-xl border border-gray-200 p-5 mt-3">
+      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+        <MdVisibility className="w-3.5 h-3.5" />
         Document Comparison — {docType}{personSuffix}
       </p>
-      <div className="grid grid-cols-2 gap-4">
-        {/* Old (Archived) */}
+      <div className="grid grid-cols-2 gap-5">
         <div>
           <div className="flex items-center gap-1.5 mb-2">
-            <span className="w-2 h-2 rounded-full bg-orange-500" />
-            <span className="text-[10px] font-bold text-orange-600 uppercase">Before (Archived)</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm shadow-orange-200" />
+            <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Before (Archived)</span>
           </div>
           {props.archived_file_path ? (
             <ImageThumb src={storageUrl(props.archived_file_path)} label={props.replaced_file} borderColor="border-orange-200" />
           ) : (
-            <div className="w-full h-36 rounded-lg border-2 border-dashed border-orange-200 bg-white flex items-center justify-center">
-              <span className="text-xs text-gray-400">No archived image</span>
+            <div className="w-full h-36 rounded-xl border-2 border-dashed border-orange-200 bg-white flex items-center justify-center">
+              <span className="text-xs text-gray-400 italic">No archived image</span>
             </div>
           )}
         </div>
-        {/* New (Current) */}
         <div>
           <div className="flex items-center gap-1.5 mb-2">
-            <span className="w-2 h-2 rounded-full bg-blue-500" />
-            <span className="text-[10px] font-bold text-blue-600 uppercase">After (Current)</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm shadow-blue-200" />
+            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">After (Current)</span>
           </div>
           {props.current_file_path ? (
             <ImageThumb src={storageUrl(props.current_file_path)} label={props.current_file_name ?? props.new_file_name} borderColor="border-blue-200" />
           ) : props.new_file_name ? (
-            <div className="w-full h-36 rounded-lg border-2 border-dashed border-blue-200 bg-white flex items-center justify-center text-center px-2">
-              <span className="text-xs text-gray-400">Document has since been replaced again</span>
+            <div className="w-full h-36 rounded-xl border-2 border-dashed border-blue-200 bg-white flex items-center justify-center text-center px-2">
+              <span className="text-xs text-gray-400 italic">Document has since been replaced again</span>
             </div>
           ) : (
-            <div className="w-full h-36 rounded-lg border-2 border-dashed border-blue-200 bg-white flex items-center justify-center">
-              <span className="text-xs text-gray-400">No preview</span>
+            <div className="w-full h-36 rounded-xl border-2 border-dashed border-blue-200 bg-white flex items-center justify-center">
+              <span className="text-xs text-gray-400 italic">No preview</span>
             </div>
           )}
         </div>
@@ -517,24 +536,32 @@ const StatusChangePanel = ({ diff }) => {
   if (!statusRow && !riskRow) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 mt-2 space-y-3">
+    <div className="bg-white rounded-xl border border-gray-200 p-4 mt-3 space-y-3 shadow-sm">
       {statusRow && (
         <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Account Status Change</p>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Account Status Change</p>
           <div className="flex items-center gap-3 flex-wrap">
             <ValueBadge value={statusRow.before} field="status" />
-            <FaArrowRight className="text-gray-300 text-sm" />
+            <div className="flex items-center gap-1">
+              <span className="w-6 h-px bg-gray-300" />
+              <FaArrowRight className="text-gray-400 text-xs" />
+              <span className="w-6 h-px bg-gray-300" />
+            </div>
             <ValueBadge value={statusRow.after} field="status" />
           </div>
         </div>
       )}
       {riskRow && (
         <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Risk Level Change</p>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Risk Level Change</p>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs font-medium text-gray-600">{riskRow.before ?? 'not set'}</span>
-            <FaArrowRight className="text-gray-300 text-sm" />
-            <span className="text-xs font-medium text-gray-600">{riskRow.after ?? 'not set'}</span>
+            <span className="text-xs font-semibold text-gray-600 px-2.5 py-0.5 bg-gray-50 border border-gray-200 rounded-full">{riskRow.before ?? 'not set'}</span>
+            <div className="flex items-center gap-1">
+              <span className="w-6 h-px bg-gray-300" />
+              <FaArrowRight className="text-gray-400 text-xs" />
+              <span className="w-6 h-px bg-gray-300" />
+            </div>
+            <span className="text-xs font-semibold text-gray-600 px-2.5 py-0.5 bg-gray-50 border border-gray-200 rounded-full">{riskRow.after ?? 'not set'}</span>
           </div>
         </div>
       )}
@@ -546,14 +573,14 @@ const StatusChangePanel = ({ diff }) => {
 const CurrentDocsGallery = ({ docs }) => {
   if (!docs || !Array.isArray(docs) || docs.length === 0) return null;
   return (
-    <div className="bg-green-50 rounded-xl border border-green-200 p-4 mt-2">
-      <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider mb-3">Current Document Images</p>
+    <div className="bg-emerald-50/70 rounded-xl border border-emerald-200 p-4 mt-3">
+      <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest mb-3">Current Document Images</p>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
         {docs.map((doc, idx) => {
           const label = (DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type) +
             (doc.person_index > 1 ? ` (P${doc.person_index})` : '');
           return (
-            <ImageThumb key={idx} src={storageUrl(doc.file_path)} label={label} borderColor="border-green-200" />
+            <ImageThumb key={idx} src={storageUrl(doc.file_path)} label={label} borderColor="border-emerald-200" />
           );
         })}
       </div>
@@ -561,7 +588,7 @@ const CurrentDocsGallery = ({ docs }) => {
   );
 };
 
-// ── Properties panel (enhanced with images + status changes) ──────────────────
+// ── Properties panel (enhanced) ───────────────────────────────────────────────
 const PropertiesPanel = ({ log }) => {
   const props  = log.properties ?? {};
   const diff   = parseDiff(props);
@@ -576,20 +603,19 @@ const PropertiesPanel = ({ log }) => {
   const isCreated = desc.includes('created') || log.event === 'created';
   const hasStatusChange = hasDiff && diff.some((r) => r.field === 'status' || r.field === 'risk_level');
 
-  if (!hasDiff && !hasMeta && !isDocReplaced) return <p className="text-xs text-gray-400 italic">No additional details.</p>;
+  if (!hasDiff && !hasMeta && !isDocReplaced) return <p className="text-xs text-gray-400 italic py-2">No additional details recorded for this action.</p>;
 
   return (
     <div className="space-y-3">
-      {/* Status/risk change visualization */}
       {hasStatusChange && <StatusChangePanel diff={diff} />}
 
-      {/* Field changes table */}
       {hasDiff && (
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+            <span className="w-1 h-1 rounded-full bg-blue-400" />
             {log.event === 'created' ? 'Information Recorded' : log.event === 'deleted' ? 'Information at Time of Removal' : 'What Was Changed'}
           </p>
-          <div className="bg-white rounded-lg border border-gray-100 px-3">
+          <div className="bg-white rounded-xl border border-gray-100 px-4 shadow-sm">
             {diff.filter((r) => !(hasStatusChange && (r.field === 'status' || r.field === 'risk_level'))).map((row) => (
               <DiffRow key={row.field} field={row.field} before={row.before} after={row.after} />
             ))}
@@ -597,12 +623,10 @@ const PropertiesPanel = ({ log }) => {
         </div>
       )}
 
-      {/* Document replacement: side-by-side image comparison */}
       {isDocReplaced && (props.archived_file_path || props.current_file_path) && (
         <DocComparisonPanel props={props} />
       )}
 
-      {/* Creation: show current document images */}
       {isCreated && props.current_documents && (
         <CurrentDocsGallery docs={props.current_documents} />
       )}
@@ -613,27 +637,35 @@ const PropertiesPanel = ({ log }) => {
 };
 
 // ── History timeline modal ────────────────────────────────────────────────────
-const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose }) => {
+const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose, apiEndpoint }) => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    adminService.getSubjectHistory(subjectType, subjectId)
+    const historyBase = apiEndpoint.replace(/\/audit-logs$/, '');
+    const url = `${historyBase}/audit-logs/history/${subjectType}/${subjectId}`;
+    api.get(url)
       .then((res) => setHistory(res.data.history ?? []))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [subjectType, subjectId]);
+  }, [subjectType, subjectId, apiEndpoint]);
 
   const getEventIcon = (event) => {
-    if (event === 'created') return <FaPlus className="w-3 h-3 text-green-600" />;
+    if (event === 'created') return <FaPlus className="w-3 h-3 text-emerald-600" />;
     if (event === 'deleted') return <FaTrash className="w-3 h-3 text-red-600" />;
     return <FaEdit className="w-3 h-3 text-blue-600" />;
   };
 
   const getEventColor = (event) => {
-    if (event === 'created') return 'bg-green-50 border-green-200';
-    if (event === 'deleted') return 'bg-red-50 border-red-200';
-    return 'bg-blue-50 border-blue-200';
+    if (event === 'created') return 'bg-emerald-50 border-emerald-300';
+    if (event === 'deleted') return 'bg-red-50 border-red-300';
+    return 'bg-blue-50 border-blue-300';
+  };
+
+  const getEventBadge = (event) => {
+    if (event === 'created') return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
+    if (event === 'deleted') return 'bg-red-100 text-red-700 border border-red-200';
+    return 'bg-blue-100 text-blue-700 border border-blue-200';
   };
 
   return (
@@ -642,17 +674,19 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose }) => {
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 12 }}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+        className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col border border-gray-200"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 bg-white rounded-t-2xl border-b border-gray-200">
           <div>
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <MdTimeline className="text-[#1877F2]" />
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <MdTimeline className="text-[#1877F2] w-5 h-5" />
+              </div>
               Full Activity History
             </h2>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {subjectLabel} — complete record of all changes
+            <p className="text-sm text-gray-500 mt-0.5 ml-10">
+              {subjectLabel} — complete timeline of all changes
             </p>
           </div>
           <button
@@ -664,7 +698,7 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose }) => {
         </div>
 
         {/* Timeline */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
           {loading ? (
             <div className="space-y-4">
               {[...Array(5)].map((_, i) => (
@@ -679,15 +713,17 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose }) => {
             </div>
           ) : history.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-              <MdTimeline className="w-10 h-10 mb-2 opacity-30" />
-              <p className="text-sm">No history recorded yet.</p>
+              <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
+                <MdTimeline className="w-8 h-8 opacity-30" />
+              </div>
+              <p className="text-sm font-medium">No history recorded yet</p>
+              <p className="text-xs text-gray-400 mt-1">Changes to this record will appear here</p>
             </div>
           ) : (
             <div className="relative">
-              {/* Vertical line */}
-              <div className="absolute left-3.5 top-0 bottom-0 w-px bg-gray-200" />
+              <div className="absolute left-3.5 top-0 bottom-0 w-px bg-gradient-to-b from-blue-200 via-gray-200 to-gray-100" />
 
-              <div className="space-y-6">
+              <div className="space-y-1">
                 {history.map((entry, idx) => {
                   const diff = parseDiff({
                     old:        entry.old,
@@ -702,59 +738,51 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose }) => {
                   const hasStatusChange = hasDiff && diff.some((r) => r.field === 'status' || r.field === 'risk_level');
 
                   return (
-                    <div key={entry.id} className="flex gap-4 relative">
-                      {/* Timeline dot */}
-                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 z-10 ${getEventColor(entry.event)}`}>
+                    <div key={entry.id} className="flex gap-4 relative group">
+                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 z-10 ${getEventColor(entry.event)} shadow-sm`}>
                         {getEventIcon(entry.event)}
                       </div>
 
-                      <div className="flex-1 pb-2">
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <div className="flex-1 pb-4 bg-white rounded-xl border border-gray-100 p-4 mb-2 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
                           <span className="text-sm font-semibold text-gray-800">
                             {entry.causer?.name ?? 'System'}
                           </span>
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            entry.event === 'created' ? 'bg-green-100 text-green-700' :
-                            entry.event === 'deleted' ? 'bg-red-100 text-red-700' :
-                            'bg-blue-100 text-blue-700'
-                          }`}>
-                            {entry.event === 'created' ? 'Record Created' : entry.event === 'deleted' ? 'Record Removed' : entry.event === 'updated' ? 'Record Updated' : 'Action'}
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getEventBadge(entry.event)}`}>
+                            {entry.event === 'created' ? 'Created' : entry.event === 'deleted' ? 'Removed' : entry.event === 'updated' ? 'Updated' : 'Action'}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600 mb-2">{humanizeDescription(entry.description, entry.meta ?? entry)}</p>
+                        <p className="text-sm text-gray-600 mb-2 leading-relaxed">{humanizeDescription(entry.description, entry.meta ?? entry)}</p>
 
-                        {/* Status/risk change visualization */}
                         {hasStatusChange && <StatusChangePanel diff={diff} />}
 
-                        {/* Diff table (excluding status/risk already shown above) */}
                         {hasDiff && (
-                          <div className="bg-gray-50 rounded-xl px-3 border border-gray-100 mt-2">
+                          <div className="bg-gray-50/80 rounded-xl px-3 border border-gray-100 mt-2">
                             {diff.filter((r) => !(hasStatusChange && (r.field === 'status' || r.field === 'risk_level'))).map((row) => (
                               <DiffRow key={row.field} field={row.field} before={row.before} after={row.after} />
                             ))}
                           </div>
                         )}
 
-                        {/* Document replacement: side-by-side image comparison */}
                         {isDocReplaced && (meta.archived_file_path || meta.current_file_path) && (
                           <DocComparisonPanel props={meta} />
                         )}
 
-                        {/* Creation: show current document images */}
                         {isCreated && meta.current_documents && (
                           <CurrentDocsGallery docs={meta.current_documents} />
                         )}
 
-                        {/* Meta (exclude image-related keys already rendered above) */}
                         {meta && Object.keys(meta).filter(k => !['action', 'current_file_path', 'current_file_name', 'current_documents'].includes(k)).length > 0 && (
                           <MetaProperties meta={Object.fromEntries(
                             Object.entries(meta).filter(([k]) => !['action', 'current_file_path', 'current_file_name', 'current_documents'].includes(k))
                           )} />
                         )}
 
-                        <p className="text-xs text-gray-400 mt-2" title={formatDate(entry.created_at)}>
-                          {formatDate(entry.created_at)} &middot; {formatRelative(entry.created_at)}
-                        </p>
+                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-50">
+                          <MdAccessTime className="w-3 h-3 text-gray-300" />
+                          <span className="text-[11px] text-gray-400">{formatDate(entry.created_at)}</span>
+                          <span className="text-[11px] text-blue-400 font-medium">{formatRelative(entry.created_at)}</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -773,17 +801,135 @@ const StatCard = ({ label, value, icon: Icon, colorClass, bgClass }) => (
   <motion.div
     initial={{ opacity: 0, y: 10 }}
     animate={{ opacity: 1, y: 0 }}
-    className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-4"
+    className="bg-white rounded-xl border border-gray-200/80 shadow-sm hover:shadow-md transition-shadow p-4 flex items-center gap-4"
   >
-    <div className={`${bgClass} p-3 rounded-xl`}>
+    <div className={`${bgClass} p-3 rounded-xl border border-gray-100`}>
       <Icon className={`w-5 h-5 ${colorClass}`} />
     </div>
-    <div>
-      <p className="text-2xl font-bold text-gray-900">{value?.toLocaleString() ?? '—'}</p>
-      <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+    <div className="min-w-0">
+      <p className="text-2xl font-bold text-gray-900 leading-tight">{value?.toLocaleString() ?? '—'}</p>
+      <p className="text-[11px] text-gray-500 mt-0.5 font-medium">{label}</p>
     </div>
   </motion.div>
 );
+
+// ── Log Entry Row ─────────────────────────────────────────────────────────────
+const LogEntryRow = ({ log, expanded, onToggle, onHistory }) => {
+  const meta     = resolveLogMeta(log.description, log.event);
+  const Icon     = meta.icon;
+  const subject  = humanizeSubject(log);
+  const props    = log.properties ?? {};
+  const hasProps = Object.keys(props).length > 0;
+  const ipAddr   = props.ip_address ?? props.ip ?? null;
+  const severity = getSeverity(log.description);
+  const sev      = SEVERITY_MAP[severity];
+
+  const subjectType = log.subject_type?.toLowerCase().includes('customer') && !log.subject_type?.toLowerCase().includes('document')
+    ? 'customer'
+    : log.subject_type?.toLowerCase().includes('customerdocument')
+    ? 'document'
+    : null;
+
+  const getInitials = () => {
+    if (!log.causer) return 'SY';
+    const f = log.causer.firstname?.[0] ?? '';
+    const l = log.causer.lastname?.[0]  ?? '';
+    return (f + l).toUpperCase() || (log.causer.email?.[0]?.toUpperCase() ?? '?');
+  };
+
+  const getCauserName = () => {
+    if (!log.causer) return 'System';
+    if (log.causer.firstname) return `${log.causer.firstname} ${log.causer.lastname}`;
+    return log.causer.email ?? 'Unknown';
+  };
+
+  return (
+    <div className={`border-l-[3px] ${sev.border} transition-colors ${expanded ? 'bg-blue-50/30' : 'hover:bg-gray-50/80'}`}>
+      <div className="flex items-start gap-3 px-5 py-4">
+        {/* Avatar */}
+        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-[#05173a] to-[#1877F2] flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5 select-none ring-2 ring-white">
+          {getInitials()}
+        </div>
+
+        {/* Category icon */}
+        <div className={`flex-shrink-0 w-10 h-10 rounded-xl ${meta.bg} flex items-center justify-center mt-0.5 border border-gray-100`}>
+          <Icon className={`w-4.5 h-4.5 ${meta.color}`} />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => hasProps && onToggle()}>
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <span className="text-sm font-bold text-gray-800">{getCauserName()}</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${meta.badge}`}>{meta.label}</span>
+            {subject && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500 border border-gray-200">{subject}</span>
+            )}
+          </div>
+          <p className="text-[13px] text-gray-600 leading-relaxed">{humanizeDescription(log.description, log.properties)}</p>
+          <div className="flex flex-wrap items-center gap-3 mt-1.5">
+            <span className="inline-flex items-center gap-1 text-[11px] text-gray-400">
+              <MdAccessTime className="w-3 h-3" />
+              {formatDateShort(log.created_at)}
+            </span>
+            <span className="text-[11px] text-blue-400 font-medium">{formatRelative(log.created_at)}</span>
+            {ipAddr && (
+              <span className="text-[11px] text-gray-400 font-mono bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+                {ipAddr}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1 flex-shrink-0 mt-1">
+          {subjectType && log.subject_id && (
+            <button
+              onClick={() => onHistory({
+                subjectType,
+                subjectId:    log.subject_id,
+                subjectLabel: subject ?? log.description,
+              })}
+              className="p-2 rounded-lg text-[#1877F2] hover:bg-blue-50 transition-colors"
+              title="View full history timeline"
+            >
+              <MdTimeline className="w-5 h-5" />
+            </button>
+          )}
+          {hasProps && (
+            <button
+              onClick={onToggle}
+              className={`p-2 rounded-lg transition-colors ${expanded ? 'text-blue-600 bg-blue-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+              title="View details"
+            >
+              {expanded ? <MdExpandLess className="w-5 h-5" /> : <MdExpandMore className="w-5 h-5" />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded detail */}
+      <AnimatePresence>
+        {expanded && hasProps && (
+          <motion.div
+            key="detail"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="mx-5 mb-4 p-4 bg-gradient-to-br from-slate-50 to-blue-50/30 rounded-xl border border-gray-200/80">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                <MdVisibility className="w-3.5 h-3.5" />
+                Event Details
+              </p>
+              <PropertiesPanel log={log} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
@@ -795,7 +941,10 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
   const [expandedRow, setExpandedRow]   = useState(null);
   const [activeTab, setActiveTab]       = useState('all');
   const [showFilters, setShowFilters]   = useState(false);
-  const [historyTarget, setHistoryTarget] = useState(null); // { subjectType, subjectId, label }
+  const [historyTarget, setHistoryTarget] = useState(null);
+  const [exporting, setExporting] = useState(false);
+
+  const isCompliance = apiEndpoint.includes('compliance');
 
   const [filters, setFilters] = useState({
     search: '', causer_id: '', date_from: '', date_to: '', per_page: 25,
@@ -828,60 +977,103 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
     } finally {
       setLoading(false);
     }
-  }, [filters, activeTab]);
+  }, [filters, activeTab, apiEndpoint]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
-  const getInitials = (log) => {
-    if (!log.causer) return 'SY';
-    const f = log.causer.firstname?.[0] ?? '';
-    const l = log.causer.lastname?.[0]  ?? '';
-    return (f + l).toUpperCase() || (log.causer.email?.[0]?.toUpperCase() ?? '?');
-  };
+  const handleExport = async (format) => {
+    setExporting(true);
+    try {
+      const params = { format, category: activeTab };
+      if (filters.search)    params.search    = filters.search;
+      if (filters.causer_id) params.causer_id = filters.causer_id;
+      if (filters.date_from) params.date_from = filters.date_from;
+      if (filters.date_to)   params.date_to   = filters.date_to;
 
-  const getCauserName = (log) => {
-    if (!log.causer) return 'System';
-    if (log.causer.firstname) return `${log.causer.firstname} ${log.causer.lastname}`;
-    return log.causer.email ?? 'Unknown';
+      const res = await api.post(`${apiEndpoint.replace('/audit-logs', '')}/audit-logs/export`, params, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `audit-logs-${new Date().toISOString().slice(0, 10)}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
+    } finally {
+      setExporting(false);
+    }
   };
-
-  const getSubjectLabel = (log) => humanizeSubject(log);
 
   const hasFiltersActive = filters.search || filters.causer_id || filters.date_from || filters.date_to;
+
+  const activeCategory = useMemo(() => CATEGORIES.find((c) => c.key === activeTab), [activeTab]);
 
   return (
     <div className="space-y-5">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 shadow-xl">
-        <div className="absolute inset-0 opacity-10"
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#01060f] via-[#05173a] to-[#0a2a5e] px-6 py-6 shadow-xl">
+        <div className="absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: 'radial-gradient(circle at 70% 50%, #1877F2 0%, transparent 60%)' }} />
+        <div className="absolute top-0 right-0 w-64 h-64 opacity-5"
+          style={{ backgroundImage: 'radial-gradient(circle, #60A5FA 0%, transparent 70%)', transform: 'translate(30%, -30%)' }} />
         <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-              <MdHistory className="w-7 h-7 text-blue-400" />
-              System Audit Logs
+            <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/10">
+                {isCompliance
+                  ? <FaShieldAlt className="w-5 h-5 text-blue-400" />
+                  : <MdHistory className="w-6 h-6 text-blue-400" />
+                }
+              </div>
+              {isCompliance ? 'Compliance Audit Trail' : 'System Audit Logs'}
             </h1>
-            <p className="mt-1 text-sm text-blue-200">
-              A complete record of all activity in the system — who did what, and when.
+            <p className="mt-1.5 text-sm text-blue-200/80 ml-[52px]">
+              {isCompliance
+                ? 'BSP-compliant audit trail — full regulatory oversight of all system activity.'
+                : 'A complete record of all activity in the system — who did what, and when.'
+              }
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-[52px] sm:ml-0">
+            {/* Export buttons for compliance */}
+            {isCompliance && (
+              <div className="flex items-center gap-1 mr-1">
+                <button
+                  onClick={() => handleExport('csv')}
+                  disabled={exporting}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                >
+                  <MdDownload className="w-3.5 h-3.5" /> CSV
+                </button>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  disabled={exporting}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/20 text-red-300 border border-red-400/30 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                >
+                  <MdDownload className="w-3.5 h-3.5" /> PDF
+                </button>
+              </div>
+            )}
             <button
               onClick={() => setShowFilters((v) => !v)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
                 showFilters || hasFiltersActive
-                  ? 'bg-[#1877F2] text-white border-[#1877F2]'
+                  ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-lg shadow-blue-500/20'
                   : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
               }`}
             >
               <MdFilterList className="w-4 h-4" />
-              Filters {hasFiltersActive ? '●' : ''}
+              Filters {hasFiltersActive && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
             </button>
             <button
               onClick={() => fetchLogs()}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-colors"
             >
-              <MdRefresh className="w-4 h-4" /> Refresh
+              <MdRefresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
           </div>
         </div>
@@ -890,7 +1082,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
       {/* ── Stats ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <StatCard label="Activities Today"        value={stats?.total_today}    icon={MdHistory}             colorClass="text-blue-600"   bgClass="bg-blue-50"   />
-        <StatCard label="Successful Logins Today" value={stats?.logins_today}   icon={FaSignInAlt}           colorClass="text-green-600"  bgClass="bg-green-50"  />
+        <StatCard label="Successful Logins Today" value={stats?.logins_today}   icon={FaSignInAlt}           colorClass="text-emerald-600"bgClass="bg-emerald-50"/>
         <StatCard label="Failed Login Attempts"   value={stats?.failed_today}   icon={FaExclamationTriangle} colorClass="text-red-600"    bgClass="bg-red-50"    />
         <StatCard label="Customer Actions Today"  value={stats?.customer_ops}   icon={FaIdCard}              colorClass="text-indigo-600" bgClass="bg-indigo-50" />
         <StatCard label="Total Records (All-Time)"value={stats?.total_all_time} icon={FaDatabase}            colorClass="text-slate-600"  bgClass="bg-slate-50"  />
@@ -905,10 +1097,17 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <MdFilterList className="w-4 h-4 text-gray-400" />
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Filter & Search</p>
+                {hasFiltersActive && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-600 border border-blue-200 uppercase">Active</span>
+                )}
+              </div>
               <div className="flex flex-wrap gap-3 items-end">
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Search</label>
+                <div className="flex-1 min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Search</label>
                   <div className="relative">
                     <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
@@ -916,18 +1115,18 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
                       name="search"
                       value={filters.search}
                       onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
-                      placeholder="Description or user name..."
-                      className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1877F2]"
+                      placeholder="Search descriptions, user names..."
+                      className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1877F2] bg-gray-50 focus:bg-white transition-colors"
                     />
                   </div>
                 </div>
-                <div className="min-w-[170px]">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">User</label>
+                <div className="min-w-[180px]">
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Performed By</label>
                   <select
                     name="causer_id"
                     value={filters.causer_id}
                     onChange={(e) => setFilters((p) => ({ ...p, causer_id: e.target.value }))}
-                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors"
                   >
                     <option value="">All Users</option>
                     {users.map((u) => (
@@ -936,31 +1135,35 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
+                    <FaCalendarAlt className="inline w-3 h-3 mr-1 -mt-0.5" />Date From
+                  </label>
                   <input type="date" name="date_from" value={filters.date_from}
                     onChange={(e) => setFilters((p) => ({ ...p, date_from: e.target.value }))}
-                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
+                    <FaCalendarAlt className="inline w-3 h-3 mr-1 -mt-0.5" />Date To
+                  </label>
                   <input type="date" name="date_to" value={filters.date_to}
                     onChange={(e) => setFilters((p) => ({ ...p, date_to: e.target.value }))}
-                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Rows</label>
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Per Page</label>
                   <select value={filters.per_page}
                     onChange={(e) => setFilters((p) => ({ ...p, per_page: Number(e.target.value) }))}
-                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white">
+                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors">
                     {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </div>
                 {hasFiltersActive && (
                   <button
                     onClick={() => setFilters({ search: '', causer_id: '', date_from: '', date_to: '', per_page: 25 })}
-                    className="flex items-center gap-1 px-3 py-2.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                    className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors font-medium"
                   >
-                    <MdClose className="w-4 h-4" /> Reset
+                    <MdClose className="w-4 h-4" /> Clear All
                   </button>
                 )}
               </div>
@@ -970,23 +1173,45 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
       </AnimatePresence>
 
       {/* ── Category Tabs ──────────────────────────────────────────────── */}
-      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl overflow-x-auto">
-        {CATEGORIES.map(({ key, label, icon: Icon }) => {
-          const active = activeTab === key;
-          return (
-            <button
-              key={key}
-              onClick={() => { setActiveTab(key); setExpandedRow(null); }}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-                active ? 'bg-white text-[#1877F2] shadow-sm font-semibold' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <Icon className={`w-4 h-4 ${active ? 'text-[#1877F2]' : ''}`} />
-              {label}
-            </button>
-          );
-        })}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-1.5">
+        <div className="flex gap-1 overflow-x-auto">
+          {CATEGORIES.map(({ key, label, icon: Icon, color }) => {
+            const active = activeTab === key;
+            return (
+              <button
+                key={key}
+                onClick={() => { setActiveTab(key); setExpandedRow(null); }}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                  active
+                    ? 'bg-[#05173a] text-white shadow-md'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${active ? 'text-blue-300' : ''}`} />
+                {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {/* ── Results summary bar ─────────────────────────────────────── */}
+      {!loading && (
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-gray-400 font-medium">
+            {pagination.total > 0
+              ? `Showing ${pagination.from}–${pagination.to} of ${pagination.total.toLocaleString()} records`
+              : 'No records found'
+            }
+            {activeTab !== 'all' && <span className="ml-1 text-gray-500">in {activeCategory?.label}</span>}
+          </p>
+          {hasFiltersActive && (
+            <p className="text-xs text-blue-500 font-medium flex items-center gap-1">
+              <MdFilterList className="w-3 h-3" /> Filters applied
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ── Logs Feed ──────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -994,123 +1219,46 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
           <div className="divide-y divide-gray-100">
             {[...Array(8)].map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-5 py-4 animate-pulse">
-                <div className="w-9 h-9 rounded-full bg-gray-200 flex-shrink-0" />
-                <div className="w-9 h-9 rounded-xl bg-gray-200 flex-shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3.5 bg-gray-200 rounded w-3/4" />
-                  <div className="h-3 bg-gray-100 rounded w-1/2" />
+                <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0" />
+                <div className="w-10 h-10 rounded-xl bg-gray-100 flex-shrink-0" />
+                <div className="flex-1 space-y-2.5">
+                  <div className="flex gap-2">
+                    <div className="h-3.5 bg-gray-200 rounded-full w-28" />
+                    <div className="h-3.5 bg-gray-100 rounded-full w-20" />
+                  </div>
+                  <div className="h-3 bg-gray-100 rounded w-3/4" />
+                  <div className="h-2.5 bg-gray-50 rounded w-1/3" />
                 </div>
-                <div className="w-20 h-6 bg-gray-200 rounded-full" />
               </div>
             ))}
           </div>
         ) : logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-            <MdHistory className="w-12 h-12 mb-3 opacity-30" />
-            <p className="font-medium">No audit logs found</p>
-            <p className="text-sm mt-1">Try a different tab or adjust your filters</p>
+          <div className="flex flex-col items-center justify-center py-24 text-gray-400">
+            <div className="w-20 h-20 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center mb-4">
+              <MdHistory className="w-10 h-10 opacity-30" />
+            </div>
+            <p className="font-semibold text-gray-500">No audit logs found</p>
+            <p className="text-sm mt-1.5 text-gray-400">Try a different category tab or adjust your filters</p>
+            {hasFiltersActive && (
+              <button
+                onClick={() => setFilters({ search: '', causer_id: '', date_from: '', date_to: '', per_page: 25 })}
+                className="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+              >
+                <MdClose className="w-4 h-4" /> Clear filters
+              </button>
+            )}
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {logs.map((log) => {
-              const meta     = resolveLogMeta(log.description, log.event);
-              const Icon     = meta.icon;
-              const expanded = expandedRow === log.id;
-              const subject  = getSubjectLabel(log);
-              const props    = log.properties ?? {};
-              const hasProps = Object.keys(props).length > 0;
-              const ipAddr   = props.ip_address ?? props.ip ?? null;
-
-              // Detect if this is a customer or document log (can open history)
-              const subjectType = log.subject_type?.toLowerCase().includes('customer') && !log.subject_type?.toLowerCase().includes('document')
-                ? 'customer'
-                : log.subject_type?.toLowerCase().includes('customerdocument')
-                ? 'document'
-                : null;
-
-              return (
-                <div key={log.id}>
-                  <div
-                    className={`flex items-start gap-3 px-5 py-3.5 transition-colors hover:bg-gray-50 ${expanded ? 'bg-blue-50/40' : ''}`}
-                  >
-                    {/* Avatar */}
-                    <div className="flex-shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-[#05173a] to-[#1877F2] flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5 select-none">
-                      {getInitials(log)}
-                    </div>
-
-                    {/* Category icon */}
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-xl ${meta.bg} flex items-center justify-center mt-0.5`}>
-                      <Icon className={`w-4 h-4 ${meta.color}`} />
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => hasProps && setExpandedRow(expanded ? null : log.id)}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-800">{getCauserName(log)}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${meta.badge}`}>{meta.label}</span>
-                        {subject && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">{subject}</span>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-600 mt-0.5 truncate">{humanizeDescription(log.description, log.properties)}</p>
-                      <div className="flex flex-wrap items-center gap-3 mt-1">
-                        <span className="text-xs text-gray-400">{formatDate(log.created_at)}</span>
-                        {ipAddr && <span className="text-xs text-gray-400 font-mono">IP: {ipAddr}</span>}
-                        <span className="text-xs text-blue-400">{formatRelative(log.created_at)}</span>
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
-                      {/* History button — only for customer/document subjects */}
-                      {subjectType && log.subject_id && (
-                        <button
-                          onClick={() => setHistoryTarget({
-                            subjectType,
-                            subjectId:    log.subject_id,
-                            subjectLabel: subject ?? log.description,
-                          })}
-                          className="p-1.5 rounded-lg text-[#1877F2] hover:bg-blue-50 transition-colors"
-                          title="View full history"
-                        >
-                          <MdTimeline className="w-5 h-5" />
-                        </button>
-                      )}
-                      {/* Expand toggle */}
-                      {hasProps && (
-                        <button
-                          onClick={() => setExpandedRow(expanded ? null : log.id)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                          title="View details"
-                        >
-                          {expanded ? <MdExpandLess className="w-5 h-5" /> : <MdExpandMore className="w-5 h-5" />}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Expanded detail */}
-                  <AnimatePresence>
-                    {expanded && hasProps && (
-                      <motion.div
-                        key="detail"
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="px-5 pb-4 pt-2 bg-blue-50/40 border-t border-blue-100">
-                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                            What Happened
-                          </p>
-                          <PropertiesPanel log={log} />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
+          <div className="divide-y divide-gray-100/70">
+            {logs.map((log) => (
+              <LogEntryRow
+                key={log.id}
+                log={log}
+                expanded={expandedRow === log.id}
+                onToggle={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
+                onHistory={setHistoryTarget}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -1134,6 +1282,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
             subjectType={historyTarget.subjectType}
             subjectId={historyTarget.subjectId}
             subjectLabel={historyTarget.subjectLabel}
+            apiEndpoint={apiEndpoint}
             onClose={() => setHistoryTarget(null)}
           />
         )}

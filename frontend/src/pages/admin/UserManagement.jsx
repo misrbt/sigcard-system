@@ -31,9 +31,6 @@ const UserForm = ({
       <Input label="Username" name="username" value={formData.username} onChange={handleFormChange} error={formErrors.username?.[0]} required />
       <Input label="Email" type="email" name="email" value={formData.email} onChange={handleFormChange} error={formErrors.email?.[0]} required />
     </div>
-    {isEdit && (
-      <Input label="New Password (leave blank to keep current)" name="password" value={formData.password || ''} onChange={handleFormChange} error={formErrors.password?.[0]} showPasswordToggle />
-    )}
     <div className="grid grid-cols-2 gap-4">
       <Select label="Branch" name="branch_id" value={formData.branch_id} onChange={handleFormChange} placeholder="Select branch" options={branches.map((b) => ({ value: b.id, label: b.branch_name }))} error={formErrors.branch_id?.[0]} required />
       <Select label="Status" name="status" value={formData.status} onChange={handleFormChange} options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'suspended', label: 'Suspended' }]} />

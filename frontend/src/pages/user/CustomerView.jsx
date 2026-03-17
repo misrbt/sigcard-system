@@ -1316,9 +1316,9 @@ const CustomerView = () => {
 
             <div className="px-5 py-5 space-y-6">
               {DOC_SECTIONS.map((sec) => {
-                // Corporate sigcard: shared fronts (person_index=1) + per-signatory backs
+                // Corporate sigcard: fronts (each with unique person_index) + per-signatory backs
                 if (isCorporate && sec.key === "sigcard") {
-                  const allFronts = docs.filter((d) => d.document_type === sec.front && d.person_index === 1);
+                  const allFronts = docs.filter((d) => d.document_type === sec.front);
                   const allBacks  = docs.filter((d) => d.document_type === sec.back);
                   const hasDocs = allFronts.length > 0 || allBacks.length > 0;
                   return (

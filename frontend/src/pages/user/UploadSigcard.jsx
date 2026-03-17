@@ -470,7 +470,13 @@ const UploadSigcard = () => {
       if (prev.length < totalPersons) return [...prev, ...Array(totalPersons - prev.length).fill(null)];
       return prev.slice(0, totalPersons);
     });
-    if (totalPersons === 2) setCorpSigFronts((prev) => [prev[0] ?? null]);
+    if (totalPersons === 2) {
+      // 2 signatories → max 1 front
+      setCorpSigFronts((prev) => [prev[0] ?? null]);
+    } else if (totalPersons >= 3) {
+      // 3+ signatories → default to 2 fronts (user can add more via button)
+      setCorpSigFronts((prev) => prev.length >= 2 ? prev : [...prev, ...Array(2 - prev.length).fill(null)]);
+    }
   }, [isCorporate, additionalPersons.length]);
 
   const setField  = (key, val) => setFormData((prev) => ({ ...prev, [key]: val }));
@@ -660,12 +666,14 @@ const UploadSigcard = () => {
         });
 
         if (isCorporate) {
-          // Corporate sigcard: fronts (all person_index=1) + backs (person_index per person)
+          // Corporate sigcard: each front gets a unique person_index (1, 2, …)
+          // so files don't overwrite each other on disk.
+          // Backs also get person_index per signatory (1, 2, …).
           let pairIdx = 0;
-          compressedCorpFronts.forEach((f) => {
+          compressedCorpFronts.forEach((f, i) => {
             if (f) {
               fd.append(`sigcardPairs[${pairIdx}][front]`, f);
-              fd.append(`sigcardPairs[${pairIdx}][person_index]`, 1);
+              fd.append(`sigcardPairs[${pairIdx}][person_index]`, i + 1);
               pairIdx++;
             }
           });
