@@ -206,24 +206,29 @@ class CustomerController extends Controller
                 'account_type', 'risk_level', 'status', 'branch_id',
             ]);
 
-            $customer->update(array_filter([
-                'account_no' => $request->account_no ?: null,
-                'date_opened' => $request->date_opened ?: null,
-                'date_updated' => $request->date_updated ?: null,
-                'branch_id' => $request->branch_id,
-                'firstname' => $request->firstname,
-                'middlename' => $request->middlename,
-                'lastname' => $request->lastname,
-                'suffix' => $request->suffix,
-                'company_name' => $request->company_name,
-                'account_type' => $request->account_type,
-                'risk_level' => $request->risk_level,
-                'status' => $request->status,
-            ], fn ($v) => ! is_null($v)));
+            $updatable = [
+                'account_no', 'date_opened', 'date_updated', 'branch_id',
+                'firstname', 'middlename', 'lastname', 'suffix',
+                'company_name', 'account_type', 'risk_level', 'status',
+            ];
+
+            $data = [];
+            foreach ($updatable as $field) {
+                if ($request->has($field)) {
+                    $data[$field] = $request->input($field);
+                }
+            }
+
+            if (! empty($data)) {
+                $customer->update($data);
+            }
 
             if ($request->hasFile('photo')) {
                 $photoPath = $this->uploadPhoto($customer, $request->file('photo'));
                 $customer->update(['photo' => $photoPath]);
+            } elseif ($request->boolean('remove_photo') && $customer->photo) {
+                Storage::disk('public')->delete($customer->photo);
+                $customer->update(['photo' => null]);
             }
 
             // Sync additional accounts when provided

@@ -474,6 +474,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
   });
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(customer.photo ? storageUrl(customer.photo) : null);
+  const [removePhoto, setRemovePhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
 
@@ -487,6 +488,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
       fd.append("_method", "PUT");
       Object.entries(form).forEach(([k, v]) => { if (v !== null && v !== undefined) fd.append(k, v); });
       if (photoFile) fd.append("photo", photoFile);
+      if (removePhoto) fd.append("remove_photo", "1");
       await api.post(`/customers/${customer.id}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       onSaved();
       onClose();
@@ -524,7 +526,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
           {photoPreview ? (
             <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-blue-300 flex-shrink-0">
               <img src={photoPreview} alt="Photo" className="w-full h-full object-cover" />
-              <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+              <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null); setRemovePhoto(true); }}
                 className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✕</button>
             </div>
           ) : (
@@ -536,7 +538,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
             <input type="file" accept="image/*" className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)); }
+                if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)); setRemovePhoto(false); }
                 e.target.value = "";
               }} />
             <div className="px-4 py-2.5 text-sm font-semibold text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors text-center">
@@ -604,11 +606,19 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
     setSaving(true);
     setError(null);
     try {
-      await api.put(`/customers/${customer.id}`, form);
+      // Convert empty strings to null so backend nullable validation passes
+      const payload = Object.fromEntries(
+        Object.entries(form).map(([k, v]) => [k, v === "" ? null : v])
+      );
+      await api.put(`/customers/${customer.id}`, payload);
       onSaved();
       onClose();
     } catch (e) {
-      setError(e?.response?.data?.message ?? "Failed to save changes.");
+      const data = e?.response?.data;
+      const msg = data?.errors
+        ? Object.values(data.errors).flat().join("\n")
+        : data?.message ?? "Failed to save changes.";
+      setError(msg);
     } finally {
       setSaving(false);
     }
