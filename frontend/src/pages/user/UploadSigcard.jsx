@@ -180,7 +180,7 @@ const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDat
     </div>
     <div className="space-y-1.5">
       <label className="block text-xs font-semibold text-slate-600">
-        Date Opened <span className="text-red-500">*</span>
+        Date Opened
       </label>
       <input type="date" value={dateOpened} onChange={onDateOpened} className={inputCls} />
     </div>
@@ -516,8 +516,8 @@ const UploadSigcard = () => {
         return !!formData.firstName.trim() && !!formData.lastName.trim();
       case "holders":
         if (!formData.riskLevel || !formData.status) return false;
-        if (!formData.accountNo.trim() || !formData.dateOpened) return false;
-        return additionalAccounts.every((a) => !!a.riskLevel && !!a.accountNo.trim() && !!a.dateOpened && !!a.status);
+        if (!formData.accountNo.trim()) return false;
+        return additionalAccounts.every((a) => !!a.riskLevel && !!a.accountNo.trim() && !!a.status);
       case "sigcard":
         if (isITF) return itfFiles.sigcard.every((p) => p.front || p.back);
         if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back);
@@ -608,7 +608,7 @@ const UploadSigcard = () => {
       fd.append("account_type",  formData.accountType);
       fd.append("risk_level",    formData.riskLevel);
       fd.append("account_no",    formData.accountNo);
-      fd.append("date_opened",   formData.dateOpened);
+      if (formData.dateOpened) fd.append("date_opened", formData.dateOpened);
       fd.append("status",        formData.status || "active");
       if (formData.dateUpdated) fd.append("date_updated", formData.dateUpdated);
       if (photoFile)            fd.append("photo", photoFile);
@@ -654,7 +654,7 @@ const UploadSigcard = () => {
         additionalAccounts.forEach((a, i) => {
           fd.append(`additionalAccounts[${i}][account_no]`,  a.accountNo);
           fd.append(`additionalAccounts[${i}][risk_level]`,  a.riskLevel);
-          fd.append(`additionalAccounts[${i}][date_opened]`, a.dateOpened);
+          if (a.dateOpened) fd.append(`additionalAccounts[${i}][date_opened]`, a.dateOpened);
           fd.append(`additionalAccounts[${i}][status]`,      a.status || "active");
           if (a.dateUpdated) fd.append(`additionalAccounts[${i}][date_updated]`, a.dateUpdated);
         });
