@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { MdEmail, MdLock, MdUploadFile, MdVerified } from "react-icons/md";
-import { HiShieldCheck } from "react-icons/hi";
+import { HiShieldCheck, HiLockClosed, HiClock, HiExclamationCircle, HiUserRemove, HiDeviceMobile } from "react-icons/hi";
 import Input from "./components/ui/Input";
 import Button from "./components/ui/Button";
 import Footer from "./components/Footer";
@@ -21,7 +21,7 @@ const Login = () => {
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState("");
+  const [apiError, setApiError] = useState({ message: "", type: "" });
   const [rememberMe, setRememberMe] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -80,7 +80,7 @@ const Login = () => {
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
-    if (apiError) setApiError("");
+    if (apiError.message) setApiError({ message: "", type: "" });
   };
 
   const validateForm = () => {
@@ -102,7 +102,7 @@ const Login = () => {
     if (!validateForm()) return;
 
     setLoading(true);
-    setApiError("");
+    setApiError({ message: "", type: "" });
 
     try {
       const deviceId =
@@ -118,11 +118,28 @@ const Login = () => {
         remember_me: rememberMe,
       });
     } catch (error) {
-      const msg =
-        error.response?.data?.message ||
-        error.response?.data?.errors?.email?.[0] ||
-        "Login failed. Please check your credentials.";
-      setApiError(msg);
+      const errs = error.response?.data?.errors || {};
+      // Pick the most specific message from the errors object
+      const specific =
+        errs.account?.[0] ||
+        errs.session?.[0] ||
+        errs.security?.[0] ||
+        errs.email?.[0] ||
+        errs.password?.[0] ||
+        null;
+
+      const msg = specific || error.response?.data?.message || "Login failed. Please check your credentials.";
+
+      // Determine error type for distinct UI treatment
+      let type = "generic";
+      if (/locked/i.test(msg))         type = "locked";
+      else if (/too many/i.test(msg))  type = "rate_limited";
+      else if (/expired/i.test(msg))   type = "expired";
+      else if (/not active/i.test(msg) || /inactive/i.test(msg)) type = "inactive";
+      else if (/concurrent|session/i.test(msg)) type = "session";
+      else if (/verification required|unusual/i.test(msg)) type = "security";
+
+      setApiError({ message: msg, type });
     } finally {
       setLoading(false);
     }
@@ -412,17 +429,35 @@ const Login = () => {
                   <h3 className="text-2xl font-semibold text-slate-900">Sign in</h3>
                 </div>
 
-                {fromSessionExpired && !apiError && (
+                {fromSessionExpired && !apiError.message && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                     Your session has expired due to inactivity. Please sign in again.
                   </div>
                 )}
 
-                {apiError && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {apiError}
-                  </div>
-                )}
+                {apiError.message && (() => {
+                  const configs = {
+                    locked:       { bg: "bg-red-50",    border: "border-red-300",   text: "text-red-800",   icon: <HiLockClosed className="h-4 w-4 mt-0.5 shrink-0" />,       label: "Account Locked" },
+                    rate_limited: { bg: "bg-orange-50", border: "border-orange-300",text: "text-orange-800",icon: <HiClock className="h-4 w-4 mt-0.5 shrink-0" />,            label: "Too Many Attempts" },
+                    expired:      { bg: "bg-yellow-50", border: "border-yellow-300",text: "text-yellow-800",icon: <HiExclamationCircle className="h-4 w-4 mt-0.5 shrink-0" />, label: "Password Expired" },
+                    inactive:     { bg: "bg-gray-50",   border: "border-gray-300",  text: "text-gray-800",  icon: <HiUserRemove className="h-4 w-4 mt-0.5 shrink-0" />,        label: "Account Inactive" },
+                    session:      { bg: "bg-blue-50",   border: "border-blue-300",  text: "text-blue-800",  icon: <HiDeviceMobile className="h-4 w-4 mt-0.5 shrink-0" />,      label: "Session Limit Reached" },
+                    security:     { bg: "bg-purple-50", border: "border-purple-300",text: "text-purple-800",icon: <HiShieldCheck className="h-4 w-4 mt-0.5 shrink-0" />,       label: "Security Alert" },
+                    generic:      { bg: "bg-red-50",    border: "border-red-200",   text: "text-red-700",   icon: <HiExclamationCircle className="h-4 w-4 mt-0.5 shrink-0" />, label: "Sign-in Failed" },
+                  };
+                  const c = configs[apiError.type] || configs.generic;
+                  return (
+                    <div className={`rounded-lg border ${c.border} ${c.bg} px-4 py-3 text-sm ${c.text}`}>
+                      <div className="flex items-start gap-2">
+                        {c.icon}
+                        <div>
+                          <p className="font-semibold">{c.label}</p>
+                          <p className="mt-0.5 font-normal opacity-90">{apiError.message}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <Input
                   label="Email Address"
