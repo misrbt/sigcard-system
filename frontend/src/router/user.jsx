@@ -24,8 +24,8 @@ const UserRoutes = () => {
       <Route path="/user/upload"                element={withLayout(<UploadSigcard />,    ["user"])} />
       <Route path="/user/customers"             element={withLayout(<CustomerProfiles />, viewerRoles)} />
       <Route path="/user/customers/:id/view"    element={withLayout(<CustomerView />,     viewerRoles)} />
-      <Route path="/user/customers/:id/edit"        element={withLayout(<EditCustomerDocs />, ["user", "admin"])} />
-      <Route path="/user/customers/:id/add-account" element={withLayout(<AddAccount />,        ["user", "admin"])} />
+      <Route path="/user/customers/:id/edit"        element={withLayout(<EditCustomerDocs />, ["user"])} />
+      <Route path="/user/customers/:id/add-account" element={withLayout(<AddAccount />,        ["user"])} />
       <Route path="/user/profile"               element={withLayout(<Profile />,          ["user"])} />
     </>
   );

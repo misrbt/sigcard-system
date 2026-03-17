@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import {
@@ -10,9 +10,7 @@ import {
   HiOutlineEye,
   HiOutlineInformationCircle,
   HiOutlineOfficeBuilding,
-  HiOutlinePencilAlt,
   HiOutlinePhotograph,
-  HiOutlinePlus,
   HiOutlineShieldCheck,
   HiOutlineTag,
   HiOutlineUser,
@@ -22,7 +20,6 @@ import {
   HiOutlineZoomOut,
 } from "react-icons/hi";
 import api from "../../services/api";
-import { useAuth } from "../../hooks/useAuth";
 
 const storageUrl = (path) => {
   const base = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api").replace(/\/api$/, "");
@@ -641,290 +638,14 @@ const CustomerHistorySection = ({ customerId }) => {
   );
 };
 
-// ── Edit Info Modals ───────────────────────────────────────────────────────────
-const RISK_OPTIONS = [
-  { value: "Low Risk",    label: "Low Risk",    cls: "border-emerald-400 text-emerald-700 bg-emerald-50 ring-2 ring-emerald-400/20" },
-  { value: "Medium Risk", label: "Medium Risk", cls: "border-yellow-400 text-yellow-700 bg-yellow-50 ring-2 ring-yellow-400/20" },
-  { value: "High Risk",   label: "High Risk",   cls: "border-red-400 text-red-700 bg-red-50 ring-2 ring-red-400/20" },
-];
-
-const inputCls = "w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent";
-
-const ModalShell = ({ title, subtitle, onClose, children, footer }) => (
-  <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">{title}</h2>
-          {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
-        </div>
-        <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
-          <HiOutlineX className="w-4 h-4" />
-        </button>
-      </div>
-      <div className="px-6 py-5 space-y-5">{children}</div>
-      {footer && <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100">{footer}</div>}
-    </div>
-  </div>
-);
-
-const EditChoiceModal = ({ customer, onClose, onPick }) => (
-  <ModalShell title="Edit Info" subtitle={customer.full_name} onClose={onClose}>
-    <p className="text-xs text-slate-500">Select what you would like to edit.</p>
-    <div className="grid grid-cols-2 gap-3">
-      <button
-        onClick={() => onPick("customer")}
-        className="flex flex-col items-center gap-3 px-4 py-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all group text-center"
-      >
-        <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
-          <HiOutlineUser className="w-6 h-6 text-blue-600" />
-        </div>
-        <div>
-          <p className="text-sm font-bold text-slate-800">Customer Info</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Name, photo</p>
-        </div>
-      </button>
-      <button
-        onClick={() => onPick("account")}
-        className="flex flex-col items-center gap-3 px-4 py-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all group text-center"
-      >
-        <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
-          <HiOutlineCreditCard className="w-6 h-6 text-indigo-600" />
-        </div>
-        <div>
-          <p className="text-sm font-bold text-slate-800">Account Info</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Risk level, dates, account no.</p>
-        </div>
-      </button>
-    </div>
-  </ModalShell>
-);
-
-const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
-  const isCorporateType = customer.account_type === "Corporate";
-
-  const [form, setForm] = useState({
-    firstname:    customer.firstname    ?? "",
-    middlename:   customer.middlename   ?? "",
-    lastname:     customer.lastname     ?? "",
-    suffix:       customer.suffix       ?? "",
-    company_name: customer.company_name ?? "",
-  });
-  const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(customer.photo ? storageUrl(customer.photo) : null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState(null);
-
-  const setF = (key, val) => setForm((prev) => ({ ...prev, [key]: val }));
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const fd = new FormData();
-      fd.append("_method", "PUT");
-      Object.entries(form).forEach(([k, v]) => { if (v !== null && v !== undefined) fd.append(k, v); });
-      if (photoFile) fd.append("photo", photoFile);
-      await api.post(`/customers/${customer.id}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      onSaved();
-      onClose();
-    } catch (e) {
-      setError(e?.response?.data?.message ?? "Failed to save changes.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <ModalShell
-      title="Edit Customer Info"
-      subtitle={customer.full_name}
-      onClose={onClose}
-      footer={
-        <>
-          <button onClick={onBack} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
-            ← Back
-          </button>
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={saving}
-            className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 rounded-xl transition-colors">
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
-        </>
-      }
-    >
-      {/* Photo */}
-      <div className="space-y-2">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Customer Photo</p>
-        <div className="flex items-center gap-4">
-          {photoPreview ? (
-            <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-blue-300 flex-shrink-0">
-              <img src={photoPreview} alt="Photo" className="w-full h-full object-cover" />
-              <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
-                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold">✕</button>
-            </div>
-          ) : (
-            <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 flex-shrink-0">
-              <HiOutlinePhotograph className="w-8 h-8" />
-            </div>
-          )}
-          <label className="cursor-pointer flex-1">
-            <input type="file" accept="image/*" className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)); }
-                e.target.value = "";
-              }} />
-            <div className="px-4 py-2.5 text-sm font-semibold text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors text-center">
-              {photoPreview ? "Change Photo" : "Upload Photo"}
-            </div>
-          </label>
-        </div>
-      </div>
-
-      {/* Name — non-Corporate */}
-      {!isCorporateType && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Name</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">First Name</label>
-              <input value={form.firstname} onChange={(e) => setF("firstname", e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Middle Name</label>
-              <input value={form.middlename} onChange={(e) => setF("middlename", e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Last Name</label>
-              <input value={form.lastname} onChange={(e) => setF("lastname", e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Suffix</label>
-              <input value={form.suffix} onChange={(e) => setF("suffix", e.target.value)} className={inputCls} placeholder="Jr., Sr., III" />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Company Name — Corporate */}
-      {isCorporateType && (
-        <div className="space-y-2">
-          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Company Name</label>
-          <input value={form.company_name} onChange={(e) => setF("company_name", e.target.value)} className={inputCls} />
-        </div>
-      )}
-
-      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">{error}</div>}
-    </ModalShell>
-  );
-};
-
-const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
-  const isJointType     = customer.account_type === "Joint";
-  const isCorporateType = customer.account_type === "Corporate";
-
-  const [form, setForm] = useState({
-    risk_level:   customer.risk_level   ?? "Low Risk",
-    account_no:   customer.account_no   ?? "",
-    date_opened:  customer.date_opened  ? customer.date_opened.substring(0, 10)  : "",
-    date_updated: customer.date_updated ? customer.date_updated.substring(0, 10) : "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState(null);
-
-  const setF = (key, val) => setForm((prev) => ({ ...prev, [key]: val }));
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await api.put(`/customers/${customer.id}`, form);
-      onSaved();
-      onClose();
-    } catch (e) {
-      setError(e?.response?.data?.message ?? "Failed to save changes.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <ModalShell
-      title="Edit Account Info"
-      subtitle={customer.full_name}
-      onClose={onClose}
-      footer={
-        <>
-          <button onClick={onBack} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
-            ← Back
-          </button>
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={saving}
-            className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 rounded-xl transition-colors">
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
-        </>
-      }
-    >
-      {/* Risk Level — non-Joint/Corporate */}
-      {!isJointType && !isCorporateType && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Risk Level</p>
-          <div className="flex flex-wrap gap-2">
-            {RISK_OPTIONS.map(({ value, label, cls }) => (
-              <button key={value} type="button" onClick={() => setF("risk_level", value)}
-                className={`px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${form.risk_level === value ? cls : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Account No + Dates */}
-      <div className="space-y-2">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Account Details</p>
-        <div className="grid grid-cols-1 gap-3">
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Account No.</label>
-            <input value={form.account_no} onChange={(e) => setF("account_no", e.target.value)} className={inputCls} placeholder="e.g. 1234-5678-9012" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Date Opened</label>
-              <input type="date" value={form.date_opened} onChange={(e) => setF("date_opened", e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Date Updated <span className="text-slate-400">(Optional)</span></label>
-              <input type="date" value={form.date_updated} onChange={(e) => setF("date_updated", e.target.value)} className={inputCls} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">{error}</div>}
-    </ModalShell>
-  );
-};
-
-// ── Main page ──────────────────────────────────────────────────────────────────
+// ── Main page (read-only for admin / compliance-audit) ──────────────────────
 const AdminCustomerView = ({ basePath = '/admin' }) => {
   const { id }      = useParams();
   const navigate    = useNavigate();
-  const { hasRole } = useAuth();
-
   const [customer, setCustomer]   = useState(null);
   const [loading, setLoading]     = useState(true);
   const [viewer, setViewer]       = useState(null);
   const [activeAcctIdx, setActiveAcctIdx] = useState(1);
-  const [otherBusy, setOtherBusy] = useState(false);
-  const [editInfoOpen, setEditInfoOpen] = useState(null); // null | "choice" | "customer" | "account"
-  const addOtherRef = useRef(null);
 
   const fetchCustomer = () => {
     setLoading(true);
@@ -935,38 +656,6 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
   };
 
   useEffect(() => { fetchCustomer(); }, [id]);
-
-  const handleReplaceOtherDoc = async (doc, file) => {
-    setOtherBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append("document_type", "other");
-      fd.append("person_index", doc.person_index);
-      fd.append("document_id", doc.id);
-      fd.append("file", file);
-      await api.post(`/customers/${id}/replace-document`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      fetchCustomer();
-    } catch {
-      /* silent */
-    } finally {
-      setOtherBusy(false);
-    }
-  };
-
-  const handleAddOtherDocs = async (files, personIndex) => {
-    setOtherBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append("_method", "PUT");
-      files.forEach((f) => fd.append(`otherDocs[${personIndex}][]`, f));
-      await api.post(`/customers/${id}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      fetchCustomer();
-    } catch {
-      /* silent */
-    } finally {
-      setOtherBusy(false);
-    }
-  };
 
   // Joint sub-type helpers (safe to reference in closures — called after render)
   const isITF = customer?.account_type === "Joint" && customer?.joint_sub_type === "ITF";
@@ -1100,30 +789,6 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
         )}
       </AnimatePresence>
 
-      {editInfoOpen === "choice" && (
-        <EditChoiceModal
-          customer={customer}
-          onClose={() => setEditInfoOpen(null)}
-          onPick={(v) => setEditInfoOpen(v)}
-        />
-      )}
-      {editInfoOpen === "customer" && (
-        <EditCustomerInfoModal
-          customer={customer}
-          onClose={() => setEditInfoOpen(null)}
-          onSaved={fetchCustomer}
-          onBack={() => setEditInfoOpen("choice")}
-        />
-      )}
-      {editInfoOpen === "account" && (
-        <EditAccountInfoModal
-          customer={customer}
-          onClose={() => setEditInfoOpen(null)}
-          onSaved={fetchCustomer}
-          onBack={() => setEditInfoOpen("choice")}
-        />
-      )}
-
       <div className="bg-gray-50 min-h-screen">
 
         {/* Hero header */}
@@ -1186,16 +851,6 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
                 </div>
               </div>
 
-              {/* Add Account action — admin only, non-Joint */}
-              {hasRole("admin") && !isJoint && (
-                <button
-                  onClick={() => navigate(`/admin/customers/${id}/add-account`)}
-                  className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
-                >
-                  <HiOutlinePlus className="w-4 h-4" />
-                  Add Account
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -1208,11 +863,6 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
             <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
               <HiOutlineInformationCircle className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-bold text-slate-900">Customer Details</h2>
-              <button onClick={() => setEditInfoOpen("choice")}
-                className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
-                <HiOutlinePencilAlt className="w-3.5 h-3.5" />
-                Edit Info
-              </button>
             </div>
             <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4">
 
@@ -1616,23 +1266,6 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Other Documents</p>
-                  <>
-                    <input
-                      type="file" accept="image/*" multiple className="hidden" ref={addOtherRef}
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files ?? []);
-                        if (files.length) handleAddOtherDocs(files, activeAcctIdx);
-                        e.target.value = "";
-                      }}
-                    />
-                    <button type="button" disabled={otherBusy}
-                      onClick={() => addOtherRef.current?.click()}
-                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40"
-                    >
-                      <HiOutlinePlus className="w-3 h-3" />
-                      Add Docs
-                    </button>
-                  </>
                 </div>
                 {otherDocs.length > 0 ? (
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
@@ -1653,22 +1286,6 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
                             <HiOutlineEye className="w-4 h-4 text-slate-700" />
                           </div>
                         </div>
-                        <>
-                          <input
-                            type="file" accept="image/*" id={`replace-other-${doc.id}`} className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleReplaceOtherDoc(doc, file);
-                              e.target.value = "";
-                            }}
-                          />
-                          <label
-                            htmlFor={`replace-other-${doc.id}`}
-                            className="absolute bottom-1 right-1 px-1.5 py-0.5 text-[10px] font-semibold bg-orange-500 hover:bg-orange-600 text-white rounded cursor-pointer transition-colors opacity-0 group-hover:opacity-100 z-10"
-                          >
-                            Replace
-                          </label>
-                        </>
                       </div>
                     ))}
                   </div>

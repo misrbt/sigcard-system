@@ -690,7 +690,7 @@ const CustomerView = () => {
   const { id }      = useParams();
   const navigate    = useNavigate();
   const { hasRole } = useAuth();
-  const isReadOnly  = hasRole("cashier") || hasRole("manager");
+  const isReadOnly  = hasRole("cashier") || hasRole("manager") || hasRole("admin") || hasRole("compliance-audit");
 
   const [customer, setCustomer]   = useState(null);
   const [loading, setLoading]     = useState(true);
