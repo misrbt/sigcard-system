@@ -1411,7 +1411,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
                       value={filters.search}
                       onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
                       placeholder="Search descriptions, user names..."
-                      className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1877F2] bg-gray-50 focus:bg-white transition-colors"
+                      className="w-full pl-9 pr-4 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1877F2] bg-gray-50 focus:bg-white transition-colors"
                     />
                   </div>
                 </div>
@@ -1421,7 +1421,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
                     name="causer_id"
                     value={filters.causer_id}
                     onChange={(e) => setFilters((p) => ({ ...p, causer_id: e.target.value }))}
-                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors"
+                    className="w-full px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors"
                   >
                     <option value="">All Users</option>
                     {users.map((u) => (
@@ -1435,7 +1435,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
                   </label>
                   <input type="date" name="date_from" value={filters.date_from}
                     onChange={(e) => setFilters((p) => ({ ...p, date_from: e.target.value }))}
-                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
+                    className="px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
@@ -1443,13 +1443,13 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
                   </label>
                   <input type="date" name="date_to" value={filters.date_to}
                     onChange={(e) => setFilters((p) => ({ ...p, date_to: e.target.value }))}
-                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
+                    className="px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Per Page</label>
                   <select value={filters.per_page}
                     onChange={(e) => setFilters((p) => ({ ...p, per_page: Number(e.target.value) }))}
-                    className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors">
+                    className="px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors">
                     {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </div>
