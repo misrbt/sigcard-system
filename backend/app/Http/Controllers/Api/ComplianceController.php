@@ -298,6 +298,190 @@ class ComplianceController extends Controller
     }
 
     /**
+     * Get the full activity history for a specific subject (customer, document, user).
+     */
+    public function getSubjectHistory(Request $request, string $subjectType, int $subjectId): JsonResponse
+    {
+        $this->authorize('view-audit-logs');
+
+        $modelMap = [
+            'customer' => Customer::class,
+            'document' => CustomerDocument::class,
+            'user' => User::class,
+        ];
+
+        if (! array_key_exists($subjectType, $modelMap)) {
+            return response()->json(['success' => false, 'message' => 'Invalid subject type.'], 422);
+        }
+
+        $modelClass = $modelMap[$subjectType];
+        $model = $modelClass::find($subjectId);
+
+        // For customer subjects, build maps of current documents for image display
+        $currentDocs = collect();
+        $allCurrentDocs = [];
+        if ($subjectType === 'customer' && $model) {
+            $docs = $model->documents;
+            $currentDocs = $docs->groupBy(fn (CustomerDocument $d) => $d->document_type.'_'.$d->person_index)
+                ->map(fn ($group) => [
+                    'file_path' => $group->first()->file_path,
+                    'file_name' => $group->first()->file_name,
+                ]);
+            $allCurrentDocs = $docs->map(fn (CustomerDocument $d) => [
+                'document_type' => $d->document_type,
+                'person_index' => $d->person_index,
+                'file_path' => $d->file_path,
+                'file_name' => $d->file_name,
+            ])->values()->all();
+        }
+
+        // For customers, also include document-related activity logs
+        $query = Activity::with('causer')->latest();
+
+        if ($subjectType === 'customer' && $model) {
+            $documentIds = $model->documents()->pluck('id')->all();
+            $query->where(function ($q) use ($modelClass, $subjectId, $documentIds) {
+                $q->where(function ($q2) use ($modelClass, $subjectId) {
+                    $q2->where('subject_type', $modelClass)
+                        ->where('subject_id', $subjectId);
+                });
+                if (! empty($documentIds)) {
+                    $q->orWhere(function ($q2) use ($documentIds) {
+                        $q2->where('subject_type', CustomerDocument::class)
+                            ->whereIn('subject_id', $documentIds);
+                    });
+                }
+            });
+        } else {
+            $query->where('subject_type', $modelClass)
+                ->where('subject_id', $subjectId);
+        }
+
+        $history = $query->get()->unique('id')->map(function (Activity $entry) use ($currentDocs, $allCurrentDocs, $subjectType) {
+            $props = $entry->properties->toArray();
+            $meta = collect($props)->except(['old', 'attributes', 'diff'])->all();
+            $desc = strtolower($entry->description ?? '');
+
+            if ($subjectType === 'customer') {
+                if (str_contains($desc, 'replaced') && isset($meta['document_type'])) {
+                    $key = $meta['document_type'].'_'.($meta['person_index'] ?? 1);
+                    $current = $currentDocs->get($key);
+                    if ($current) {
+                        $meta['current_file_path'] = $current['file_path'];
+                        $meta['current_file_name'] = $current['file_name'];
+                    }
+                }
+
+                if (str_contains($desc, 'created') || $entry->event === 'created') {
+                    $meta['current_documents'] = $allCurrentDocs;
+                }
+            }
+
+            $diff = $props['diff'] ?? null;
+            if (! $diff && isset($props['old'], $props['attributes'])) {
+                $diff = [];
+                foreach ($props['attributes'] as $key => $newVal) {
+                    $oldVal = $props['old'][$key] ?? null;
+                    if ((string) ($oldVal ?? '') !== (string) ($newVal ?? '')) {
+                        $diff[$key] = ['before' => $oldVal, 'after' => $newVal];
+                    }
+                }
+            }
+
+            return [
+                'id' => $entry->id,
+                'event' => $entry->event,
+                'log_name' => $entry->log_name,
+                'description' => $entry->description,
+                'causer' => $entry->causer
+                    ? ['name' => optional($entry->causer)->full_name, 'email' => optional($entry->causer)->email]
+                    : null,
+                'diff' => $diff,
+                'meta' => $meta,
+                'created_at' => $entry->created_at->toIso8601String(),
+            ];
+        })->values();
+
+        // Build status timeline & document versions for customer subjects
+        $statusTimeline = [];
+        $documentVersions = [];
+
+        if ($subjectType === 'customer' && $model) {
+            $statusTimeline[] = [
+                'status' => 'active',
+                'changed_at' => $model->created_at->toIso8601String(),
+                'changed_by' => null,
+                'label' => 'Account Opened',
+            ];
+
+            $history->sortBy('created_at')->each(function ($entry) use (&$statusTimeline) {
+                $diff = $entry['diff'] ?? [];
+                if (isset($diff['status'])) {
+                    $statusTimeline[] = [
+                        'status' => $diff['status']['after'] ?? null,
+                        'changed_at' => $entry['created_at'],
+                        'changed_by' => $entry['causer']['name'] ?? null,
+                        'label' => 'Status Changed',
+                    ];
+                }
+            });
+
+            $lastStatus = ! empty($statusTimeline) ? end($statusTimeline)['status'] : null;
+            if ($lastStatus !== $model->status) {
+                $statusTimeline[] = [
+                    'status' => $model->status,
+                    'changed_at' => now()->toIso8601String(),
+                    'changed_by' => null,
+                    'label' => 'Current Status',
+                ];
+            }
+
+            $docVersionMap = [];
+            $history->each(function ($entry) use (&$docVersionMap) {
+                $meta = $entry['meta'] ?? [];
+                $desc = strtolower($entry['description'] ?? '');
+
+                if (str_contains($desc, 'replaced') && isset($meta['document_type'])) {
+                    $docKey = $meta['document_type'].($meta['person_index'] > 1 ? '_p'.$meta['person_index'] : '');
+
+                    if (! isset($docVersionMap[$docKey])) {
+                        $docVersionMap[$docKey] = [
+                            'document_type' => $meta['document_type'],
+                            'person_index' => $meta['person_index'] ?? 1,
+                            'versions' => [],
+                        ];
+                    }
+
+                    $docVersionMap[$docKey]['versions'][] = [
+                        'archived_file_path' => $meta['archived_file_path'] ?? null,
+                        'replaced_file' => $meta['replaced_file'] ?? null,
+                        'replaced_at' => $entry['created_at'],
+                        'replaced_by' => $entry['causer']['name'] ?? null,
+                        'new_file_name' => $meta['new_file_name'] ?? null,
+                        'current_file_path' => $meta['current_file_path'] ?? null,
+                    ];
+                }
+            });
+
+            $documentVersions = array_values($docVersionMap);
+        }
+
+        return response()->json([
+            'success' => true,
+            'subject' => $model ? [
+                'id' => $model->id,
+                'label' => method_exists($model, 'getFullNameAttribute') ? $model->full_name : "#{$subjectId}",
+            ] : null,
+            'history' => $history,
+            'status_timeline' => $statusTimeline,
+            'document_versions' => $documentVersions,
+            'current_documents' => $allCurrentDocs,
+            'current_status' => $subjectType === 'customer' && $model ? $model->status : null,
+            'current_risk_level' => $subjectType === 'customer' && $model ? $model->risk_level : null,
+        ]);
+    }
+
+    /**
      * Export audit logs with BSP compliance formatting
      */
     public function exportAuditLogs(Request $request): JsonResponse

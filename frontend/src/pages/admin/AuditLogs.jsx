@@ -13,7 +13,7 @@ import {
   FaExclamationTriangle, FaCheckCircle, FaCog, FaArrowRight,
   FaPlus, FaTrash, FaEdit, FaCalendarAlt,
 } from 'react-icons/fa';
-import { HiOutlineX } from 'react-icons/hi';
+import { HiOutlineX, HiOutlineClock, HiOutlineCollection, HiOutlineChevronLeft, HiOutlinePhotograph } from 'react-icons/hi';
 import { adminService } from '../../services/adminService';
 import api from '../../services/api';
 import Pagination from '../../components/ui/Pagination';
@@ -636,36 +636,275 @@ const PropertiesPanel = ({ log }) => {
   );
 };
 
-// ── History timeline modal ────────────────────────────────────────────────────
+// ── History timeline modal (enhanced with status timeline & doc versions) ─────
+
+const HIST_STATUS_COLORS = {
+  active:      { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', dot: 'bg-green-500' },
+  dormant:     { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300', dot: 'bg-yellow-500' },
+  closed:      { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300', dot: 'bg-red-500' },
+  escheat:     { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300', dot: 'bg-orange-500' },
+  reactivated: { bg: 'bg-teal-100', text: 'text-teal-700', border: 'border-teal-300', dot: 'bg-teal-500' },
+};
+
+const formatDateTimeFull = (iso) => {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-PH', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+};
+
+const timeAgo = (iso) => {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+};
+
+// Clickable image thumbnail for version history
+const VersionThumb = ({ path, label, borderColor = 'border-gray-200' }) => {
+  const [preview, setPreview] = useState(false);
+  const [error, setError] = useState(false);
+  return (
+    <>
+      <button onClick={() => setPreview(true)} className="text-left group">
+        <div className={`rounded-lg border-2 ${borderColor} bg-white overflow-hidden hover:shadow-lg transition-all duration-200`}>
+          {!error ? (
+            <img src={storageUrl(path)} alt={label} className="w-full h-28 object-contain bg-white group-hover:scale-105 transition-transform duration-200" onError={() => setError(true)} />
+          ) : (
+            <div className="w-full h-28 flex items-center justify-center bg-gray-50">
+              <HiOutlinePhotograph className="w-5 h-5 text-gray-300" />
+            </div>
+          )}
+        </div>
+        {label && <p className="text-[10px] text-gray-500 font-medium mt-1 truncate">{label}</p>}
+      </button>
+      {preview && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreview(false)}>
+          <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setPreview(false)} className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900 z-10 transition-colors">
+              <HiOutlineX className="w-4 h-4" />
+            </button>
+            <div className="bg-white rounded-2xl shadow-2xl p-3">
+              {label && <p className="text-xs font-semibold text-gray-700 mb-2 px-2">{label}</p>}
+              <img src={storageUrl(path)} alt={label} className="max-h-[80vh] rounded-xl object-contain" />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// Status timeline within the history modal
+const HistoryStatusTimeline = ({ timeline }) => {
+  if (!timeline || timeline.length <= 1) return null;
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <HiOutlineClock className="w-4 h-4 text-blue-500" />
+        <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Account Status Timeline</p>
+        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600">{timeline.length}</span>
+      </div>
+      <div className="relative">
+        <div className="absolute left-[11px] top-3 bottom-3 w-0.5 bg-gradient-to-b from-green-300 via-blue-200 to-gray-200" />
+        <div className="space-y-0">
+          {timeline.map((entry, idx) => {
+            const sc = HIST_STATUS_COLORS[entry.status] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-300', dot: 'bg-gray-400' };
+            const isFirst = idx === 0;
+            const isLast = idx === timeline.length - 1;
+            return (
+              <div key={idx} className="flex items-start gap-3 relative">
+                <div className={`relative z-10 w-[24px] h-[24px] rounded-full flex items-center justify-center flex-shrink-0 ${isLast ? 'ring-3 ring-blue-100' : ''}`}>
+                  <div className={`w-3 h-3 rounded-full ${sc.dot} ${isLast ? 'w-3.5 h-3.5 ring-2 ring-white shadow-sm' : ''}`} />
+                </div>
+                <div className={`flex-1 ${isLast ? 'pb-0' : 'pb-4'}`}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${sc.bg} ${sc.text} ${sc.border}`}>
+                      {entry.status ?? '—'}
+                    </span>
+                    {isFirst && <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-green-50 text-green-600 border border-green-200">INITIAL</span>}
+                    {isLast && !isFirst && <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-blue-50 text-blue-600 border border-blue-200">CURRENT</span>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
+                    <span className="text-[10px] text-gray-400">{formatDateTimeFull(entry.changed_at)}</span>
+                    <span className="text-[10px] text-blue-400 font-medium">{timeAgo(entry.changed_at)}</span>
+                    {entry.changed_by && <span className="text-[10px] text-gray-400">by <span className="font-medium text-gray-500">{entry.changed_by}</span></span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Document version history within the history modal
+const HistoryDocVersions = ({ versions = [], currentDocuments = [] }) => {
+  // Build combined view
+  const docGroups = {};
+  currentDocuments.forEach((doc) => {
+    const key = doc.document_type + (doc.person_index > 1 ? `_p${doc.person_index}` : '');
+    if (!docGroups[key]) docGroups[key] = { document_type: doc.document_type, person_index: doc.person_index, current: doc, archived: [] };
+    else docGroups[key].current = doc;
+  });
+  versions.forEach((v) => {
+    const key = v.document_type + (v.person_index > 1 ? `_p${v.person_index}` : '');
+    if (!docGroups[key]) docGroups[key] = { document_type: v.document_type, person_index: v.person_index, current: null, archived: [] };
+    docGroups[key].archived.push(...(v.versions ?? []));
+  });
+
+  const groupsWithHistory = Object.values(docGroups).filter((g) => g.archived.length > 0);
+  if (groupsWithHistory.length === 0) return null;
+
+  const totalVersions = groupsWithHistory.reduce((sum, g) => sum + g.archived.length, 0);
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <HiOutlineCollection className="w-4 h-4 text-purple-500" />
+        <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Document Version History</p>
+        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-600">
+          {totalVersions} previous version{totalVersions !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div className="space-y-5">
+        {groupsWithHistory.map((group) => {
+          const label = DOC_TYPE_LABELS[group.document_type] ?? group.document_type;
+          const personSuffix = group.person_index > 1 ? ` (Person ${group.person_index})` : '';
+          const sortedArchived = [...group.archived].sort((a, b) => new Date(b.replaced_at) - new Date(a.replaced_at));
+
+          return (
+            <div key={group.document_type + '_' + group.person_index}>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">{label}{personSuffix}</p>
+              <div className="flex gap-2.5 overflow-x-auto pb-2">
+                {/* Current */}
+                {group.current && (
+                  <div className="flex-shrink-0 w-32">
+                    <div className="flex items-center gap-1 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className="text-[8px] font-bold text-green-600 uppercase">Current</span>
+                    </div>
+                    <VersionThumb path={group.current.file_path} label={group.current.file_name} borderColor="border-green-200" />
+                  </div>
+                )}
+                {group.current && sortedArchived.length > 0 && (
+                  <div className="flex items-center flex-shrink-0 px-0.5">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <HiOutlineChevronLeft className="w-3.5 h-3.5 text-gray-300" />
+                      <span className="text-[7px] text-gray-400 font-medium">replaced</span>
+                    </div>
+                  </div>
+                )}
+                {/* Archived versions */}
+                {sortedArchived.map((version, vIdx) => (
+                  <div key={vIdx} className="flex-shrink-0 w-32">
+                    <div className="flex items-center gap-1 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-orange-400" />
+                      <span className="text-[8px] font-bold text-orange-500 uppercase">V{sortedArchived.length - vIdx}</span>
+                    </div>
+                    {version.archived_file_path ? (
+                      <VersionThumb path={version.archived_file_path} label={version.replaced_file} borderColor="border-orange-200" />
+                    ) : (
+                      <div className="rounded-lg border-2 border-dashed border-orange-200 bg-white h-28 flex items-center justify-center">
+                        <span className="text-[9px] text-gray-400 italic">Archived</span>
+                      </div>
+                    )}
+                    <div className="mt-1 space-y-0.5">
+                      <p className="text-[8px] text-gray-400">{formatDateTimeFull(version.replaced_at)}</p>
+                      {version.replaced_by && <p className="text-[8px] text-gray-400">by <span className="font-medium text-gray-500">{version.replaced_by}</span></p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// Tab buttons for the history modal
+const HISTORY_TABS = [
+  { key: 'timeline',   label: 'Activity Timeline', icon: MdTimeline },
+  { key: 'status',     label: 'Status History',    icon: HiOutlineClock },
+  { key: 'documents',  label: 'Document Versions', icon: HiOutlineCollection },
+];
+
 const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose, apiEndpoint }) => {
   const [history, setHistory] = useState([]);
+  const [statusTimeline, setStatusTimeline] = useState([]);
+  const [documentVersions, setDocumentVersions] = useState([]);
+  const [currentDocuments, setCurrentDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeHistTab, setActiveHistTab] = useState('timeline');
 
   useEffect(() => {
     const historyBase = apiEndpoint.replace(/\/audit-logs$/, '');
     const url = `${historyBase}/audit-logs/history/${subjectType}/${subjectId}`;
     api.get(url)
-      .then((res) => setHistory(res.data.history ?? []))
+      .then((res) => {
+        setHistory(res.data.history ?? []);
+        setStatusTimeline(res.data.status_timeline ?? []);
+        setDocumentVersions(res.data.document_versions ?? []);
+        setCurrentDocuments(res.data.current_documents ?? []);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [subjectType, subjectId, apiEndpoint]);
 
-  const getEventIcon = (event) => {
+  const isCustomer = subjectType === 'customer';
+  const hasStatusTimeline = isCustomer && statusTimeline.length > 1;
+  const hasDocVersions = isCustomer && documentVersions.length > 0;
+
+  const getEventIcon = (event, description = '') => {
+    const d = description.toLowerCase();
+    if (d.includes('replaced')) return <FaEdit className="w-3 h-3 text-orange-600" />;
+    if (d.includes('deleted') && d.includes('doc')) return <FaTrash className="w-3 h-3 text-red-500" />;
     if (event === 'created') return <FaPlus className="w-3 h-3 text-emerald-600" />;
     if (event === 'deleted') return <FaTrash className="w-3 h-3 text-red-600" />;
     return <FaEdit className="w-3 h-3 text-blue-600" />;
   };
 
-  const getEventColor = (event) => {
+  const getEventColor = (event, description = '') => {
+    const d = description.toLowerCase();
+    if (d.includes('replaced')) return 'bg-orange-50 border-orange-300';
+    if (d.includes('deleted') && d.includes('doc')) return 'bg-red-50 border-red-300';
     if (event === 'created') return 'bg-emerald-50 border-emerald-300';
     if (event === 'deleted') return 'bg-red-50 border-red-300';
     return 'bg-blue-50 border-blue-300';
   };
 
-  const getEventBadge = (event) => {
+  const getEventBadge = (event, description = '') => {
+    const d = description.toLowerCase();
+    if (d.includes('replaced')) return 'bg-orange-100 text-orange-700 border border-orange-200';
+    if (d.includes('deleted') && d.includes('doc')) return 'bg-red-100 text-red-700 border border-red-200';
+    if (d.includes('account') && d.includes('added')) return 'bg-purple-100 text-purple-700 border border-purple-200';
     if (event === 'created') return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
     if (event === 'deleted') return 'bg-red-100 text-red-700 border border-red-200';
     return 'bg-blue-100 text-blue-700 border border-blue-200';
+  };
+
+  const getEventLabel = (event, description = '') => {
+    const d = description.toLowerCase();
+    if (d.includes('replaced')) return 'Doc Replaced';
+    if (d.includes('deleted') && d.includes('doc')) return 'Doc Deleted';
+    if (d.includes('account') && d.includes('added')) return 'Account Added';
+    if (d.includes('account') && d.includes('updated')) return 'Account Updated';
+    if (event === 'created') return 'Created';
+    if (event === 'deleted') return 'Removed';
+    if (event === 'updated') return 'Updated';
+    return 'Action';
   };
 
   return (
@@ -674,7 +913,7 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose, apiEndpoi
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 12 }}
-        className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col border border-gray-200"
+        className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-gray-200"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-white rounded-t-2xl border-b border-gray-200">
@@ -683,7 +922,7 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose, apiEndpoi
               <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
                 <MdTimeline className="text-[#1877F2] w-5 h-5" />
               </div>
-              Full Activity History
+              Customer Activity History
             </h2>
             <p className="text-sm text-gray-500 mt-0.5 ml-10">
               {subjectLabel} — complete timeline of all changes
@@ -697,7 +936,32 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose, apiEndpoi
           </button>
         </div>
 
-        {/* Timeline */}
+        {/* Tabs for customer subjects */}
+        {isCustomer && !loading && (hasStatusTimeline || hasDocVersions) && (
+          <div className="px-6 py-2 bg-white border-b border-gray-100">
+            <div className="flex gap-1">
+              {HISTORY_TABS.map(({ key, label, icon: Icon }) => {
+                if (key === 'status' && !hasStatusTimeline) return null;
+                if (key === 'documents' && !hasDocVersions) return null;
+                const active = activeHistTab === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setActiveHistTab(key)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      active ? 'bg-[#05173a] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Icon className={`w-3.5 h-3.5 ${active ? 'text-blue-300' : ''}`} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {loading ? (
             <div className="space-y-4">
@@ -711,84 +975,115 @@ const HistoryModal = ({ subjectType, subjectId, subjectLabel, onClose, apiEndpoi
                 </div>
               ))}
             </div>
-          ) : history.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-              <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
-                <MdTimeline className="w-8 h-8 opacity-30" />
-              </div>
-              <p className="text-sm font-medium">No history recorded yet</p>
-              <p className="text-xs text-gray-400 mt-1">Changes to this record will appear here</p>
-            </div>
           ) : (
-            <div className="relative">
-              <div className="absolute left-3.5 top-0 bottom-0 w-px bg-gradient-to-b from-blue-200 via-gray-200 to-gray-100" />
+            <>
+              {/* Status Timeline Tab */}
+              {activeHistTab === 'status' && hasStatusTimeline && (
+                <HistoryStatusTimeline timeline={statusTimeline} />
+              )}
 
-              <div className="space-y-1">
-                {history.map((entry, idx) => {
-                  const diff = parseDiff({
-                    old:        entry.old,
-                    attributes: entry.attributes,
-                    diff:       entry.diff,
-                  });
-                  const hasDiff = diff && diff.length > 0;
-                  const meta = entry.meta ?? {};
-                  const desc = (entry.description ?? '').toLowerCase();
-                  const isDocReplaced = desc.includes('replaced');
-                  const isCreated = desc.includes('created') || entry.event === 'created';
-                  const hasStatusChange = hasDiff && diff.some((r) => r.field === 'status' || r.field === 'risk_level');
+              {/* Document Versions Tab */}
+              {activeHistTab === 'documents' && hasDocVersions && (
+                <HistoryDocVersions versions={documentVersions} currentDocuments={currentDocuments} />
+              )}
 
-                  return (
-                    <div key={entry.id} className="flex gap-4 relative group">
-                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 z-10 ${getEventColor(entry.event)} shadow-sm`}>
-                        {getEventIcon(entry.event)}
+              {/* Activity Timeline Tab */}
+              {activeHistTab === 'timeline' && (
+                <>
+                  {history.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                      <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
+                        <MdTimeline className="w-8 h-8 opacity-30" />
                       </div>
+                      <p className="text-sm font-medium">No history recorded yet</p>
+                      <p className="text-xs text-gray-400 mt-1">Changes to this record will appear here</p>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-0 bottom-0 w-px bg-gradient-to-b from-blue-200 via-gray-200 to-gray-100" />
 
-                      <div className="flex-1 pb-4 bg-white rounded-xl border border-gray-100 p-4 mb-2 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                          <span className="text-sm font-semibold text-gray-800">
-                            {entry.causer?.name ?? 'System'}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getEventBadge(entry.event)}`}>
-                            {entry.event === 'created' ? 'Created' : entry.event === 'deleted' ? 'Removed' : entry.event === 'updated' ? 'Updated' : 'Action'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600 mb-2 leading-relaxed">{humanizeDescription(entry.description, entry.meta ?? entry)}</p>
+                      <div className="space-y-1">
+                        {history.map((entry) => {
+                          const diff = parseDiff({
+                            old:        entry.old,
+                            attributes: entry.attributes,
+                            diff:       entry.diff,
+                          });
+                          const hasDiff = diff && diff.length > 0;
+                          const meta = entry.meta ?? {};
+                          const desc = (entry.description ?? '').toLowerCase();
+                          const isDocReplaced = desc.includes('replaced');
+                          const isDocDeleted = desc.includes('deleted') && desc.includes('doc');
+                          const isCreated = desc.includes('created') || entry.event === 'created';
+                          const hasStatusChange = hasDiff && diff.some((r) => r.field === 'status' || r.field === 'risk_level');
 
-                        {hasStatusChange && <StatusChangePanel diff={diff} />}
+                          return (
+                            <div key={entry.id} className="flex gap-4 relative group">
+                              <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 z-10 ${getEventColor(entry.event, entry.description)} shadow-sm`}>
+                                {getEventIcon(entry.event, entry.description)}
+                              </div>
 
-                        {hasDiff && (
-                          <div className="bg-gray-50/80 rounded-xl px-3 border border-gray-100 mt-2">
-                            {diff.filter((r) => !(hasStatusChange && (r.field === 'status' || r.field === 'risk_level'))).map((row) => (
-                              <DiffRow key={row.field} field={row.field} before={row.before} after={row.after} />
-                            ))}
-                          </div>
-                        )}
+                              <div className="flex-1 pb-4 bg-white rounded-xl border border-gray-100 p-4 mb-2 shadow-sm hover:shadow-md transition-shadow">
+                                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                                  <span className="text-sm font-semibold text-gray-800">
+                                    {entry.causer?.name ?? 'System'}
+                                  </span>
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getEventBadge(entry.event, entry.description)}`}>
+                                    {getEventLabel(entry.event, entry.description)}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-600 mb-2 leading-relaxed">{humanizeDescription(entry.description, entry.meta ?? entry)}</p>
 
-                        {isDocReplaced && (meta.archived_file_path || meta.current_file_path) && (
-                          <DocComparisonPanel props={meta} />
-                        )}
+                                {hasStatusChange && <StatusChangePanel diff={diff} />}
 
-                        {isCreated && meta.current_documents && (
-                          <CurrentDocsGallery docs={meta.current_documents} />
-                        )}
+                                {hasDiff && (
+                                  <div className="bg-gray-50/80 rounded-xl px-3 border border-gray-100 mt-2">
+                                    {diff.filter((r) => !(hasStatusChange && (r.field === 'status' || r.field === 'risk_level'))).map((row) => (
+                                      <DiffRow key={row.field} field={row.field} before={row.before} after={row.after} />
+                                    ))}
+                                  </div>
+                                )}
 
-                        {meta && Object.keys(meta).filter(k => !['action', 'current_file_path', 'current_file_name', 'current_documents'].includes(k)).length > 0 && (
-                          <MetaProperties meta={Object.fromEntries(
-                            Object.entries(meta).filter(([k]) => !['action', 'current_file_path', 'current_file_name', 'current_documents'].includes(k))
-                          )} />
-                        )}
+                                {isDocReplaced && (meta.archived_file_path || meta.current_file_path) && (
+                                  <DocComparisonPanel props={meta} />
+                                )}
 
-                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-50">
-                          <MdAccessTime className="w-3 h-3 text-gray-300" />
-                          <span className="text-[11px] text-gray-400">{formatDate(entry.created_at)}</span>
-                          <span className="text-[11px] text-blue-400 font-medium">{formatRelative(entry.created_at)}</span>
-                        </div>
+                                {isCreated && meta.current_documents && (
+                                  <CurrentDocsGallery docs={meta.current_documents} />
+                                )}
+
+                                {/* Document deleted info */}
+                                {isDocDeleted && (meta.file_name || meta.file_path) && (
+                                  <div className="bg-red-50/70 rounded-xl border border-red-200 px-4 py-3 mt-2">
+                                    <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-1">
+                                      Deleted — {DOC_TYPE_LABELS[meta.document_type] ?? meta.document_type ?? '--'}
+                                      {meta.person_index > 1 && ` (Person ${meta.person_index})`}
+                                    </p>
+                                    <p className="text-[11px] text-gray-600 font-mono">{meta.file_name ?? meta.file_path?.split('/').pop()}</p>
+                                  </div>
+                                )}
+
+                                {meta && Object.keys(meta).filter(k => !['action', 'current_file_path', 'current_file_name', 'current_documents', 'archived_file_path', 'file_name', 'file_path'].includes(k)).length > 0 && (
+                                  <MetaProperties meta={Object.fromEntries(
+                                    Object.entries(meta).filter(([k]) => !['action', 'current_file_path', 'current_file_name', 'current_documents', 'archived_file_path', 'file_name', 'file_path'].includes(k))
+                                  )} />
+                                )}
+
+                                <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-50">
+                                  <MdAccessTime className="w-3 h-3 text-gray-300" />
+                                  <span className="text-[11px] text-gray-400">{formatDate(entry.created_at)}</span>
+                                  <span className="text-[11px] text-blue-400 font-medium">{formatRelative(entry.created_at)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
       </motion.div>

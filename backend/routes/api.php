@@ -171,6 +171,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
     Route::middleware(['role:compliance-audit,admin'])->prefix('compliance')->group(function () {
         Route::get('/dashboard', [ComplianceController::class, 'getDashboard']);
         Route::get('/audit-logs', [ComplianceController::class, 'getAuditLogs']);
+        Route::get('/audit-logs/history/{subjectType}/{subjectId}', [ComplianceController::class, 'getSubjectHistory']);
         Route::post('/audit-logs/export', [ComplianceController::class, 'exportAuditLogs']);
         Route::get('/compliance-reports', [ComplianceController::class, 'getComplianceReports']);
         Route::post('/compliance-reports/generate', [ComplianceController::class, 'generateComplianceReport']);

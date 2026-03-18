@@ -378,14 +378,34 @@ class CustomerController extends Controller
             'file_name' => $doc->file_name,
         ])->values()->all();
 
+        // Fetch activity logs for this customer (both Customer and CustomerDocument subjects)
+        $documentIds = $customer->documents()->pluck('id')->all();
+
         $logs = \Spatie\Activitylog\Models\Activity::with('causer')
-            ->where('subject_type', Customer::class)
-            ->where('subject_id', $customer->id)
+            ->where(function ($q) use ($customer, $documentIds) {
+                $q->where(function ($q2) use ($customer) {
+                    $q2->where('subject_type', Customer::class)
+                        ->where('subject_id', $customer->id);
+                })->orWhere(function ($q2) use ($customer) {
+                    // Manual document logs are performed on the Customer subject
+                    $q2->where('subject_type', Customer::class)
+                        ->where('subject_id', $customer->id);
+                });
+
+                // Also include auto-logged CustomerDocument events
+                if (! empty($documentIds)) {
+                    $q->orWhere(function ($q2) use ($documentIds) {
+                        $q2->where('subject_type', CustomerDocument::class)
+                            ->whereIn('subject_id', $documentIds);
+                    });
+                }
+            })
             ->latest()
             ->get()
+            ->unique('id') // Deduplicate since the OR conditions may overlap
             ->map(function ($entry) use ($currentDocs, $allCurrentDocs) {
                 $props = $entry->properties->toArray();
-                $meta = collect($props)->except(['diff'])->all();
+                $meta = collect($props)->except(['diff', 'old', 'attributes'])->all();
 
                 $desc = strtolower($entry->description ?? '');
 
@@ -404,6 +424,18 @@ class CustomerController extends Controller
                     $meta['current_documents'] = $allCurrentDocs;
                 }
 
+                // Build diff from multiple formats
+                $diff = $props['diff'] ?? null;
+                if (! $diff && isset($props['old'], $props['attributes'])) {
+                    $diff = [];
+                    foreach ($props['attributes'] as $key => $newVal) {
+                        $oldVal = $props['old'][$key] ?? null;
+                        if ((string) ($oldVal ?? '') !== (string) ($newVal ?? '')) {
+                            $diff[$key] = ['before' => $oldVal, 'after' => $newVal];
+                        }
+                    }
+                }
+
                 return [
                     'id' => $entry->id,
                     'event' => $entry->event,
@@ -411,16 +443,80 @@ class CustomerController extends Controller
                     'causer' => $entry->causer
                         ? ['name' => optional($entry->causer)->full_name, 'email' => optional($entry->causer)->email]
                         : null,
-                    'diff' => $props['diff'] ?? null,
+                    'diff' => $diff,
                     'meta' => $meta,
                     'created_at' => $entry->created_at->toIso8601String(),
                 ];
-            });
+            })
+            ->values();
+
+        // ── Status timeline: extract status-change events in chronological order ──
+        $statusTimeline = collect();
+        $statusTimeline->push([
+            'status' => $customer->getOriginal('status') ?? 'active',
+            'changed_at' => $customer->created_at->toIso8601String(),
+            'changed_by' => null,
+            'label' => 'Account Opened',
+        ]);
+
+        $logs->sortBy('created_at')->each(function ($entry) use (&$statusTimeline) {
+            $diff = $entry['diff'] ?? [];
+            if (isset($diff['status'])) {
+                $statusTimeline->push([
+                    'status' => $diff['status']['after'] ?? $diff['status']['after'] ?? null,
+                    'changed_at' => $entry['created_at'],
+                    'changed_by' => $entry['causer']['name'] ?? null,
+                    'label' => 'Status Changed',
+                ]);
+            }
+        });
+
+        // Current status as final node
+        $lastStatus = $statusTimeline->last()['status'] ?? null;
+        if ($lastStatus !== $customer->status) {
+            $statusTimeline->push([
+                'status' => $customer->status,
+                'changed_at' => now()->toIso8601String(),
+                'changed_by' => null,
+                'label' => 'Current Status',
+            ]);
+        }
+
+        // ── Document version history: list archived versions per document type ──
+        $documentVersions = [];
+        $logs->each(function ($entry) use (&$documentVersions) {
+            $meta = $entry['meta'] ?? [];
+            $desc = strtolower($entry['description'] ?? '');
+
+            if (str_contains($desc, 'replaced') && isset($meta['document_type'])) {
+                $docKey = $meta['document_type'].($meta['person_index'] > 1 ? '_p'.$meta['person_index'] : '');
+
+                if (! isset($documentVersions[$docKey])) {
+                    $documentVersions[$docKey] = [
+                        'document_type' => $meta['document_type'],
+                        'person_index' => $meta['person_index'] ?? 1,
+                        'versions' => [],
+                    ];
+                }
+
+                $documentVersions[$docKey]['versions'][] = [
+                    'archived_file_path' => $meta['archived_file_path'] ?? null,
+                    'replaced_file' => $meta['replaced_file'] ?? null,
+                    'replaced_at' => $entry['created_at'],
+                    'replaced_by' => $entry['causer']['name'] ?? null,
+                    'new_file_name' => $meta['new_file_name'] ?? null,
+                    'current_file_path' => $meta['current_file_path'] ?? null,
+                ];
+            }
+        });
 
         return response()->json([
             'history' => $logs,
+            'status_timeline' => $statusTimeline->values(),
+            'document_versions' => array_values($documentVersions),
             'current_status' => $customer->status,
             'current_risk_level' => $customer->risk_level,
+            'current_documents' => $allCurrentDocs,
         ]);
     }
 

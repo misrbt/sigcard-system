@@ -1391,12 +1391,29 @@ class AdminController extends Controller
             ])->values()->all();
         }
 
-        $query = Activity::where('subject_type', $modelClass)
-            ->where('subject_id', $subjectId)
-            ->with('causer')
-            ->latest();
+        // For customers, also include document-related activity logs
+        $query = Activity::with('causer')->latest();
 
-        $history = $query->get()->map(function (Activity $entry) use ($currentDocs, $allCurrentDocs, $subjectType) {
+        if ($subjectType === 'customer' && $model) {
+            $documentIds = $model->documents()->pluck('id')->all();
+            $query->where(function ($q) use ($modelClass, $subjectId, $documentIds) {
+                $q->where(function ($q2) use ($modelClass, $subjectId) {
+                    $q2->where('subject_type', $modelClass)
+                        ->where('subject_id', $subjectId);
+                });
+                if (! empty($documentIds)) {
+                    $q->orWhere(function ($q2) use ($documentIds) {
+                        $q2->where('subject_type', CustomerDocument::class)
+                            ->whereIn('subject_id', $documentIds);
+                    });
+                }
+            });
+        } else {
+            $query->where('subject_type', $modelClass)
+                ->where('subject_id', $subjectId);
+        }
+
+        $history = $query->get()->unique('id')->map(function (Activity $entry) use ($currentDocs, $allCurrentDocs, $subjectType) {
             $props = $entry->properties->toArray();
             $meta = collect($props)->except(['old', 'attributes', 'diff'])->all();
             $desc = strtolower($entry->description ?? '');
@@ -1418,6 +1435,18 @@ class AdminController extends Controller
                 }
             }
 
+            // Build diff from multiple formats
+            $diff = $props['diff'] ?? null;
+            if (! $diff && isset($props['old'], $props['attributes'])) {
+                $diff = [];
+                foreach ($props['attributes'] as $key => $newVal) {
+                    $oldVal = $props['old'][$key] ?? null;
+                    if ((string) ($oldVal ?? '') !== (string) ($newVal ?? '')) {
+                        $diff[$key] = ['before' => $oldVal, 'after' => $newVal];
+                    }
+                }
+            }
+
             return [
                 'id' => $entry->id,
                 'event' => $entry->event,
@@ -1426,13 +1455,77 @@ class AdminController extends Controller
                 'causer' => $entry->causer
                     ? ['name' => optional($entry->causer)->full_name, 'email' => optional($entry->causer)->email]
                     : null,
-                'old' => $props['old'] ?? null,
-                'attributes' => $props['attributes'] ?? null,
-                'diff' => $props['diff'] ?? null,
+                'diff' => $diff,
                 'meta' => $meta,
                 'created_at' => $entry->created_at->toIso8601String(),
             ];
-        });
+        })->values();
+
+        // ── Build status timeline & document versions for customer subjects ──
+        $statusTimeline = [];
+        $documentVersions = [];
+
+        if ($subjectType === 'customer' && $model) {
+            // Status timeline
+            $statusTimeline[] = [
+                'status' => 'active',
+                'changed_at' => $model->created_at->toIso8601String(),
+                'changed_by' => null,
+                'label' => 'Account Opened',
+            ];
+
+            $history->sortBy('created_at')->each(function ($entry) use (&$statusTimeline) {
+                $diff = $entry['diff'] ?? [];
+                if (isset($diff['status'])) {
+                    $statusTimeline[] = [
+                        'status' => $diff['status']['after'] ?? null,
+                        'changed_at' => $entry['created_at'],
+                        'changed_by' => $entry['causer']['name'] ?? null,
+                        'label' => 'Status Changed',
+                    ];
+                }
+            });
+
+            $lastStatus = ! empty($statusTimeline) ? end($statusTimeline)['status'] : null;
+            if ($lastStatus !== $model->status) {
+                $statusTimeline[] = [
+                    'status' => $model->status,
+                    'changed_at' => now()->toIso8601String(),
+                    'changed_by' => null,
+                    'label' => 'Current Status',
+                ];
+            }
+
+            // Document version history
+            $docVersionMap = [];
+            $history->each(function ($entry) use (&$docVersionMap) {
+                $meta = $entry['meta'] ?? [];
+                $desc = strtolower($entry['description'] ?? '');
+
+                if (str_contains($desc, 'replaced') && isset($meta['document_type'])) {
+                    $docKey = $meta['document_type'].($meta['person_index'] > 1 ? '_p'.$meta['person_index'] : '');
+
+                    if (! isset($docVersionMap[$docKey])) {
+                        $docVersionMap[$docKey] = [
+                            'document_type' => $meta['document_type'],
+                            'person_index' => $meta['person_index'] ?? 1,
+                            'versions' => [],
+                        ];
+                    }
+
+                    $docVersionMap[$docKey]['versions'][] = [
+                        'archived_file_path' => $meta['archived_file_path'] ?? null,
+                        'replaced_file' => $meta['replaced_file'] ?? null,
+                        'replaced_at' => $entry['created_at'],
+                        'replaced_by' => $entry['causer']['name'] ?? null,
+                        'new_file_name' => $meta['new_file_name'] ?? null,
+                        'current_file_path' => $meta['current_file_path'] ?? null,
+                    ];
+                }
+            });
+
+            $documentVersions = array_values($docVersionMap);
+        }
 
         return response()->json([
             'success' => true,
@@ -1441,6 +1534,11 @@ class AdminController extends Controller
                 'label' => method_exists($model, 'getFullNameAttribute') ? $model->full_name : "#{$subjectId}",
             ] : null,
             'history' => $history,
+            'status_timeline' => $statusTimeline,
+            'document_versions' => $documentVersions,
+            'current_documents' => $allCurrentDocs,
+            'current_status' => $subjectType === 'customer' && $model ? $model->status : null,
+            'current_risk_level' => $subjectType === 'customer' && $model ? $model->risk_level : null,
         ]);
     }
 
