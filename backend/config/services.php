@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'central_auth' => [
+        'url' => env('CENTRAL_AUTH_URL', 'http://127.0.0.1:8001/api'),
+    ],
+
 ];
