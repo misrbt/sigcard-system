@@ -97,27 +97,14 @@ export const AuthProvider = ({ children }) => {
       }
 
       const response = await api.get('/auth/me');
+      const data = response.data.data;
 
-      if (response.data.success) {
-        const userData = response.data.data.user;
-        const userRoles = response.data.data.roles || [];
-        const userPermissions = response.data.data.permissions || [];
-
-        const mappedUser = {
-          ...userData,
-          roles: userRoles.map(r => ({ name: r })),
-          permissions: userPermissions.map(p => ({ name: p })),
-        };
-
-        setUser(mappedUser);
-        setRoles(userRoles instanceof Array ? userRoles : [userRoles]);
-        setPermissions(userPermissions instanceof Array ? userPermissions : []);
-        setIsAuthenticated(true);
-        setSessionExpired(false);
-        localStorage.setItem('user', JSON.stringify(mappedUser));
-      } else {
-        clearAuth();
-      }
+      setUser(data.user);
+      setRoles(data.roles || []);
+      setPermissions(data.permissions || []);
+      setIsAuthenticated(true);
+      setSessionExpired(false);
+      localStorage.setItem('user', JSON.stringify(data.user));
     } catch {
       clearAuth();
     } finally {
@@ -158,28 +145,13 @@ export const AuthProvider = ({ children }) => {
 
   // ── login ───────────────────────────────────────────────────
   const login = async (credentials) => {
-    const response = await api.post('/auth/login', {
-      email: credentials.email,
-      password: credentials.password,
-      device_id: navigator.userAgent,
-    });
-
-    const { token, user: rawUser, roles: userRoles, permissions: userPermissions } = response.data.data;
+    const response = await api.post('/auth/login', credentials);
+    const { token, user: userData } = response.data.data;
 
     localStorage.setItem('authToken', token);
+    localStorage.setItem('user', JSON.stringify(userData));
 
-    const mappedUser = {
-      ...rawUser,
-      roles: (userRoles || []).map(r => ({ name: r })),
-      permissions: (userPermissions || []).map(p => ({ name: p })),
-    };
-    localStorage.setItem('user', JSON.stringify(mappedUser));
-    setUser(mappedUser);
-    setRoles(userRoles instanceof Array ? [...userRoles] : [userRoles]);
-    setPermissions(userPermissions instanceof Array ? [...userPermissions] : []);
-    setIsAuthenticated(true);
-    setSessionExpired(false);
-
+    await fetchUser();
     return response.data;
   };
 
