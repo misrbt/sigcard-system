@@ -22,7 +22,7 @@ Route::get('/test', function () {
 // DIGICUR Authentication Routes
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/register', [AuthController::class, 'register'])->middleware(['auth:sanctum', 'role:admin']);
+    Route::post('/register', [AuthController::class, 'register'])->middleware(['role:admin']);
     Route::post('/verify-2fa', [AuthController::class, 'verifyTwoFactor']);
 
     Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
