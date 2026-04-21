@@ -26,14 +26,16 @@ class ComplianceController extends Controller
     // =============================================
 
     /**
-     * Get dashboard stats (same format as admin dashboard).
+     * Get dashboard stats — identical shape to admin dashboard so BankDashboard renders correctly.
      */
     public function getDashboard(): JsonResponse
     {
         $totalCustomers = Customer::count();
         $totalUsers = User::count();
-        $totalDocuments = \App\Models\CustomerDocument::count();
-        $totalSigcards = \App\Models\CustomerDocument::where('document_type', 'sigcard_front')->count();
+        $totalDocuments = CustomerDocument::count();
+        $totalSigcards = CustomerDocument::where('document_type', 'sigcard_front')->count();
+        $todayUploads = Customer::whereDate('created_at', today())->count();
+        $totalBranches = \App\Models\Branch::where('branch_name', '!=', 'Head Office')->count();
 
         $byStatus = Customer::select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
@@ -47,28 +49,61 @@ class ComplianceController extends Controller
             ->groupBy('risk_level')
             ->pluck('count', 'risk_level');
 
+        // Sigcard counts per branch (keyed by branch_id)
+        $sigcardCounts = CustomerDocument::where('document_type', 'sigcard_front')
+            ->join('customers', 'customer_documents.customer_id', '=', 'customers.id')
+            ->select('customers.branch_id', DB::raw('count(*) as count'))
+            ->groupBy('customers.branch_id')
+            ->pluck('count', 'branch_id');
+
+        // Document counts per branch (keyed by branch_id)
+        $documentCounts = CustomerDocument::join('customers', 'customer_documents.customer_id', '=', 'customers.id')
+            ->select('customers.branch_id', DB::raw('count(*) as count'))
+            ->groupBy('customers.branch_id')
+            ->pluck('count', 'branch_id');
+
+        // Account type counts per branch
+        $accountTypeCounts = Customer::select('branch_id', 'account_type', DB::raw('count(*) as count'))
+            ->groupBy('branch_id', 'account_type')
+            ->get()
+            ->groupBy('branch_id')
+            ->map(fn ($items) => $items->pluck('count', 'account_type'));
+
+        // Risk level counts per branch
+        $riskLevelCounts = Customer::select('branch_id', 'risk_level', DB::raw('count(*) as count'))
+            ->groupBy('branch_id', 'risk_level')
+            ->get()
+            ->groupBy('branch_id')
+            ->map(fn ($items) => $items->pluck('count', 'risk_level'));
+
         $branches = \App\Models\Branch::withCount('customers')
             ->with(['customers' => fn ($q) => $q->select('id', 'branch_id', 'status')])
             ->orderBy('brcode')
             ->get()
-            ->map(fn (\App\Models\Branch $branch) => [
-                'branch_name' => $branch->branch_name,
-                'brak' => $branch->brak,
-                'brcode' => $branch->brcode,
-                'total' => $branch->customers_count,
-                'active' => $branch->customers->where('status', 'active')->count(),
-                'dormant' => $branch->customers->where('status', 'dormant')->count(),
-                'escheat' => $branch->customers->where('status', 'escheat')->count(),
-                'closed' => $branch->customers->where('status', 'closed')->count(),
-            ]);
+            ->map(function (\App\Models\Branch $branch) use ($sigcardCounts, $documentCounts, $accountTypeCounts, $riskLevelCounts) {
+                $statusCounts = $branch->customers->countBy('status');
+                $branchAccountTypes = $accountTypeCounts->get($branch->id, collect());
+                $branchRiskLevels = $riskLevelCounts->get($branch->id, collect());
 
-        $sigcardsByBranch = \App\Models\CustomerDocument::where('document_type', 'sigcard_front')
-            ->join('customers', 'customer_documents.customer_id', '=', 'customers.id')
-            ->join('branches', 'customers.branch_id', '=', 'branches.id')
-            ->select('branches.branch_name', 'branches.brak', DB::raw('count(*) as count'))
-            ->groupBy('branches.id', 'branches.branch_name', 'branches.brak')
-            ->orderBy('count', 'desc')
-            ->get();
+                return [
+                    'branch_name' => $branch->branch_name,
+                    'brak' => $branch->brak,
+                    'brcode' => $branch->brcode,
+                    'total' => $branch->customers_count,
+                    'active' => $statusCounts->get('active', 0),
+                    'dormant' => $statusCounts->get('dormant', 0),
+                    'escheat' => $statusCounts->get('escheat', 0),
+                    'closed' => $statusCounts->get('closed', 0),
+                    'sigcards' => $sigcardCounts->get($branch->id, 0),
+                    'documents' => $documentCounts->get($branch->id, 0),
+                    'individual' => $branchAccountTypes->get('Regular', 0),
+                    'joint' => $branchAccountTypes->get('Joint', 0),
+                    'corporate' => $branchAccountTypes->get('Corporate', 0),
+                    'low_risk' => $branchRiskLevels->get('Low Risk', 0),
+                    'medium_risk' => $branchRiskLevels->get('Medium Risk', 0),
+                    'high_risk' => $branchRiskLevels->get('High Risk', 0),
+                ];
+            });
 
         $monthlyUploads = Customer::select(
             DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
@@ -89,7 +124,7 @@ class ComplianceController extends Controller
 
         $recentUploads = Customer::with(['branch', 'uploader'])
             ->latest()
-            ->limit(8)
+            ->limit(10)
             ->get()
             ->map(fn (Customer $c) => [
                 'id' => $c->id,
@@ -107,6 +142,8 @@ class ComplianceController extends Controller
                 'total_users' => $totalUsers,
                 'total_documents' => $totalDocuments,
                 'total_sigcards' => $totalSigcards,
+                'today_uploads' => $todayUploads,
+                'total_branches' => $totalBranches,
                 'active' => $byStatus->get('active', 0),
                 'dormant' => $byStatus->get('dormant', 0),
                 'escheat' => $byStatus->get('escheat', 0),
@@ -116,7 +153,6 @@ class ComplianceController extends Controller
             'by_account_type' => $byAccountType,
             'by_risk_level' => $byRiskLevel,
             'by_branch' => $branches,
-            'sigcards_by_branch' => $sigcardsByBranch,
             'monthly_uploads' => $months,
             'recent_uploads' => $recentUploads,
         ]);

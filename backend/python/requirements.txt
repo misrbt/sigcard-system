@@ -1,0 +1,6 @@
+opencv-python-headless>=4.8.0
+Pillow>=9.0.0
+numpy>=1.21.0
+fingerprint-enhancer>=0.0.6
+scikit-image>=0.21.0
+scipy>=1.11.0

@@ -16,10 +16,13 @@ export const adminService = {
 
   // Roles
   getRoles: () => api.get('/admin/roles'),
+  createRole: (data) => api.post('/admin/roles', data),
   updateRole: (id, data) => api.put(`/admin/roles/${id}`, data),
+  deleteRole: (id) => api.delete(`/admin/roles/${id}`),
 
   // Permissions
   getPermissions: () => api.get('/admin/permissions'),
+  createPermission: (data) => api.post('/admin/permissions', data),
 
   // Audit
   getAuditLogs: (params = {}) => api.get('/admin/audit-logs', { params }),

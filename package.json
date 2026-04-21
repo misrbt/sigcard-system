@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "npx concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"backend,frontend\" --prefix-colors \"blue,green\"",
-    "dev:backend": "cd backend && php artisan serve",
+    "dev:backend": "cd backend && php artisan serve --port=8010",
     "dev:frontend": "cd frontend && npm run dev",
     "build": "npm run build:frontend",
     "build:frontend": "cd frontend && npm run build",
