@@ -364,9 +364,11 @@ const UploadSigcard = () => {
   const [itfFiles,           setItfFiles]           = useState(initialItfFiles);
   const [additionalPersons,  setAdditionalPersons]  = useState([]);
   const [additionalAccounts, setAdditionalAccounts] = useState([]);
-  const [corpSigFronts,      setCorpSigFronts]      = useState([null]);
-  const [corpSigBacks,       setCorpSigBacks]        = useState([null, null]);
-  const [isSubmitting,       setIsSubmitting]       = useState(false);
+  const [corpSigFronts,        setCorpSigFronts]        = useState([null]);
+  const [corpSigBacks,         setCorpSigBacks]          = useState([null, null]);
+  const [hasSecondJointFront,  setHasSecondJointFront]   = useState(false);
+  const [secondJointFront,     setSecondJointFront]      = useState(null);
+  const [isSubmitting,         setIsSubmitting]         = useState(false);
   const [uploadProgress,     setUploadProgress]     = useState(0);
   const [submitPhase,        setSubmitPhase]        = useState("idle");
 
@@ -410,6 +412,8 @@ const UploadSigcard = () => {
       setAdditionalPersons((prev) => (prev.length >= 1 ? prev : [emptyPerson()]));
       setAdditionalAccounts([]);
     }
+    setHasSecondJointFront(false);
+    setSecondJointFront(null);
   }, [formData.jointSubType]);
 
   // Sync persons/accounts when account type changes
@@ -552,6 +556,8 @@ const UploadSigcard = () => {
     setAdditionalAccounts([]);
     setCorpSigFronts([null]);
     setCorpSigBacks([null, null]);
+    setHasSecondJointFront(false);
+    setSecondJointFront(null);
   };
 
   const handleSubmit = async () => {
@@ -565,6 +571,11 @@ const UploadSigcard = () => {
       let compressedItf = null;
       let compressedCorpFronts = [];
       let compressedCorpBacks = [];
+      let compressedSecondJointFront = null;
+
+      if (hasSecondJointFront && secondJointFront && (isITF || isNonITF)) {
+        compressedSecondJointFront = await compressImage(secondJointFront);
+      }
 
       if (isITF) {
         // Compress ITF files (shared front/back pairs for all doc types)
@@ -645,6 +656,13 @@ const UploadSigcard = () => {
 
         // ITF other docs: single shared section → otherDocs[1][]
         compressedItf.otherDocs[0].forEach((f) => fd.append(`otherDocs[1][]`, f));
+
+        // Second joint sigcard front (optional)
+        if (compressedSecondJointFront) {
+          const nextIdx = compressedItf.sigcard.length;
+          fd.append(`sigcardPairs[${nextIdx}][front]`, compressedSecondJointFront);
+          fd.append(`sigcardPairs[${nextIdx}][person_index]`, 2);
+        }
       } else {
         // Non-ITF / Regular / Corporate
         if (isNonITF || isCorporate) {
@@ -701,6 +719,11 @@ const UploadSigcard = () => {
               if (pair.front) fd.append(`${key}[${i}][front]`, pair.front);
               if (pair.back)  fd.append(`${key}[${i}][back]`,  pair.back);
             });
+          }
+          // Second joint sigcard front (optional, Non-ITF only)
+          if (isNonITF && compressedSecondJointFront) {
+            const nextIdx = compressedPairs.sigcardPairs.length;
+            fd.append(`sigcardPairs[${nextIdx}][front]`, compressedSecondJointFront);
           }
           compressedOtherSections.forEach((section, i) => {
             section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f));
@@ -1201,6 +1224,32 @@ const UploadSigcard = () => {
                 <HiOutlinePlus className="w-3.5 h-3.5" />
                 Add Another Sigcard
               </button>
+
+              {/* Second sigcard front prompt */}
+              {!hasSecondJointFront ? (
+                <button type="button"
+                  onClick={() => setHasSecondJointFront(true)}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-3 text-xs font-semibold text-indigo-600 border-2 border-dashed border-indigo-300 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all">
+                  <HiOutlinePlus className="w-3.5 h-3.5" />
+                  Does this joint account have a second signature card front?
+                </button>
+              ) : (
+                <div className="space-y-3 rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-indigo-700">Second Signature Card Front</p>
+                    <button type="button"
+                      onClick={() => { setHasSecondJointFront(false); setSecondJointFront(null); }}
+                      className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                      <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                    </button>
+                  </div>
+                  <DropZone
+                    label="Sigcard Front 2"
+                    file={secondJointFront}
+                    onSelect={(f) => setSecondJointFront(f[0])}
+                  />
+                </div>
+              )}
             </div>
           );
         }
@@ -1219,6 +1268,32 @@ const UploadSigcard = () => {
                 file={files.sigcardPairs[0]?.front}
                 onSelect={(f) => setPairFile("sigcardPairs", 0, "front", f)}
               />
+
+              {/* Second sigcard front prompt */}
+              {!hasSecondJointFront ? (
+                <button type="button"
+                  onClick={() => setHasSecondJointFront(true)}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-3 text-xs font-semibold text-indigo-600 border-2 border-dashed border-indigo-300 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all">
+                  <HiOutlinePlus className="w-3.5 h-3.5" />
+                  Does this joint account have a second signature card front?
+                </button>
+              ) : (
+                <div className="space-y-3 rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-indigo-700">Second Signature Card Front</p>
+                    <button type="button"
+                      onClick={() => { setHasSecondJointFront(false); setSecondJointFront(null); }}
+                      className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                      <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                    </button>
+                  </div>
+                  <DropZone
+                    label="Sigcard Front 2"
+                    file={secondJointFront}
+                    onSelect={(f) => setSecondJointFront(f[0])}
+                  />
+                </div>
+              )}
 
               {/* Sigcard Back — one per person in 2-col grid */}
               <div className="space-y-3">
