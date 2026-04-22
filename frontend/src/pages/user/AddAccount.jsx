@@ -59,8 +59,17 @@ const steps = [
   { key: "otherDocs",   title: "Other Docs (Optional)" },
 ];
 
+const jointSteps = [
+  { key: "holderInfo", title: "Holder Info"           },
+  { key: "sigcard",    title: "Sigcard Upload"         },
+  { key: "nais",       title: "NAIS (Optional)"        },
+  { key: "privacy",    title: "Data Privacy"           },
+  { key: "otherDocs",  title: "Other Docs (Optional)"  },
+];
+
 const stepDescriptions = {
   accountInfo: "Enter the account number, risk level, and date opened for the new account.",
+  holderInfo:  "Enter the name and risk level for the new joint account holder.",
   sigcard:     "Upload front and back images of the signature card.",
   nais:        "Upload NAIS document images — optional, you may skip.",
   privacy:     "Upload the signed data privacy consent form.",
@@ -217,6 +226,7 @@ const AddAccount = () => {
   const [customer,       setCustomer]       = useState(null);
   const [step,           setStep]           = useState(0);
   const [accountInfo,    setAccountInfo]    = useState({ accountNo: "", riskLevel: "", dateOpened: "", dateUpdated: "", status: "active" });
+  const [holderInfo,     setHolderInfo]     = useState({ firstname: "", middlename: "", lastname: "", suffix: "", riskLevel: "", accountNo: "", dateOpened: "", status: "active" });
   const [sigcardPair,    setSigcardPair]    = useState(emptyPair());
   const [naisPair,       setNaisPair]       = useState(emptyPair());
   const [privacyPair,    setPrivacyPair]    = useState(emptyPair());
@@ -224,6 +234,9 @@ const AddAccount = () => {
   const [isSubmitting,   setIsSubmitting]   = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [submitPhase,    setSubmitPhase]    = useState("idle");
+
+  const isJoint = customer?.account_type === "Joint";
+  const activeSteps = isJoint ? jointSteps : steps;
 
   // Determine back URL from current path prefix
   const backUrl = useMemo(() => {
@@ -236,17 +249,19 @@ const AddAccount = () => {
   }, [id]);
 
   const isStepValid = useMemo(() => {
-    switch (steps[step].key) {
+    const key = activeSteps[step]?.key;
+    switch (key) {
       case "accountInfo": return !!accountInfo.riskLevel && !!accountInfo.status;
+      case "holderInfo":  return !!holderInfo.firstname.trim() && !!holderInfo.lastname.trim() && !!holderInfo.riskLevel;
       case "sigcard":     return !!(sigcardPair.front && sigcardPair.back);
       case "nais":        return true;
       case "privacy":     return !!(privacyPair.front && privacyPair.back);
       case "otherDocs":   return true;
       default:            return false;
     }
-  }, [step, accountInfo, sigcardPair, naisPair, privacyPair]);
+  }, [step, activeSteps, accountInfo, holderInfo, sigcardPair, naisPair, privacyPair]);
 
-  const handleNext = () => { if (isStepValid) setStep((s) => Math.min(s + 1, steps.length - 1)); };
+  const handleNext = () => { if (isStepValid) setStep((s) => Math.min(s + 1, activeSteps.length - 1)); };
   const handlePrev = () => {
     if (step === 0) navigate(backUrl);
     else setStep((s) => s - 1);
@@ -270,11 +285,22 @@ const AddAccount = () => {
       const compressedOther = await Promise.all(otherDocs.map((f) => compressImage(f)));
 
       const fd = new FormData();
-      fd.append("risk_level",  accountInfo.riskLevel);
-      fd.append("status",      accountInfo.status || "active");
-      fd.append("account_no",  accountInfo.accountNo);
-      fd.append("date_opened", accountInfo.dateOpened);
-      if (accountInfo.dateUpdated) fd.append("date_updated", accountInfo.dateUpdated);
+      if (isJoint) {
+        fd.append("firstname",  holderInfo.firstname.trim());
+        fd.append("middlename", holderInfo.middlename.trim());
+        fd.append("lastname",   holderInfo.lastname.trim());
+        fd.append("suffix",     holderInfo.suffix.trim());
+        fd.append("risk_level", holderInfo.riskLevel);
+        fd.append("status",     holderInfo.status || "active");
+        fd.append("account_no", holderInfo.accountNo);
+        fd.append("date_opened", holderInfo.dateOpened);
+      } else {
+        fd.append("risk_level",  accountInfo.riskLevel);
+        fd.append("status",      accountInfo.status || "active");
+        fd.append("account_no",  accountInfo.accountNo);
+        fd.append("date_opened", accountInfo.dateOpened);
+        if (accountInfo.dateUpdated) fd.append("date_updated", accountInfo.dateUpdated);
+      }
 
       if (cSigFront)  fd.append("sigcardPairs[0][front]", cSigFront);
       if (cSigBack)   fd.append("sigcardPairs[0][back]",  cSigBack);
@@ -309,7 +335,68 @@ const AddAccount = () => {
 
   // ── Step content ─────────────────────────────────────────────────────────────
   const renderStep = () => {
-    switch (steps[step].key) {
+    const key = activeSteps[step]?.key;
+    switch (key) {
+
+      case "holderInfo":
+        return (
+          <div className="space-y-6">
+            {customer?.joint_sub_type && (
+              <div className="px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700 font-medium">
+                Joint Sub-type: <span className="font-bold">{customer.joint_sub_type}</span>
+                {customer.joint_sub_type === "ITF"
+                  ? " — All documents are shared across all holders."
+                  : " — Sigcard and NAIS are per-holder; Data Privacy is shared."}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">
+                  First Name <span className="text-red-500">*</span>
+                </label>
+                <input type="text" value={holderInfo.firstname}
+                  onChange={(e) => setHolderInfo((p) => ({ ...p, firstname: e.target.value }))}
+                  placeholder="First name" maxLength={100} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">Middle Name</label>
+                <input type="text" value={holderInfo.middlename}
+                  onChange={(e) => setHolderInfo((p) => ({ ...p, middlename: e.target.value }))}
+                  placeholder="Middle name" maxLength={100} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Last Name <span className="text-red-500">*</span>
+                </label>
+                <input type="text" value={holderInfo.lastname}
+                  onChange={(e) => setHolderInfo((p) => ({ ...p, lastname: e.target.value }))}
+                  placeholder="Last name" maxLength={100} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">Suffix</label>
+                <input type="text" value={holderInfo.suffix}
+                  onChange={(e) => setHolderInfo((p) => ({ ...p, suffix: e.target.value }))}
+                  placeholder="e.g. Jr., Sr." maxLength={20} className={inputCls} />
+              </div>
+            </div>
+            <RiskLevelPicker value={holderInfo.riskLevel} onChange={(v) => setHolderInfo((p) => ({ ...p, riskLevel: v }))} />
+            <StatusPicker value={holderInfo.status} onChange={(v) => setHolderInfo((p) => ({ ...p, status: v }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">Account No.</label>
+                <input type="text" value={holderInfo.accountNo}
+                  onChange={(e) => setHolderInfo((p) => ({ ...p, accountNo: e.target.value }))}
+                  placeholder="e.g. 1234-5678-9012" maxLength={100} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">Date Opened</label>
+                <input type="date" value={holderInfo.dateOpened}
+                  onChange={(e) => setHolderInfo((p) => ({ ...p, dateOpened: e.target.value }))}
+                  className={inputCls} />
+              </div>
+            </div>
+          </div>
+        );
 
       case "accountInfo":
         return (
@@ -400,7 +487,7 @@ const AddAccount = () => {
     }
   };
 
-  const progress = Math.round(((step + 1) / steps.length) * 100);
+  const progress = Math.round(((step + 1) / activeSteps.length) * 100);
 
   const customerName = customer
     ? customer.account_type === "Corporate"
@@ -430,7 +517,7 @@ const AddAccount = () => {
 
           {/* Step pills */}
           <div className="flex flex-wrap items-center gap-2">
-            {steps.map((s, i) => {
+            {activeSteps.map((s, i) => {
               const isDone    = i < step;
               const isCurrent = i === step;
               return (
@@ -442,7 +529,7 @@ const AddAccount = () => {
                     {isDone ? <HiOutlineCheckCircle className="w-3.5 h-3.5" /> : <span>{i + 1}</span>}
                     <span className="hidden sm:inline">{s.title}</span>
                   </div>
-                  {i < steps.length - 1 && <div className={`w-4 h-px flex-shrink-0 ${i < step ? "bg-green-300" : "bg-slate-200"}`} />}
+                  {i < activeSteps.length - 1 && <div className={`w-4 h-px flex-shrink-0 ${i < step ? "bg-green-300" : "bg-slate-200"}`} />}
                 </div>
               );
             })}
@@ -463,10 +550,10 @@ const AddAccount = () => {
                   {step + 1}
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-800">{steps[step].title}</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">{stepDescriptions[steps[step].key]}</p>
+                  <h2 className="text-lg font-bold text-slate-800">{activeSteps[step].title}</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">{stepDescriptions[activeSteps[step].key]}</p>
                 </div>
-                <div className="ml-auto text-xs text-slate-400 font-medium">Step {step + 1} of {steps.length}</div>
+                <div className="ml-auto text-xs text-slate-400 font-medium">Step {step + 1} of {activeSteps.length}</div>
               </div>
             </div>
 
@@ -483,7 +570,7 @@ const AddAccount = () => {
                 {step === 0 ? "Cancel" : "Previous"}
               </button>
 
-              {step === steps.length - 1 ? (
+              {step === activeSteps.length - 1 ? (
                 <div className="flex flex-col items-end gap-2">
                   {isSubmitting && (
                     <div className="w-56">

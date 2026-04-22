@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Drivers\Gd\Driver;
@@ -179,7 +180,7 @@ class CustomerController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            \Log::error('Customer creation failed', [
+            Log::error('Customer creation failed', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
@@ -187,8 +188,7 @@ class CustomerController extends Controller
             ]);
 
             return response()->json([
-                'message' => 'Error creating customer.',
-                'error' => $e->getMessage(),
+                'message' => 'Unable to save the customer record. Please check your entries and try again. If the problem continues, contact your system administrator.',
             ], 500);
         }
     }
@@ -313,8 +313,7 @@ class CustomerController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Error updating customer.',
-                'error' => $e->getMessage(),
+                'message' => 'Unable to update the customer record. Please try again. If the problem continues, contact your system administrator.',
             ], 500);
         }
     }
@@ -352,8 +351,7 @@ class CustomerController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Error deleting customer.',
-                'error' => $e->getMessage(),
+                'message' => 'Unable to delete the customer record. Please try again. If the problem continues, contact your system administrator.',
             ], 500);
         }
     }
@@ -526,7 +524,7 @@ class CustomerController extends Controller
     public function deleteDocument(Customer $customer, CustomerDocument $document): JsonResponse
     {
         if ($document->customer_id !== $customer->id) {
-            return response()->json(['message' => 'Document does not belong to this customer.'], 403);
+            return response()->json(['message' => 'This document is not associated with the selected customer. Please refresh the page and try again.'], 403);
         }
 
         $documentType = $document->document_type;
@@ -614,8 +612,7 @@ class CustomerController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error replacing document.',
-                'error' => $e->getMessage(),
+                'message' => 'Unable to replace the document. Please check the file and try again. If the problem continues, contact your system administrator.',
             ], 500);
         }
     }
@@ -625,17 +622,43 @@ class CustomerController extends Controller
         try {
             DB::beginTransaction();
 
-            // Next person_index: primary=1, additionalAccounts[0]=2, so next = count+2
-            $personIndex = $customer->accounts()->count() + 2;
+            $isJoint = $customer->account_type === 'Joint';
 
-            CustomerAccount::create([
-                'customer_id' => $customer->id,
-                'account_no' => $request->account_no ?: null,
-                'risk_level' => $request->risk_level,
-                'date_opened' => $request->date_opened ?: null,
-                'date_updated' => $request->date_updated ?: null,
-                'status' => $request->status ?? 'active',
-            ]);
+            if ($isJoint) {
+                // Add a new holder; person_index starts at 2 (primary is 1)
+                $personIndex = $customer->holders()->count() + 2;
+
+                CustomerHolder::create([
+                    'customer_id' => $customer->id,
+                    'person_index' => $personIndex,
+                    'firstname' => $request->firstname,
+                    'middlename' => $request->middlename,
+                    'lastname' => $request->lastname,
+                    'suffix' => $request->suffix,
+                    'risk_level' => $request->risk_level,
+                ]);
+
+                CustomerAccount::create([
+                    'customer_id' => $customer->id,
+                    'account_no' => $request->account_no ?: null,
+                    'risk_level' => $request->risk_level,
+                    'date_opened' => $request->date_opened ?: null,
+                    'date_updated' => $request->date_updated ?: null,
+                    'status' => $request->status ?? 'active',
+                ]);
+            } else {
+                // Next person_index: primary=1, additionalAccounts[0]=2, so next = count+2
+                $personIndex = $customer->accounts()->count() + 2;
+
+                CustomerAccount::create([
+                    'customer_id' => $customer->id,
+                    'account_no' => $request->account_no ?: null,
+                    'risk_level' => $request->risk_level,
+                    'date_opened' => $request->date_opened ?: null,
+                    'date_updated' => $request->date_updated ?: null,
+                    'status' => $request->status ?? 'active',
+                ]);
+            }
 
             // Store sigcard pair
             foreach ($request->file('sigcardPairs', []) as $pair) {
@@ -674,19 +697,22 @@ class CustomerController extends Controller
 
             DB::commit();
 
+            $logMessage = $isJoint ? 'Additional holder added to joint account' : 'Additional account added to customer';
+
             activity()
                 ->causedBy(Auth::user())
                 ->performedOn($customer)
-                ->withProperties([
-                    'action' => 'account_added',
+                ->withProperties(array_filter([
+                    'action' => $isJoint ? 'holder_added' : 'account_added',
                     'full_name' => $customer->full_name,
+                    'holder_name' => $isJoint ? trim("{$request->firstname} {$request->lastname}") : null,
                     'account_no' => $request->account_no,
                     'person_index' => $personIndex,
-                ])
-                ->log('Additional account added to customer');
+                ]))
+                ->log($logMessage);
 
             return response()->json([
-                'message' => 'Account added successfully.',
+                'message' => $isJoint ? 'Holder added successfully.' : 'Account added successfully.',
                 'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
             ], 201);
 
@@ -694,8 +720,7 @@ class CustomerController extends Controller
             DB::rollBack();
 
             return response()->json([
-                'message' => 'Error adding account.',
-                'error' => $e->getMessage(),
+                'message' => 'Unable to add the account. Please check your entries and try again. If the problem continues, contact your system administrator.',
             ], 500);
         }
     }
@@ -822,7 +847,7 @@ class CustomerController extends Controller
             try {
                 $this->thumbmarkService->enrollDocument($document);
             } catch (\Exception $e) {
-                \Log::warning('Auto-enroll thumbmark failed for doc #'.$document->id.': '.$e->getMessage());
+                Log::warning('Auto-enroll thumbmark failed for doc #'.$document->id.': '.$e->getMessage());
             }
         }
 
