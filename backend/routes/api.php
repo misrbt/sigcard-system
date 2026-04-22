@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CashierController;
 use App\Http\Controllers\Api\ComplianceController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\ManagerController;
+use App\Http\Controllers\Api\ThumbmarkSearchController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,7 +22,7 @@ Route::get('/test', function () {
 // DIGICUR Authentication Routes
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/register', [AuthController::class, 'register'])->middleware(['auth:sanctum', 'role:admin']);
+    Route::post('/register', [AuthController::class, 'register'])->middleware(['role:admin']);
     Route::post('/verify-2fa', [AuthController::class, 'verifyTwoFactor']);
 
     Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
@@ -147,6 +148,10 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/reports', [UserController::class, 'getReports']);
         Route::post('/reports/generate', [UserController::class, 'generateReport']);
     });
+
+    // Thumbmark Search — all authenticated roles
+    Route::post('/search/thumbmark', [ThumbmarkSearchController::class, 'search'])
+        ->middleware(['role:user,manager,admin,cashier,compliance-audit']);
 
     // Customer read routes — compliance-audit sees all; others are branch-restricted in controller
     Route::middleware(['role:user,manager,admin,cashier,compliance-audit'])->prefix('customers')->group(function () {

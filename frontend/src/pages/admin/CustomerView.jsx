@@ -19,6 +19,7 @@ import {
   HiOutlineZoomIn,
   HiOutlineZoomOut,
 } from "react-icons/hi";
+import { MdFingerprint } from "react-icons/md";
 import api from "../../services/api";
 
 const storageUrl = (path) => {
@@ -1191,17 +1192,25 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
                                     <div key={lbl}>
                                       <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
                                       {doc ? (
-                                        <button
-                                          onClick={() => openViewerByPath(doc.file_path)}
-                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-[#1877F2] transition-all bg-slate-50 shadow-sm"
-                                        >
-                                          <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
-                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                        <>
+                                          <button
+                                            onClick={() => openViewerByPath(doc.file_path)}
+                                            className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-[#1877F2] transition-all bg-slate-50 shadow-sm"
+                                          >
+                                            <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                              <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                                <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                              </div>
                                             </div>
-                                          </div>
-                                        </button>
+                                          </button>
+                                          {doc.document_type === "sigcard_front" && doc.has_thumbmark === false && (
+                                            <div className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
+                                              <MdFingerprint className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                              <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">No thumbmark</span>
+                                            </div>
+                                          )}
+                                        </>
                                       ) : (
                                         <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
                                           <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
@@ -1234,17 +1243,25 @@ const AdminCustomerView = ({ basePath = '/admin' }) => {
                                   <div key={lbl}>
                                     <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
                                     {doc ? (
-                                      <button
-                                        onClick={() => openViewer(type, p)}
-                                        className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-[#1877F2] transition-all bg-slate-50 shadow-sm"
-                                      >
-                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                          <div className="bg-white/90 rounded-full p-1.5 shadow">
-                                            <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                      <>
+                                        <button
+                                          onClick={() => openViewer(type, p)}
+                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-[#1877F2] transition-all bg-slate-50 shadow-sm"
+                                        >
+                                          <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                            </div>
                                           </div>
-                                        </div>
-                                      </button>
+                                        </button>
+                                        {type === "sigcard_front" && doc.has_thumbmark === false && (
+                                          <div className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
+                                            <MdFingerprint className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                            <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">No thumbmark</span>
+                                          </div>
+                                        )}
+                                      </>
                                     ) : (
                                       <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
                                         <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />

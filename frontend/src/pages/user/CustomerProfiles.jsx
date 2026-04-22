@@ -21,8 +21,10 @@ import {
   HiOutlineCalendar,
   HiOutlinePhotograph,
 } from "react-icons/hi";
+import { MdFingerprint } from "react-icons/md";
 import Swal from "sweetalert2";
 import api from "../../services/api";
+import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
 
 const PAGE_SIZE = 10;
 
@@ -1230,6 +1232,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [selectedCustomer, setSelectedCustomer]   = useState(null);
   const [showDropdown, setShowDropdown]           = useState(false);
   const searchContainerRef                        = useRef(null);
+  const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
 
   // ── Fetch branch + children for branch filter (manager & cashier) ─────────
   useEffect(() => {
@@ -1658,9 +1661,18 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
               <div className="max-w-2xl mx-auto">
 
                 {/* Label */}
-                <div className="flex items-center gap-2 mb-3">
-                  <HiOutlineSearch className="w-4 h-4 text-slate-400" />
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Live Customer Search</p>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <HiOutlineSearch className="w-4 h-4 text-slate-400" />
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Live Customer Search</p>
+                  </div>
+                  <button
+                    onClick={() => setShowThumbmarkSearch(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#053161] to-[#1877F2] text-white text-xs font-semibold shadow hover:opacity-90 transition-all"
+                  >
+                    <MdFingerprint className="w-4 h-4" />
+                    Search by Thumbmark
+                  </button>
                 </div>
 
                 {/* Input + dropdown wrapper */}
@@ -1786,6 +1798,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
         )}
 
       </main>
+
+      <ThumbmarkSearchModal
+        isOpen={showThumbmarkSearch}
+        onClose={() => setShowThumbmarkSearch(false)}
+      />
     </div>
   );
 };

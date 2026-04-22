@@ -17,7 +17,9 @@ import {
   HiOutlineCalendar,
   HiOutlinePhotograph,
 } from "react-icons/hi";
+import { MdFingerprint } from "react-icons/md";
 import api from "../../services/api";
+import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
 
 const PAGE_SIZE = 15;
 
@@ -564,6 +566,7 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
   const [quickSelected, setQuickSelected] = useState(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const searchContainerRef              = useRef(null);
+  const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
 
   // Load branch list once
   useEffect(() => {
@@ -866,9 +869,18 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
         <>
         <div className="rounded-3xl border border-slate-200 bg-white shadow-xl p-6">
           <div className="max-w-2xl mx-auto">
-            <div className="flex items-center gap-2 mb-3">
-              <HiOutlineSearch className="w-4 h-4 text-slate-400" />
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Live Customer Search — All Branches</p>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <HiOutlineSearch className="w-4 h-4 text-slate-400" />
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Live Customer Search — All Branches</p>
+              </div>
+              <button
+                onClick={() => setShowThumbmarkSearch(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#053161] to-[#1877F2] text-white text-xs font-semibold shadow hover:opacity-90 transition-all"
+              >
+                <MdFingerprint className="w-4 h-4" />
+                Search by Thumbmark
+              </button>
             </div>
 
             <div className="relative" ref={searchContainerRef}>
@@ -988,6 +1000,11 @@ const AdminCustomerProfiles = ({ basePath = '/admin' }) => {
         </AnimatePresence>
         </>
       )}
+
+      <ThumbmarkSearchModal
+        isOpen={showThumbmarkSearch}
+        onClose={() => setShowThumbmarkSearch(false)}
+      />
     </div>
   );
 };

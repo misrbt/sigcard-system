@@ -10,6 +10,7 @@ use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDocument;
 use App\Models\CustomerHolder;
+use App\Services\ThumbmarkSearchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -22,6 +23,8 @@ use Intervention\Image\ImageManager;
 
 class CustomerController extends Controller
 {
+    public function __construct(private readonly ThumbmarkSearchService $thumbmarkService) {}
+
     public function index(Request $request): JsonResponse
     {
         $query = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts']);
@@ -802,7 +805,7 @@ class CustomerController extends Controller
 
         Storage::disk('public')->put($path, (string) $encoded);
 
-        return CustomerDocument::create([
+        $document = CustomerDocument::create([
             'customer_id' => $customer->id,
             'document_type' => $documentType,
             'person_index' => $personIndex,
@@ -811,6 +814,19 @@ class CustomerController extends Controller
             'file_size' => strlen((string) $encoded),
             'mime_type' => 'image/jpeg',
         ]);
+
+        // Auto-enroll sigcard_front images for thumbmark search.
+        // Runs outside the DB transaction (called after commit in store/update).
+        // Wrapped in try/catch so a Python failure never breaks document upload.
+        if ($documentType === 'sigcard_front') {
+            try {
+                $this->thumbmarkService->enrollDocument($document);
+            } catch (\Exception $e) {
+                \Log::warning('Auto-enroll thumbmark failed for doc #'.$document->id.': '.$e->getMessage());
+            }
+        }
+
+        return $document;
     }
 
     /**

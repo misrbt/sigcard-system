@@ -37,9 +37,10 @@ const RISK_COLORS = {
 };
 
 const ACCT_COLORS = {
-  Regular:   { bar: 'bg-blue-500',   text: 'text-blue-700',   bg: 'bg-blue-50'   },
-  Joint:     { bar: 'bg-purple-500', text: 'text-purple-700', bg: 'bg-purple-50' },
-  Corporate: { bar: 'bg-slate-500',  text: 'text-slate-700',  bg: 'bg-slate-100' },
+  Individual: { bar: 'bg-blue-500',   text: 'text-blue-700',   bg: 'bg-blue-50'   },
+  Regular:    { bar: 'bg-blue-500',   text: 'text-blue-700',   bg: 'bg-blue-50'   },
+  Joint:      { bar: 'bg-purple-500', text: 'text-purple-700', bg: 'bg-purple-50' },
+  Corporate:  { bar: 'bg-slate-500',  text: 'text-slate-700',  bg: 'bg-slate-100' },
 };
 
 // ── Card wrapper ───────────────────────────────────────────────────────────────

@@ -19,15 +19,22 @@ class CustomerDocument extends Model
         'file_name',
         'file_size',
         'mime_type',
+        'fingerprint_template',
     ];
+
+    // Never expose the raw template in API responses — it's large and internal.
+    protected $hidden = ['fingerprint_template'];
+
+    // Append has_thumbmark so the frontend knows whether a sigcard_front has an enrolled thumbmark.
+    protected $appends = ['has_thumbmark'];
 
     protected function casts(): array
     {
         return [
             'person_index' => 'integer',
-            'file_size'    => 'integer',
-            'created_at'   => 'datetime',
-            'updated_at'   => 'datetime',
+            'file_size' => 'integer',
+            'created_at' => 'datetime',
+            'updated_at' => 'datetime',
         ];
     }
 
@@ -54,7 +61,20 @@ class CustomerDocument extends Model
 
     public function getFileUrlAttribute(): string
     {
-        return url('storage/' . $this->file_path);
+        return url('storage/'.$this->file_path);
+    }
+
+    /**
+     * Returns true if a thumbmark template has been enrolled for this sigcard_front,
+     * false if the sigcard only has a signature (no thumbmark), null for non-sigcard_front docs.
+     */
+    public function getHasThumbmarkAttribute(): ?bool
+    {
+        if ($this->document_type !== 'sigcard_front') {
+            return null;
+        }
+
+        return $this->fingerprint_template !== null;
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────────

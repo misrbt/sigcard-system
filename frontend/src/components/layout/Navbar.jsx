@@ -82,7 +82,7 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
               ))}
             </div>
 
-            {/* Right Section - Notifications & Profile */}
+            {/* Right Section - Profile */}
             <div className="flex items-center gap-4">
               {/* Profile Dropdown */}
               <div className="relative" ref={dropdownRef}>
@@ -222,6 +222,7 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
         </div>
       </nav>
       <div className="h-16" />
+
     </>
   );
 };

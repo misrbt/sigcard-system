@@ -113,7 +113,7 @@ class AdminController extends Controller
                     'sigcards' => $sigcardCounts->get($branch->id, 0),
                     'documents' => $documentCounts->get($branch->id, 0),
                     'users' => $userCounts->get($branch->id, 0),
-                    'individual' => $branchAccountTypes->get('Individual', 0),
+                    'individual' => $branchAccountTypes->get('Regular', 0),
                     'joint' => $branchAccountTypes->get('Joint', 0),
                     'corporate' => $branchAccountTypes->get('Corporate', 0),
                     'low_risk' => $branchRiskLevels->get('Low Risk', 0),
@@ -682,9 +682,12 @@ class AdminController extends Controller
             DB::beginTransaction();
 
             $originalData = $role->toArray();
-            $role->update($request->validated());
 
-            // Update permissions if provided
+            $roleData = collect($request->validated())->except('permissions')->toArray();
+            if (! empty($roleData)) {
+                $role->update($roleData);
+            }
+
             if ($request->has('permissions')) {
                 $role->syncPermissions($request->permissions);
             }
