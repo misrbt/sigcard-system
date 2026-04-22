@@ -984,7 +984,7 @@ const CustomerView = () => {
                     className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
                   >
                     <HiOutlinePlus className="w-4 h-4" />
-                    {isJoint ? "Add Holder" : "Add Account"}
+                    Add Account
                   </button>
                 </div>
               )}
