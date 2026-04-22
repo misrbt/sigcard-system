@@ -979,15 +979,13 @@ const CustomerView = () => {
                     <HiOutlinePencilAlt className="w-4 h-4" />
                     Edit Docs
                   </button>
-                  {!isJoint && (
-                    <button
-                      onClick={() => navigate(`/user/customers/${id}/add-account`)}
-                      className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
-                    >
-                      <HiOutlinePlus className="w-4 h-4" />
-                      Add Account
-                    </button>
-                  )}
+                  <button
+                    onClick={() => navigate(`/user/customers/${id}/add-account`)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
+                  >
+                    <HiOutlinePlus className="w-4 h-4" />
+                    {isJoint ? "Add Holder" : "Add Account"}
+                  </button>
                 </div>
               )}
             </div>

@@ -13,12 +13,11 @@ class AddCustomerAccountRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
-            'account_no' => 'nullable|string|max:100',
-            'date_opened' => 'nullable|date',
-            'date_updated' => 'nullable|date',
+        $customer = $this->route('customer');
+        $isJoint = $customer && $customer->account_type === 'Joint';
+
+        $base = [
             'risk_level' => 'required|in:Low Risk,Medium Risk,High Risk',
-            'status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
 
             'sigcardPairs' => 'required|array|min:1|max:1',
             'sigcardPairs.*.front' => 'required|image|max:10240',
@@ -35,6 +34,26 @@ class AddCustomerAccountRequest extends FormRequest
             'otherDocs' => 'nullable|array',
             'otherDocs.*' => 'image|max:10240',
         ];
+
+        if ($isJoint) {
+            return array_merge($base, [
+                'firstname' => 'required|string|max:100',
+                'middlename' => 'nullable|string|max:100',
+                'lastname' => 'required|string|max:100',
+                'suffix' => 'nullable|string|max:20',
+                'account_no' => 'nullable|string|max:100',
+                'date_opened' => 'nullable|date',
+                'date_updated' => 'nullable|date',
+                'status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
+            ]);
+        }
+
+        return array_merge($base, [
+            'account_no' => 'nullable|string|max:100',
+            'date_opened' => 'nullable|date',
+            'date_updated' => 'nullable|date',
+            'status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
+        ]);
     }
 
     public function messages(): array
@@ -48,6 +67,8 @@ class AddCustomerAccountRequest extends FormRequest
             'privacyPairs.required' => 'Data privacy images are required.',
             'privacyPairs.*.front.required' => 'Data privacy front image is required.',
             'privacyPairs.*.back.required' => 'Data privacy back image is required.',
+            'firstname.required' => 'First name is required.',
+            'lastname.required' => 'Last name is required.',
         ];
     }
 }
