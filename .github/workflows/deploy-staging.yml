@@ -1,0 +1,13 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  deploy:
+    name: Deploy Sigcard to Staging
+    runs-on: [self-hosted, staging]
+    steps:
+      - name: Run staging deploy script
+        run: bash /var/www/staging/sigcard-system/scripts/deploy-staging.sh
