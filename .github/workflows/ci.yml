@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop, staging, main]
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: [self-hosted, staging]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy .env for testing
+        working-directory: backend
+        run: |
+          cp .env.example .env.testing 2>/dev/null || cp .env .env.testing
+          php artisan key:generate --env=testing
+
+      - name: Run backend tests
+        working-directory: backend
+        run: php artisan test --env=testing
+
+  frontend-lint:
+    name: Frontend Lint
+    runs-on: [self-hosted, staging]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: frontend
+        run: npm run lint
