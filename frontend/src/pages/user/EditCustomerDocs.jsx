@@ -20,6 +20,34 @@ import {
 import Swal from "sweetalert2";
 import api from "../../services/api";
 
+// ── Image compression ─────────────────────────────────────────────────────────
+const compressImage = (file, maxWidth = 800, maxHeight = 900, quality = 0.80) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width  = Math.round(width  * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { reject(new Error("Compression failed")); return; }
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
+        },
+        "image/jpeg", quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not load image")); };
+    img.src = url;
+  });
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const storageUrl = (path) => {
   const base = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api").replace(/\/api$/, "");
@@ -531,10 +559,11 @@ const EditCustomerDocs = () => {
       if (newOtherFiles.length > 0) {
         setUploading("other__new");
         try {
+          const compressed = await Promise.all(newOtherFiles.map((f) => compressImage(f)));
           const fd = new FormData();
           fd.append("_method", "PUT");
           const otherUploadIdx = isCorporate ? 1 : activePerson;
-          newOtherFiles.forEach((f) => fd.append(`otherDocs[${otherUploadIdx}][]`, f));
+          compressed.forEach((f) => fd.append(`otherDocs[${otherUploadIdx}][]`, f));
           const { data } = await api.post(`/customers/${id}`, fd, {
             headers: { "Content-Type": "multipart/form-data" },
           });
