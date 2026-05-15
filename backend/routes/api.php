@@ -57,6 +57,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/dashboard', [AdminController::class, 'getDashboardStats']);
 
         Route::get('/users', [AdminController::class, 'getAllUsers']);
+        Route::get('/users/online', [AdminController::class, 'getOnlineUsers']);
         Route::post('/users', [AdminController::class, 'createUser']);
         Route::put('/users/{user}', [AdminController::class, 'updateUser']);
         Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);

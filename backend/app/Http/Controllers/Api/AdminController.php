@@ -2192,4 +2192,39 @@ class AdminController extends Controller
             'branch' => $branch->fresh(['parent', 'children']),
         ]);
     }
+
+    /**
+     * Return users who are currently active in the system.
+     * A user is considered online if their session_expires_at is still in the future,
+     * meaning the TrackLastActivity middleware refreshed it recently.
+     */
+    public function getOnlineUsers(): JsonResponse
+    {
+        $this->authorize('view-users');
+
+        $onlineUsers = User::query()
+            ->with(['roles', 'branch'])
+            ->where('status', 'active')
+            ->where('session_expires_at', '>', now())
+            ->orderByDesc('session_expires_at')
+            ->get()
+            ->map(fn (User $u) => [
+                'id'               => $u->id,
+                'full_name'        => $u->full_name,
+                'username'         => $u->username,
+                'email'            => $u->email,
+                'photo'            => $u->photo,
+                'role'             => $u->roles->first()?->name ?? 'none',
+                'branch_name'      => $u->branch?->branch_name ?? '—',
+                'last_login_at'    => $u->last_login_at?->toISOString(),
+                'last_login_ip'    => $u->last_login_ip,
+                'session_expires_at' => $u->session_expires_at?->toISOString(),
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $onlineUsers,
+            'count'   => $onlineUsers->count(),
+        ]);
+    }
 }

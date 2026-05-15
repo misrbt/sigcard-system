@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Swal from 'sweetalert2';
 import {
   MdAdd, MdEdit, MdLockOpen, MdRefresh, MdSearch,
@@ -7,6 +7,7 @@ import {
   MdFileDownload, MdPeople, MdCheckCircle, MdBlock, MdLock,
   MdBuild, MdDevices, MdLogout, MdWarning, MdInfo,
   MdAccessTime, MdComputer, MdVpnKey, MdKey, MdShield,
+  MdWifi, MdCircle,
 } from 'react-icons/md';
 import { FaUserShield } from 'react-icons/fa';
 import { adminService } from '../../services/adminService';
@@ -506,6 +507,35 @@ const UserManagement = () => {
   const [roles, setRoles]     = useState([]);
   const [branches, setBranches] = useState([]);
 
+  const [onlineUsers, setOnlineUsers]   = useState([]);
+  const [onlineLoading, setOnlineLoading] = useState(true);
+
+  const fetchOnlineUsers = useCallback(async () => {
+    try {
+      const res = await adminService.getOnlineUsers();
+      setOnlineUsers(res.data.data || []);
+    } catch {
+      // silently ignore — not critical
+    } finally {
+      setOnlineLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchOnlineUsers();
+    const interval = setInterval(fetchOnlineUsers, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchOnlineUsers]);
+
+  const roleColor = useMemo(() => ({
+    admin:             'bg-purple-100 text-purple-700',
+    manager:           'bg-blue-100 text-blue-700',
+    user:              'bg-emerald-100 text-emerald-700',
+    cashier:           'bg-amber-100 text-amber-700',
+    compliance:        'bg-orange-100 text-orange-700',
+    audit:             'bg-rose-100 text-rose-700',
+  }), []);
+
   const [showCreateModal, setShowCreateModal]         = useState(false);
   const [showEditModal, setShowEditModal]             = useState(false);
   const [showResetModal, setShowResetModal]           = useState(false);
@@ -787,6 +817,79 @@ const UserManagement = () => {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* ── Online Users Panel ── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+            </span>
+            <span className="text-sm font-bold text-gray-800">Currently Online</span>
+            <span className="ml-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+              {onlineUsers.length}
+            </span>
+          </div>
+          <button
+            onClick={fetchOnlineUsers}
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Refresh"
+          >
+            <MdRefresh className="w-4 h-4" />
+          </button>
+        </div>
+
+        {onlineLoading ? (
+          <div className="flex items-center gap-2 px-4 py-3 text-sm text-gray-400">
+            <span className="w-4 h-4 border-2 border-gray-200 border-t-emerald-400 rounded-full animate-spin" />
+            Checking who is online…
+          </div>
+        ) : onlineUsers.length === 0 ? (
+          <div className="flex items-center gap-2 px-4 py-3 text-sm text-gray-400">
+            <MdWifi className="w-4 h-4" />
+            No staff members are currently active in the system.
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {onlineUsers.map((u) => (
+              <div key={u.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors">
+                {/* Avatar */}
+                <div className="relative flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-[#05173a] flex items-center justify-center text-white text-xs font-bold">
+                    {u.full_name?.charAt(0).toUpperCase() ?? '?'}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white" />
+                </div>
+
+                {/* Name + branch */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate">{u.full_name}</p>
+                  <p className="text-xs text-gray-400 truncate">{u.branch_name}</p>
+                </div>
+
+                {/* Role badge */}
+                <span className={`hidden sm:inline-flex px-2 py-0.5 rounded-full text-xs font-semibold capitalize flex-shrink-0 ${roleColor[u.role] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {u.role}
+                </span>
+
+                {/* IP */}
+                {u.last_login_ip && (
+                  <span className="hidden md:block text-xs text-gray-400 font-mono flex-shrink-0">
+                    {u.last_login_ip}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {onlineUsers.length > 0 && (
+          <p className="px-4 py-2 text-[10px] text-gray-300 border-t border-gray-50">
+            Refreshes every 30 seconds · Based on active session tokens
+          </p>
+        )}
       </div>
 
       {/* ── Filters ── */}

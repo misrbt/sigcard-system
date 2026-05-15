@@ -6,6 +6,7 @@ export const adminService = {
 
   // Users
   getUsers: (params = {}) => api.get('/admin/users', { params }),
+  getOnlineUsers: () => api.get('/admin/users/online'),
   createUser: (data) => api.post('/admin/users', data),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
