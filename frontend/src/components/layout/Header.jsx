@@ -35,10 +35,10 @@ const Header = ({ onSidebarToggle, isSidebarOpen, userRole }) => {
           </button>
 
           <div className="flex items-center gap-2 sm:gap-3 lg:hidden min-w-0">
-            <img src={logo} alt="Sigcard Logo" className="h-9 w-9 sm:h-11 sm:w-11 object-contain flex-shrink-0" />
+            <img src={logo} alt="DIGICUR Logo" className="h-9 w-9 sm:h-11 sm:w-11 object-contain flex-shrink-0" />
             <div className="flex flex-col min-w-0">
-              <span className="text-white font-extrabold text-base sm:text-lg leading-tight tracking-widest truncate">SIGCARD</span>
-              <span className="text-[#1877F2] font-bold text-xs sm:text-sm leading-tight tracking-widest truncate">SYSTEM</span>
+              <span className="text-white font-extrabold text-base sm:text-lg leading-tight tracking-widest truncate">DIGICUR</span>
+              <span className="text-[#1877F2] font-bold text-[10px] sm:text-xs leading-tight tracking-widest truncate">DIGITAL CUSTOMER RECORD</span>
             </div>
           </div>
 

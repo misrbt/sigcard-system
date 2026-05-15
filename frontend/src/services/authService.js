@@ -181,44 +181,43 @@ export const authService = {
   // ==================== Two-Factor Authentication (2FA) ====================
 
   /**
-   * Enable two-factor authentication
-   * @returns {Promise} Response with QR code and recovery codes
+   * Begin 2FA setup — returns QR code URL and Base32 secret.
+   * @returns {Promise} Response with qr_code_url, secret, otpauth_url
    */
   enableTwoFactor: async () => {
-    const response = await api.post('/auth/two-factor/enable');
+    const response = await api.post('/auth/enable-2fa');
     return response.data;
   },
 
   /**
-   * Disable two-factor authentication
-   * @param {string} password - User password for confirmation
+   * Confirm 2FA setup with the first TOTP code from the authenticator app.
+   * @param {string} otpCode - 6-digit code
    * @returns {Promise} Response message
    */
-  disableTwoFactor: async (password) => {
-    const response = await api.post('/auth/two-factor/disable', { password });
+  confirmTwoFactor: async (otpCode) => {
+    const response = await api.post('/auth/confirm-2fa', { otp_code: otpCode });
     return response.data;
   },
 
   /**
-   * Verify 2FA code during login
-   * @param {string} code - 6-digit 2FA code
-   * @returns {Promise} Response with token
+   * Disable two-factor authentication (requires password + current TOTP code).
+   * @param {string} password - User password
+   * @param {string} otpCode - Current 6-digit code from authenticator app
+   * @returns {Promise} Response message
    */
-  verifyTwoFactor: async (code) => {
-    const response = await api.post('/auth/two-factor/verify', { code });
-    if (response.data.token) {
-      localStorage.setItem('authToken', response.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-    }
+  disableTwoFactor: async (password, otpCode) => {
+    const response = await api.post('/auth/disable-2fa', { password, otp_code: otpCode });
     return response.data;
   },
 
   /**
-   * Get 2FA recovery codes
-   * @returns {Promise} Response with recovery codes
+   * Verify 2FA code during login (step 2).
+   * @param {string} temporaryToken - Temporary token from login response
+   * @param {string} otpCode - 6-digit code from authenticator app
+   * @returns {Promise} Response with token and user
    */
-  getTwoFactorRecoveryCodes: async () => {
-    const response = await api.get('/auth/two-factor/recovery-codes');
+  verifyTwoFactor: async (temporaryToken, otpCode) => {
+    const response = await api.post('/auth/verify-2fa', { temporary_token: temporaryToken, otp_code: otpCode });
     return response.data;
   },
 

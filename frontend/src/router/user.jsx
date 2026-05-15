@@ -8,11 +8,10 @@ import EditCustomerDocs from "../pages/user/EditCustomerDocs.jsx";
 import CustomerView from "../pages/user/CustomerView.jsx";
 import AddAccount from "../pages/user/AddAccount.jsx";
 import Profile from "../pages/user/Profile.jsx";
+import StatusTracking from "../pages/user/StatusTracking.jsx";
 
-const viewerRoles = ["user", "admin", "cashier"];
-
-const withLayout = (element, roles) => (
-  <ProtectedRoute roles={roles}>
+const withLayout = (element, permission = null) => (
+  <ProtectedRoute roles={["user"]} permission={permission}>
     <UserLayout>{element}</UserLayout>
   </ProtectedRoute>
 );
@@ -20,13 +19,14 @@ const withLayout = (element, roles) => (
 const UserRoutes = () => {
   return (
     <>
-      <Route path="/user/dashboard"             element={withLayout(<Home />,             ["user", "admin"])} />
-      <Route path="/user/upload"                element={withLayout(<UploadSigcard />,    ["user"])} />
-      <Route path="/user/customers"             element={withLayout(<CustomerProfiles />, viewerRoles)} />
-      <Route path="/user/customers/:id/view"    element={withLayout(<CustomerView />,     viewerRoles)} />
-      <Route path="/user/customers/:id/edit"        element={withLayout(<EditCustomerDocs />, ["user"])} />
-      <Route path="/user/customers/:id/add-account" element={withLayout(<AddAccount />,        ["user"])} />
-      <Route path="/user/profile"               element={withLayout(<Profile />,          ["user"])} />
+      <Route path="/user/dashboard"                  element={withLayout(<Home />)} />
+      <Route path="/user/upload"                     element={withLayout(<UploadSigcard />,                       "create-customers")} />
+      <Route path="/user/customers"                  element={withLayout(<CustomerProfiles basePath="/user" />,    "view-customers")} />
+      <Route path="/user/customers/:id/view"         element={withLayout(<CustomerView basePath="/user" />,        "view-customers")} />
+      <Route path="/user/customers/:id/edit"         element={withLayout(<EditCustomerDocs basePath="/user" />,    "edit-customers")} />
+      <Route path="/user/customers/:id/add-account"  element={withLayout(<AddAccount basePath="/user" />,         "create-customers")} />
+      <Route path="/user/status-tracking"             element={withLayout(<StatusTracking />,              "view-customers")} />
+      <Route path="/user/profile"                    element={withLayout(<Profile />)} />
     </>
   );
 };

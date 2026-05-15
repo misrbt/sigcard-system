@@ -2,20 +2,15 @@ import Navbar from "./Navbar";
 import Footer from "../Footer";
 import { useAuth } from "../../hooks/useAuth";
 
-const NAV_LINKS = {
-  default: [
-    { to: "/users/home",      label: "Home" },
-    { to: "/users/upload",    label: "Upload" },
-    { to: "/users/customers", label: "Customer Profiles" },
-  ],
-  cashier: [
-    { to: "/users/customers", label: "Customer Profiles" },
-  ],
-};
+const NAV_LINKS = [
+  { to: "/user/dashboard", label: "Home",              permission: null },
+  { to: "/user/upload",    label: "Upload",            permission: "create-customers" },
+  { to: "/user/customers", label: "Customer Profiles", permission: "view-customers" },
+];
 
 const UserLayout = ({ children }) => {
-  const { hasRole } = useAuth();
-  const navLinks = hasRole("cashier") ? NAV_LINKS.cashier : NAV_LINKS.default;
+  const { hasPermission } = useAuth();
+  const navLinks = NAV_LINKS.filter((item) => !item.permission || hasPermission(item.permission));
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 text-slate-900">

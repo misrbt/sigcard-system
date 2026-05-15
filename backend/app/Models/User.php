@@ -2,18 +2,20 @@
 
 namespace App\Models;
 
+use App\Services\BSPAuthService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Cache;
 use Laravel\Sanctum\HasApiTokens;
-use Spatie\Permission\Traits\HasRoles;
-use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles, LogsActivity;
+    use HasApiTokens, HasFactory, HasRoles, LogsActivity, Notifiable;
 
     protected $fillable = [
         'firstname',
@@ -97,10 +99,10 @@ class User extends Authenticatable
                $this->password_expires_at->isPast();
     }
 
-    public function lockAccount(int $minutes = 30): void
+    public function lockAccount(int $seconds = 1800): void
     {
         $this->update([
-            'account_locked_at' => now()->addMinutes($minutes),
+            'account_locked_at' => now()->addSeconds($seconds),
             'failed_login_attempts' => 0,
         ]);
     }
@@ -109,8 +111,10 @@ class User extends Authenticatable
     {
         $this->increment('failed_login_attempts');
 
-        if ($this->failed_login_attempts >= 5) {
-            $this->lockAccount();
+        $maxAttempts = (int) Cache::get('system_setting_max_login_attempts', 5);
+
+        if ($maxAttempts > 0 && $this->failed_login_attempts >= $maxAttempts) {
+            $this->lockAccount(BSPAuthService::getLockoutDurationSeconds());
         }
     }
 

@@ -17,7 +17,7 @@ const AuthLayout = ({ children, title, subtitle }) => {
             </svg>
           </div>
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
-            {title || 'SigCard'}
+            {title || 'DIGICUR'}
           </h2>
           {subtitle && (
             <p className="mt-2 text-sm text-gray-600">
@@ -43,7 +43,7 @@ const AuthLayout = ({ children, title, subtitle }) => {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="text-center text-sm text-gray-500"
         >
-          © 2024 SigCard. All rights reserved.
+          © {new Date().getFullYear()} DIGICUR. All rights reserved.
         </motion.div>
       </div>
     </div>

@@ -4,7 +4,7 @@ import BankDashboard from '../../components/dashboard/BankDashboard';
 
 const OVERVIEW_TILES = [
   { title: 'Total Customers', valueKey: 'total_customers', icon: <FaUsers />,       color: 'blue',   to: '/admin/customers' },
-  { title: 'SigCard Uploads', valueKey: 'total_sigcards',  icon: <FaIdCard />,      color: 'indigo', to: '/admin/customers' },
+  { title: 'Signature Card Uploads', valueKey: 'total_sigcards',  icon: <FaIdCard />,      color: 'indigo', to: '/admin/customers' },
   { title: 'Total Documents', valueKey: 'total_documents', icon: <FaFileAlt />,     color: 'teal',   to: '/admin/customers' },
   { title: 'System Users',    valueKey: 'total_users',     icon: <FaUserTie />,     color: 'purple', to: '/admin/users'     },
   { title: 'Branches',        valueKey: 'total_branches',  icon: <FaBuilding />,    color: 'cyan',   to: null               },

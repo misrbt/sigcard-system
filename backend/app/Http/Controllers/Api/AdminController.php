@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Laravel\Sanctum\PersonalAccessToken;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -110,6 +111,7 @@ class AdminController extends Controller
                     'dormant' => $statusCounts->get('dormant', 0),
                     'escheat' => $statusCounts->get('escheat', 0),
                     'closed' => $statusCounts->get('closed', 0),
+                    'reactivated' => $statusCounts->get('reactivated', 0),
                     'sigcards' => $sigcardCounts->get($branch->id, 0),
                     'documents' => $documentCounts->get($branch->id, 0),
                     'users' => $userCounts->get($branch->id, 0),
@@ -167,6 +169,7 @@ class AdminController extends Controller
                 'dormant' => $byStatus->get('dormant', 0),
                 'escheat' => $byStatus->get('escheat', 0),
                 'closed' => $byStatus->get('closed', 0),
+                'reactivated' => $byStatus->get('reactivated', 0),
             ],
             'by_status' => $byStatus,
             'by_account_type' => $byAccountType,
@@ -328,11 +331,16 @@ class AdminController extends Controller
             $user->update($userData);
 
             // Update roles if provided
-            if ($request->has('roles')) {
+            $rolesUpdated = $request->has('roles');
+            if ($rolesUpdated) {
                 $user->syncRoles($request->roles);
             }
 
             DB::commit();
+
+            if ($rolesUpdated) {
+                app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+            }
 
             activity()
                 ->causedBy(auth()->user())
@@ -594,6 +602,225 @@ class AdminController extends Controller
     }
 
     // =============================================
+    // LOGIN TROUBLESHOOTER METHODS
+    // =============================================
+
+    /**
+     * Get full login status for a user so the admin can diagnose why they cannot sign in.
+     */
+    public function getUserLoginStatus(User $user): JsonResponse
+    {
+        $this->authorize('view-users');
+
+        $maxAttempts = (int) Cache::get('system_setting_max_login_attempts', BSPAuthService::MAX_LOGIN_ATTEMPTS);
+        $sessionLimit = BSPAuthService::getConcurrentSessionsLimit();
+
+        // Active DB tokens (not yet expired)
+        $dbTokens = $user->tokens()
+            ->where(function ($q): void {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->orderByDesc('last_used_at')
+            ->get();
+
+        // Enrich each token with cached session info (IP / user-agent)
+        $cachedSessions = Cache::get("user_sessions_{$user->id}", []);
+
+        $sessions = $dbTokens->map(function (PersonalAccessToken $token) use ($cachedSessions): array {
+            $sessionInfo = null;
+            foreach ($cachedSessions as $tokenKey => $data) {
+                [$tokenId] = explode('|', $tokenKey) + [0 => null];
+                if ((int) $tokenId === $token->id) {
+                    $sessionInfo = $data;
+                    break;
+                }
+            }
+
+            return [
+                'id' => $token->id,
+                'name' => $token->name,
+                'last_used_at' => $token->last_used_at?->toISOString(),
+                'expires_at' => $token->expires_at?->toISOString(),
+                'created_at' => $token->created_at->toISOString(),
+                'ip' => $sessionInfo['ip'] ?? null,
+                'user_agent' => $sessionInfo['user_agent'] ?? null,
+                'last_activity' => $sessionInfo['last_activity'] ?? null,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                // Login attempts
+                'failed_attempts' => $user->failed_login_attempts ?? 0,
+                'max_attempts' => $maxAttempts,
+                'is_locked' => $user->isAccountLocked(),
+                'locked_until' => $user->account_locked_at?->toISOString(),
+                'minutes_remaining' => $user->isAccountLocked()
+                    ? (int) ceil(now()->diffInMinutes($user->account_locked_at, false))
+                    : null,
+
+                // Account flags
+                'account_status' => $user->status,
+                'force_password_change' => (bool) $user->force_password_change,
+                'password_expires_at' => $user->password_expires_at?->toISOString(),
+                'is_password_expired' => $user->isPasswordExpired(),
+                'account_expires_at' => $user->account_expires_at?->toISOString(),
+                'is_account_expired' => $user->account_expires_at?->isPast() ?? false,
+
+                // Last login
+                'last_login_at' => $user->last_login_at?->toISOString(),
+                'last_login_ip' => $user->last_login_ip,
+                'last_login_user_agent' => $user->last_login_user_agent,
+
+                // Sessions
+                'active_sessions_count' => $sessions->count(),
+                'session_limit' => $sessionLimit,
+                'sessions' => $sessions->values(),
+            ],
+        ]);
+    }
+
+    /**
+     * Revoke every active session/token a user has — forces them to log in fresh.
+     */
+    public function revokeAllSessions(User $user): JsonResponse
+    {
+        $this->authorize('manage-sessions');
+
+        try {
+            $count = $user->tokens()->count();
+            $user->tokens()->delete();
+            Cache::forget("user_sessions_{$user->id}");
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties(['action' => 'sessions_revoked_all', 'count' => $count])
+                ->log("Admin revoked all {$count} session(s) for user");
+
+            return response()->json([
+                'success' => true,
+                'message' => "All {$count} session(s) revoked. The user must sign in again.",
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error revoking sessions: '.$e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Failed to revoke sessions.'], 500);
+        }
+    }
+
+    /**
+     * Revoke one specific session/token by its DB id.
+     */
+    public function revokeToken(User $user, int $tokenId): JsonResponse
+    {
+        $this->authorize('manage-sessions');
+
+        try {
+            $token = $user->tokens()->where('id', $tokenId)->first();
+
+            if (! $token) {
+                return response()->json(['success' => false, 'message' => 'Session not found.'], 404);
+            }
+
+            // Remove matching entry from the session cache
+            $sessions = Cache::get("user_sessions_{$user->id}", []);
+            $updated = [];
+            foreach ($sessions as $tokenKey => $data) {
+                [$tid] = explode('|', $tokenKey) + [0 => null];
+                if ((int) $tid !== $tokenId) {
+                    $updated[$tokenKey] = $data;
+                }
+            }
+            Cache::put("user_sessions_{$user->id}", $updated, now()->addMinutes(BSPAuthService::getTokenExpirationMinutes()));
+
+            $token->delete();
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties(['action' => 'session_revoked', 'token_id' => $tokenId])
+                ->log('Admin revoked a user session');
+
+            return response()->json(['success' => true, 'message' => 'Session revoked successfully.']);
+        } catch (\Exception $e) {
+            Log::error('Error revoking token: '.$e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Failed to revoke session.'], 500);
+        }
+    }
+
+    /**
+     * Remove the "must change password on next login" requirement for a user.
+     */
+    public function clearForcePasswordChange(User $user): JsonResponse
+    {
+        $this->authorize('reset-user-passwords');
+
+        try {
+            $user->update(['force_password_change' => false]);
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties(['action' => 'force_password_change_cleared'])
+                ->log('Admin removed force-password-change requirement');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password change requirement removed. The user can now log in without being forced to change it.',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error clearing force password change: '.$e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Failed to update user.'], 500);
+        }
+    }
+
+    /**
+     * One-click restore: unlock account + clear failed attempts + revoke all sessions.
+     * The single action an admin needs when a user simply cannot get in.
+     */
+    public function restoreLoginAccess(User $user): JsonResponse
+    {
+        $this->authorize('unlock-user-accounts');
+
+        try {
+            // 1. Unlock account and reset failed attempts
+            $user->update([
+                'failed_login_attempts' => 0,
+                'account_locked_at' => null,
+            ]);
+
+            // 2. Revoke every active token (sign out all devices)
+            $tokenCount = $user->tokens()->count();
+            $user->tokens()->delete();
+
+            // 3. Clear the session cache so the concurrent-session gate resets
+            Cache::forget("user_sessions_{$user->id}");
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties([
+                    'action' => 'login_access_restored',
+                    'tokens_revoked' => $tokenCount,
+                ])
+                ->log('Admin restored login access for user (unlock + cleared attempts + revoked all sessions)');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Login access restored. Account unlocked, failed attempts cleared, and all sessions signed out. The user can now log in fresh.',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error restoring login access: '.$e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Failed to restore login access.'], 500);
+        }
+    }
+
+    // =============================================
     // ROLE MANAGEMENT METHODS
     // =============================================
 
@@ -693,6 +920,8 @@ class AdminController extends Controller
             }
 
             DB::commit();
+
+            app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
             activity()
                 ->causedBy(auth()->user())
@@ -985,6 +1214,67 @@ class AdminController extends Controller
         }
     }
 
+    /**
+     * Get a user's role-inherited and direct permissions
+     */
+    public function getUserPermissions(User $user): JsonResponse
+    {
+        $this->authorize('assign-permissions');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user' => $user->load(['roles', 'branch']),
+                'role_permissions' => $user->getPermissionsViaRoles()->pluck('name')->values(),
+                'direct_permissions' => $user->getDirectPermissions()->pluck('name')->values(),
+            ],
+        ]);
+    }
+
+    /**
+     * Sync a user's direct permissions (does not affect role permissions)
+     */
+    public function syncUserPermissions(Request $request, User $user): JsonResponse
+    {
+        $this->authorize('assign-permissions');
+
+        $request->validate([
+            'permissions' => 'required|array',
+            'permissions.*' => 'string|exists:permissions,name',
+        ]);
+
+        try {
+            $user->syncPermissions($request->permissions);
+            app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties([
+                    'action' => 'user_permissions_synced',
+                    'permissions' => $request->permissions,
+                ])
+                ->log('Admin synced user direct permissions');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User permissions updated successfully',
+                'data' => [
+                    'direct_permissions' => $user->fresh()->getDirectPermissions()->pluck('name')->values(),
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error syncing user permissions: '.$e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update user permissions',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
     // =============================================
     // SYSTEM ADMINISTRATION METHODS
     // =============================================
@@ -1005,8 +1295,9 @@ class AdminController extends Controller
                 'password_expiry_days' => (int) Cache::get('system_setting_password_expiry_days', 90),
                 'max_login_attempts' => (int) Cache::get('system_setting_max_login_attempts', 5),
                 'account_lockout_duration' => (int) Cache::get('system_setting_account_lockout_duration', 30),
+                'account_lockout_duration_unit' => Cache::get('system_setting_account_lockout_duration_unit', 'minutes'),
                 'require_two_factor' => (bool) Cache::get('system_setting_require_two_factor', false),
-                'maintenance_mode' => app()->isDownForMaintenance(),
+                'maintenance_mode' => (bool) Cache::get('system_setting_maintenance_mode', false),
                 'audit_log_retention_days' => (int) Cache::get('system_setting_audit_log_retention_days', 365),
                 'notification_email' => Cache::get('system_setting_notification_email', config('mail.from.address')),
                 'system_timezone' => Cache::get('system_setting_system_timezone', config('app.timezone')),

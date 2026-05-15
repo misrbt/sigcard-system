@@ -28,6 +28,8 @@ class CustomerController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('view-customers');
+
         $query = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts']);
         $authUser = Auth::user();
 
@@ -79,13 +81,15 @@ class CustomerController extends Controller
             });
         }
 
-        $customers = $query->latest()->paginate($request->get('per_page', 15));
+        $customers = $query->latest('updated_at')->paginate($request->get('per_page', 15));
 
         return response()->json($customers);
     }
 
     public function store(StoreCustomerRequest $request): JsonResponse
     {
+        $this->authorize('create-customers');
+
         try {
             DB::beginTransaction();
 
@@ -104,8 +108,10 @@ class CustomerController extends Controller
                 'company_name' => $request->company_name,
                 'account_type' => $request->account_type,
                 'joint_sub_type' => $request->joint_sub_type,
+                'corporate_sub_type' => $request->corporate_sub_type,
                 'risk_level' => $request->risk_level,
                 'status' => $request->status ?? 'active',
+                'status_date' => $request->status_date ?: null,
             ]);
 
             // Handle optional customer photo
@@ -123,6 +129,7 @@ class CustomerController extends Controller
                     'date_opened' => $account['date_opened'] ?? null,
                     'date_updated' => $account['date_updated'] ?? null,
                     'status' => $account['status'] ?? 'active',
+                    'status_date' => $account['status_date'] ?? null,
                 ]);
             }
 
@@ -139,15 +146,17 @@ class CustomerController extends Controller
                 ]);
             }
 
-            $this->storePairs($customer, $request, 'sigcardPairs', 'sigcard_front', 'sigcard_back');
-            $this->storePairs($customer, $request, 'naisPairs', 'nais_front', 'nais_back');
-            $this->storePairs($customer, $request, 'privacyPairs', 'privacy_front', 'privacy_back');
+            // Initial creation: null account_status so documents are grouped under "Initial Upload"
+            // and stored directly in the customer folder (no status subfolder).
+            $this->storePairs($customer, $request, 'sigcardPairs', 'sigcard_front', 'sigcard_back', null);
+            $this->storePairs($customer, $request, 'naisPairs', 'nais_front', 'nais_back', null);
+            $this->storePairs($customer, $request, 'privacyPairs', 'privacy_front', 'privacy_back', null);
 
             // Other docs sent per account/person: otherDocs[1][], otherDocs[2][], …
             foreach ($request->file('otherDocs', []) as $personIndex => $files) {
                 $files = is_array($files) ? $files : [$files];
                 foreach ($files as $file) {
-                    $this->uploadDocument($customer, $file, 'other', (int) $personIndex);
+                    $this->uploadDocument($customer, $file, 'other', (int) $personIndex, null);
                 }
             }
 
@@ -176,7 +185,6 @@ class CustomerController extends Controller
                 'message' => 'Customer created successfully.',
                 'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -195,24 +203,46 @@ class CustomerController extends Controller
 
     public function show(Customer $customer): JsonResponse
     {
-        return response()->json($customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts']));
+        $this->authorize('view-customers');
+
+        return response()->json($customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']));
     }
 
     public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
     {
+        $this->authorize('edit-customers');
+
         try {
             DB::beginTransaction();
 
             // Snapshot the tracked fields BEFORE any change
             $before = $customer->only([
-                'account_no', 'date_opened', 'firstname', 'middlename', 'lastname', 'suffix',
-                'account_type', 'risk_level', 'status', 'branch_id',
+                'account_no',
+                'date_opened',
+                'firstname',
+                'middlename',
+                'lastname',
+                'suffix',
+                'account_type',
+                'risk_level',
+                'status',
+                'branch_id',
             ]);
 
             $updatable = [
-                'account_no', 'date_opened', 'date_updated', 'branch_id',
-                'firstname', 'middlename', 'lastname', 'suffix',
-                'company_name', 'account_type', 'risk_level', 'status',
+                'account_no',
+                'date_opened',
+                'date_updated',
+                'branch_id',
+                'firstname',
+                'middlename',
+                'lastname',
+                'suffix',
+                'company_name',
+                'account_type',
+                'risk_level',
+                'status',
+                'status_date',
             ];
 
             $data = [];
@@ -222,8 +252,29 @@ class CustomerController extends Controller
                 }
             }
 
+            if (array_key_exists('status', $data) && $customer->status === 'escheat') {
+                return response()->json(['message' => 'Escheat accounts cannot have their status changed.'], 422);
+            }
+
+            $statusChanged = array_key_exists('status', $data) && $data['status'] !== $customer->status;
+            $previousStatus = $customer->status;
+
+            if ($statusChanged) {
+                $data['status_updated_at'] = now();
+            }
+
             if (! empty($data)) {
                 $customer->update($data);
+            }
+
+            $statusLog = null;
+            if ($statusChanged) {
+                $statusLog = \App\Models\CustomerStatusLog::create([
+                    'customer_id' => $customer->id,
+                    'status' => $data['status'],
+                    'previous_status' => $previousStatus,
+                    'changed_by' => Auth::id(),
+                ]);
             }
 
             if ($request->hasFile('photo')) {
@@ -245,6 +296,7 @@ class CustomerController extends Controller
                         'risk_level' => $account['risk_level'],
                         'date_opened' => $account['date_opened'] ?? null,
                         'status' => $account['status'] ?? 'active',
+                        'status_date' => $account['status_date'] ?? null,
                     ]);
                 }
             }
@@ -266,11 +318,18 @@ class CustomerController extends Controller
                 }
             }
 
-            foreach (['sigcardPairs' => ['sigcard_front', 'sigcard_back'],
-                'naisPairs' => ['nais_front',    'nais_back'],
-                'privacyPairs' => ['privacy_front', 'privacy_back']] as $pairsKey => [$frontType, $backType]) {
+            $accountStatus = $request->input('account_status');
+            $statusLogId = $request->input('status_log_id') ? (int) $request->input('status_log_id') : null;
+
+            foreach (
+                [
+                    'sigcardPairs' => ['sigcard_front', 'sigcard_back'],
+                    'naisPairs' => ['nais_front',    'nais_back'],
+                    'privacyPairs' => ['privacy_front', 'privacy_back'],
+                ] as $pairsKey => [$frontType, $backType]
+            ) {
                 if ($request->has($pairsKey)) {
-                    $this->archiveAndReplaceDocGroup($customer, $request, $pairsKey, $frontType, $backType);
+                    $this->archiveAndReplaceDocGroup($customer, $request, $pairsKey, $frontType, $backType, $accountStatus);
                 }
             }
 
@@ -278,7 +337,7 @@ class CustomerController extends Controller
             foreach ($request->file('otherDocs', []) as $personIndex => $files) {
                 $files = is_array($files) ? $files : [$files];
                 foreach ($files as $file) {
-                    $this->uploadDocument($customer, $file, 'other', (int) $personIndex);
+                    $this->uploadDocument($customer, $file, 'other', (int) $personIndex, $accountStatus, $statusLogId);
                 }
             }
 
@@ -306,9 +365,9 @@ class CustomerController extends Controller
 
             return response()->json([
                 'message' => 'Customer updated successfully.',
-                'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
+                'status_log_id' => $statusLog?->id,
+                'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']),
             ]);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -320,6 +379,8 @@ class CustomerController extends Controller
 
     public function destroy(Customer $customer): JsonResponse
     {
+        $this->authorize('edit-customers');
+
         try {
             DB::beginTransaction();
 
@@ -346,7 +407,6 @@ class CustomerController extends Controller
                 ->log('Customer sigcard record deleted');
 
             return response()->json(['message' => 'Customer deleted successfully.']);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -358,11 +418,15 @@ class CustomerController extends Controller
 
     public function getDocuments(Customer $customer): JsonResponse
     {
+        $this->authorize('view-customer-documents');
+
         return response()->json($customer->documents()->orderBy('person_index')->get());
     }
 
     public function history(Customer $customer): JsonResponse
     {
+        $this->authorize('view-customers');
+
         // Build a map of current documents keyed by "type_personIndex"
         $currentDocs = $customer->documents->groupBy(function (CustomerDocument $doc) {
             return $doc->document_type.'_'.$doc->person_index;
@@ -523,6 +587,8 @@ class CustomerController extends Controller
 
     public function deleteDocument(Customer $customer, CustomerDocument $document): JsonResponse
     {
+        $this->authorize('edit-customers');
+
         if ($document->customer_id !== $customer->id) {
             return response()->json(['message' => 'This document is not associated with the selected customer. Please refresh the page and try again.'], 403);
         }
@@ -553,12 +619,26 @@ class CustomerController extends Controller
 
     public function replaceDocument(Request $request, Customer $customer): JsonResponse
     {
+        $this->authorize('edit-customers');
+
         $request->validate([
             'document_type' => 'required|string|in:sigcard_front,sigcard_back,nais_front,nais_back,privacy_front,privacy_back,other',
             'person_index' => 'required|integer|min:1',
             'file' => 'required|image|max:10240',
             'document_id' => 'nullable|integer|exists:customer_documents,id',
+            'account_status' => 'nullable|string|in:active,reactivated,dormant,escheat,closed',
+            'status_log_id' => 'nullable|integer|exists:customer_status_logs,id',
         ]);
+
+        // Validate the image can be decoded before processing.
+        // getimagesize() detects the true format from the binary content,
+        // catching renamed HEIC/WebP/corrupt files that pass the MIME validator.
+        $imageInfo = @getimagesize($request->file('file')->getRealPath());
+        if (! $imageInfo || ! in_array($imageInfo[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG], true)) {
+            return response()->json([
+                'message' => 'The uploaded file could not be processed. Please ensure it is a valid JPG or PNG image and try again.',
+            ], 422);
+        }
 
         try {
             $existing = $request->document_id
@@ -566,29 +646,56 @@ class CustomerController extends Controller
                 : $customer->documents()
                     ->where('document_type', $request->document_type)
                     ->where('person_index', $request->person_index)
+                    ->where('is_current', true)
+                    ->latest()
                     ->first();
 
-            $archivedPath = null;
+            $versionedPath = null;
+            $oldFileName = null;
 
             if ($existing) {
-                // Archive the old file instead of deleting so it can be viewed in audit history
+                $oldFileName = $existing->file_name;
                 $pathInfo = pathinfo($existing->file_path);
-                $archiveName = $pathInfo['filename'].'_archived_'.now()->format('Ymd_His').'.jpg';
-                $archiveDir = 'archive/'.$pathInfo['dirname'];
-                $archivedPath = $archiveDir.'/'.$archiveName;
+                $dir = $pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] : '';
+                $versionedName = $pathInfo['filename'].'_v'.now()->format('Ymd_His').'.jpg';
+                $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
 
                 if (Storage::disk('public')->exists($existing->file_path)) {
-                    Storage::disk('public')->move($existing->file_path, $archivedPath);
+                    Storage::disk('public')->move($existing->file_path, $versionedPath);
                 }
 
-                $existing->delete();
+                $existing->update([
+                    'is_current' => false,
+                    'file_path' => $versionedPath,
+                    'file_name' => $versionedName,
+                ]);
+
+                // Demote any other stale is_current duplicates for the same
+                // type + person_index (guards against prior data inconsistency).
+                $customer->documents()
+                    ->where('document_type', $request->document_type)
+                    ->where('person_index', $request->person_index)
+                    ->where('is_current', true)
+                    ->where('id', '!=', $existing->id)
+                    ->update(['is_current' => false]);
+            }
+
+            // Preserve grouping metadata by default so a replacement remains part of
+            // the same "latest" document set shown in CustomerView/EditCustomerDocs.
+            $effectiveAccountStatus = $request->input('account_status');
+            $effectiveStatusLogId = $request->input('status_log_id');
+            if ($existing) {
+                $effectiveAccountStatus ??= $existing->account_status;
+                $effectiveStatusLogId ??= $existing->status_log_id;
             }
 
             $newDocument = $this->uploadDocument(
                 $customer,
                 $request->file('file'),
                 $request->document_type,
-                (int) $request->person_index
+                (int) $request->person_index,
+                $effectiveAccountStatus,
+                $effectiveStatusLogId ? (int) $effectiveStatusLogId : null
             );
 
             activity()
@@ -599,26 +706,42 @@ class CustomerController extends Controller
                     'full_name' => $customer->full_name,
                     'document_type' => $request->document_type,
                     'person_index' => (int) $request->person_index,
-                    'replaced_file' => $existing?->file_name,
-                    'archived_file_path' => $archivedPath,
+                    'replaced_file' => $oldFileName,
+                    'versioned_file_path' => $versionedPath,
                     'new_file_name' => $newDocument->file_name,
                 ])
                 ->log('Customer document replaced');
 
             return response()->json([
                 'message' => 'Document replaced successfully.',
-                'customer' => $customer->load(['documents', 'branch']),
+                'customer' => $customer->load([
+                    'documents',
+                    'branch',
+                    'statusLogs' => fn ($q) => $q->with('documents'),
+                ]),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('replaceDocument failed', [
+                'customer_id' => $customer->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
-        } catch (\Exception $e) {
+            $isDecodeError = str_contains($e->getMessage(), 'Unable to decode')
+                || str_contains($e->getMessage(), 'decode input');
+
             return response()->json([
-                'message' => 'Unable to replace the document. Please check the file and try again. If the problem continues, contact your system administrator.',
+                'message' => $isDecodeError
+                    ? 'The uploaded file could not be processed. Please ensure it is a valid JPG or PNG image and try again.'
+                    : 'Unable to replace the document. Please check the file and try again. If the problem continues, contact your system administrator.',
             ], 500);
         }
     }
 
     public function addAccount(AddCustomerAccountRequest $request, Customer $customer): JsonResponse
     {
+        $this->authorize('create-customers');
+
         try {
             DB::beginTransaction();
 
@@ -715,7 +838,6 @@ class CustomerController extends Controller
                 'message' => $isJoint ? 'Holder added successfully.' : 'Account added successfully.',
                 'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -727,6 +849,8 @@ class CustomerController extends Controller
 
     public function updateAccount(Request $request, Customer $customer, CustomerAccount $account): JsonResponse
     {
+        $this->authorize('edit-customers');
+
         abort_if($account->customer_id !== $customer->id, 404);
 
         $validated = $request->validate([
@@ -737,9 +861,34 @@ class CustomerController extends Controller
             'date_updated' => 'nullable|date',
         ]);
 
+        if (isset($validated['status']) && $account->status === 'escheat') {
+            return response()->json(['message' => 'Escheat accounts cannot have their status changed.'], 422);
+        }
+
         $before = $account->only(['status', 'risk_level', 'account_no', 'date_opened', 'date_updated']);
+        $previousStatus = $account->status;
+        $statusChanging = isset($validated['status']) && $validated['status'] !== $previousStatus;
 
         $account->update(array_filter($validated, fn ($v) => ! is_null($v)));
+
+        $statusLog = null;
+        if ($statusChanging) {
+            $statusLog = \App\Models\CustomerStatusLog::create([
+                'customer_id' => $customer->id,
+                'account_id' => $account->id,
+                'status' => $validated['status'],
+                'previous_status' => $previousStatus,
+                'changed_by' => Auth::id(),
+            ]);
+        }
+
+        $after = $account->fresh()->only(array_keys($before));
+        $diff = [];
+        foreach ($after as $key => $newVal) {
+            if ((string) ($before[$key] ?? '') !== (string) $newVal) {
+                $diff[$key] = ['before' => $before[$key], 'after' => $newVal];
+            }
+        }
 
         activity()
             ->causedBy(Auth::user())
@@ -748,15 +897,84 @@ class CustomerController extends Controller
                 'action' => 'account_updated',
                 'account_id' => $account->id,
                 'account_no' => $account->account_no,
-                'before' => $before,
-                'after' => $account->fresh()->only(array_keys($before)),
+                'diff' => $diff,
             ])
             ->log('Customer account updated');
 
         return response()->json([
             'message' => 'Account updated.',
-            'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts']),
+            'status_log_id' => $statusLog?->id,
+            'customer' => $customer->load(['documents', 'branch', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']),
         ]);
+    }
+
+    /**
+     * Add status-change documents alongside existing ones (no archiving).
+     * Used when a user uploads documents after a status change (e.g. reactivated, dormant).
+     */
+    /**
+     * Add status-change documents alongside existing ones (no archiving).
+     * Linked to a specific CustomerStatusLog entry via status_log_id.
+     */
+    public function uploadStatusDocument(Request $request, Customer $customer): JsonResponse
+    {
+        $this->authorize('edit-customers');
+
+        $request->validate([
+            'account_status' => 'required|string|in:active,dormant,reactivated,escheat,closed',
+            'status_log_id' => 'nullable|integer|exists:customer_status_logs,id',
+        ]);
+
+        $accountStatus = $request->input('account_status');
+        $statusLogId = $request->input('status_log_id');
+
+        // Auto-resolve the log if the frontend didn't pass one —
+        // find the most recent status log for this customer with a matching status.
+        if (! $statusLogId) {
+            $statusLogId = \App\Models\CustomerStatusLog::where('customer_id', $customer->id)
+                ->where('status', $accountStatus)
+                ->latest()
+                ->value('id');
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $this->storePairs($customer, $request, 'sigcardPairs', 'sigcard_front', 'sigcard_back', $accountStatus, $statusLogId);
+            $this->storePairs($customer, $request, 'naisPairs', 'nais_front', 'nais_back', $accountStatus, $statusLogId);
+            $this->storePairs($customer, $request, 'privacyPairs', 'privacy_front', 'privacy_back', $accountStatus, $statusLogId);
+
+            foreach ($request->file('otherDocs', []) as $personIndex => $files) {
+                $files = is_array($files) ? $files : [$files];
+                foreach ($files as $file) {
+                    $this->uploadDocument($customer, $file, 'other', (int) $personIndex, $accountStatus, $statusLogId);
+                }
+            }
+
+            DB::commit();
+
+            activity()
+                ->causedBy(Auth::user())
+                ->performedOn($customer)
+                ->withProperties([
+                    'action' => 'status_document_uploaded',
+                    'full_name' => $customer->full_name,
+                    'account_status' => $accountStatus,
+                    'status_log_id' => $statusLogId,
+                ])
+                ->log('Status-change documents uploaded for customer');
+
+            return response()->json([
+                'message' => 'Status documents uploaded successfully.',
+                'customer' => $customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Unable to upload status documents. Please try again.',
+            ], 500);
+        }
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -770,7 +988,9 @@ class CustomerController extends Controller
         Request $request,
         string $pairsKey,
         string $frontType,
-        string $backType
+        string $backType,
+        ?string $accountStatus = null,
+        ?int $statusLogId = null
     ): void {
         $pairs = $request->file($pairsKey, []);
         $pairsMeta = $request->input($pairsKey, []);
@@ -782,11 +1002,11 @@ class CustomerController extends Controller
                 : $index + 1;
 
             if (! empty($pair['front'])) {
-                $this->uploadDocument($customer, $pair['front'], $frontType, $personIndex);
+                $this->uploadDocument($customer, $pair['front'], $frontType, $personIndex, $accountStatus, $statusLogId);
             }
 
             if (! empty($pair['back'])) {
-                $this->uploadDocument($customer, $pair['back'], $backType, $personIndex);
+                $this->uploadDocument($customer, $pair['back'], $backType, $personIndex, $accountStatus, $statusLogId);
             }
         }
     }
@@ -811,7 +1031,9 @@ class CustomerController extends Controller
         Customer $customer,
         UploadedFile $file,
         string $documentType,
-        int $personIndex
+        int $personIndex,
+        ?string $accountStatus = null,
+        ?int $statusLogId = null
     ): CustomerDocument {
         // ── Optimise image ───────────────────────────────────────────────────
         $image = $this->imageManager()->read($file->getRealPath());
@@ -825,6 +1047,9 @@ class CustomerController extends Controller
         $customer->loadMissing('branch');
 
         $directory = $this->buildDirectory($customer);
+        if ($accountStatus) {
+            $directory .= '/'.$this->sanitizeName(strtoupper($accountStatus));
+        }
         $filename = $this->buildFilename($documentType, $personIndex, $file);
         $path = "{$directory}/{$filename}";
 
@@ -834,6 +1059,9 @@ class CustomerController extends Controller
             'customer_id' => $customer->id,
             'document_type' => $documentType,
             'person_index' => $personIndex,
+            'account_status' => $accountStatus,
+            'status_log_id' => $statusLogId,
+            'is_current' => true,
             'file_path' => $path,
             'file_name' => $filename,
             'file_size' => strlen((string) $encoded),
@@ -982,19 +1210,30 @@ class CustomerController extends Controller
         Request $request,
         string $pairsKey,
         string $frontType,
-        string $backType
+        string $backType,
+        ?string $accountStatus = null
     ): void {
-        $existing = $customer->documents()->whereIn('document_type', [$frontType, $backType])->get();
+        $existing = $customer->documents()
+            ->whereIn('document_type', [$frontType, $backType])
+            ->where('is_current', true)
+            ->get();
 
         foreach ($existing as $doc) {
+            $oldFileName = $doc->file_name;
             $pathInfo = pathinfo($doc->file_path);
-            $archiveName = $pathInfo['filename'].'_archived_'.now()->format('Ymd_His').'.jpg';
-            $archiveDir = 'archive/'.($pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] : '');
-            $archivedPath = rtrim($archiveDir, '/').'/'.$archiveName;
+            $dir = $pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] : '';
+            $versionedName = $pathInfo['filename'].'_v'.now()->format('Ymd_His').'.jpg';
+            $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
 
             if (Storage::disk('public')->exists($doc->file_path)) {
-                Storage::disk('public')->move($doc->file_path, $archivedPath);
+                Storage::disk('public')->move($doc->file_path, $versionedPath);
             }
+
+            $doc->update([
+                'is_current' => false,
+                'file_path' => $versionedPath,
+                'file_name' => $versionedName,
+            ]);
 
             activity()
                 ->causedBy(Auth::user())
@@ -1004,15 +1243,13 @@ class CustomerController extends Controller
                     'full_name' => $customer->full_name,
                     'document_type' => $doc->document_type,
                     'person_index' => $doc->person_index,
-                    'replaced_file' => $doc->file_name,
-                    'archived_file_path' => $archivedPath,
+                    'replaced_file' => $oldFileName,
+                    'versioned_file_path' => $versionedPath,
                 ])
                 ->log('Customer document replaced');
-
-            $doc->delete();
         }
 
-        $this->storePairs($customer, $request, $pairsKey, $frontType, $backType);
+        $this->storePairs($customer, $request, $pairsKey, $frontType, $backType, $accountStatus);
     }
 
     /**

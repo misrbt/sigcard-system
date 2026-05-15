@@ -5,7 +5,10 @@ import {
   MdToggleOn, MdToggleOff, MdLockReset, MdDelete,
   MdArrowUpward, MdArrowDownward, MdUnfoldMore,
   MdFileDownload, MdPeople, MdCheckCircle, MdBlock, MdLock,
+  MdBuild, MdDevices, MdLogout, MdWarning, MdInfo,
+  MdAccessTime, MdComputer, MdVpnKey, MdKey, MdShield,
 } from 'react-icons/md';
+import { FaUserShield } from 'react-icons/fa';
 import { adminService } from '../../services/adminService';
 import Modal from '../../components/common/Modal';
 import Input from '../../components/ui/Input';
@@ -57,6 +60,386 @@ const UserForm = ({
     </div>
   </div>
 );
+
+// ── Login Troubleshooter Modal ────────────────────────────────────────────────
+const fmtDate = (iso) => {
+  if (!iso) return 'Never';
+  return new Date(iso).toLocaleString('en-PH', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+};
+
+const parseUA = (ua) => {
+  if (!ua) return { browser: 'Unknown', os: 'Unknown' };
+  let browser = 'Unknown', os = 'Unknown';
+  if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//.test(ua)) browser = 'Firefox';
+  else if (/Edg\//.test(ua)) browser = 'Edge';
+  else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) browser = 'Safari';
+  if (/Windows/.test(ua)) os = 'Windows';
+  else if (/Mac OS/.test(ua)) os = 'macOS';
+  else if (/Linux/.test(ua)) os = 'Linux';
+  else if (/Android/.test(ua)) os = 'Android';
+  else if (/iPhone|iPad/.test(ua)) os = 'iOS';
+  return { browser, os };
+};
+
+const StatusChip = ({ ok, label }) => (
+  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+    ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+  }`}>
+    <span className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} />
+    {label}
+  </span>
+);
+
+const Section = ({ title, icon: Icon, iconColor = 'text-[#053161]', children }) => (
+  <div className="rounded-xl border border-gray-200 overflow-hidden">
+    <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+      <Icon className={`w-4 h-4 ${iconColor}`} />
+      <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">{title}</span>
+    </div>
+    <div className="p-4">{children}</div>
+  </div>
+);
+
+const ActionBtn = ({ onClick, loading, disabled, color = 'blue', icon: Icon, children }) => {
+  const colors = {
+    blue:   'bg-[#053161] hover:bg-[#0d4a8a] text-white',
+    amber:  'bg-amber-500 hover:bg-amber-600 text-white',
+    red:    'bg-red-500 hover:bg-red-600 text-white',
+    green:  'bg-emerald-500 hover:bg-emerald-600 text-white',
+    ghost:  'bg-white hover:bg-gray-50 text-gray-700 border border-gray-300',
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading || disabled}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${colors[color]}`}
+    >
+      {loading
+        ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+        : Icon && <Icon className="w-3.5 h-3.5" />}
+      {children}
+    </button>
+  );
+};
+
+const LoginTroubleshooterModal = ({ user, onClose, onRefreshList }) => {
+  const [status, setStatus]   = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy]       = useState({}); // per-action loading keys
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await adminService.getUserLoginStatus(user.id);
+      setStatus(res.data.data);
+    } catch {
+      Swal.fire({ icon: 'error', title: 'Failed', text: 'Could not load login status.', confirmButtonColor: '#053161' });
+    } finally { setLoading(false); }
+  }, [user.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const act = async (key, fn, successMsg) => {
+    setBusy((p) => ({ ...p, [key]: true }));
+    try {
+      await fn();
+      Swal.fire({ icon: 'success', title: 'Done', text: successMsg, confirmButtonColor: '#053161', timer: 3000, timerProgressBar: true });
+      await load();
+      onRefreshList();
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Failed', text: err.response?.data?.message || 'Action failed.', confirmButtonColor: '#053161' });
+    } finally { setBusy((p) => ({ ...p, [key]: false })); }
+  };
+
+  const handleUnlock          = () => act('unlock',       () => adminService.unlockUser(user.id),               'Login attempts cleared. Account is now unlocked.');
+  const handleRevokeAll       = () => act('revokeAll',    () => adminService.revokeAllSessions(user.id),           'All sessions revoked. The user must sign in again.');
+  const handleRevokeToken     = (id) => act(`tok_${id}`, () => adminService.revokeToken(user.id, id),             'Session revoked successfully.');
+  const handleClearFPC        = () => act('fpc',          () => adminService.clearForcePasswordChange(user.id),   'Password change requirement removed.');
+  const handleRestoreAccess   = () => act('restore',      () => adminService.restoreLoginAccess(user.id),         'Login access restored. The user can now sign in fresh.');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/75">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="relative bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex-shrink-0">
+          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 30% 50%, #1877F2 0%, transparent 60%)' }} />
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-white/10">
+                <FaUserShield className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white leading-tight">Login Troubleshooter</h2>
+                <p className="text-sm text-blue-200 mt-0.5">{user.firstname} {user.lastname} — {user.email}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={load} disabled={loading} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors disabled:opacity-50" title="Refresh">
+                <MdRefresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+              <button onClick={onClose} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
+                <span className="text-lg leading-none">×</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <div className="w-8 h-8 border-4 border-[#053161]/20 border-t-[#053161] rounded-full animate-spin" />
+              <p className="text-sm text-gray-400">Loading login status…</p>
+            </div>
+          ) : !status ? null : (
+            <>
+              {/* ── Quick-glance banner ── */}
+              {(status.is_locked || status.is_password_expired || status.is_account_expired || status.force_password_change || status.account_status !== 'active') && (
+                <div className="flex flex-wrap gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <MdWarning className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs font-semibold text-amber-700 flex-1">
+                    Possible reasons this user cannot sign in:
+                  </p>
+                  <div className="w-full flex flex-wrap gap-2 pl-6">
+                    {status.is_locked           && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Account is locked</span>}
+                    {status.is_password_expired && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Password expired</span>}
+                    {status.is_account_expired  && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Account expired</span>}
+                    {status.force_password_change && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Forced to change password</span>}
+                    {status.account_status !== 'active' && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Account is {status.account_status}</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Quick Fix Banner ── */}
+              <div className="flex items-center justify-between gap-4 p-4 bg-[#05173a] rounded-xl border border-[#0d4a8a]">
+                <div>
+                  <p className="text-sm font-bold text-white">Restore Full Login Access</p>
+                  <p className="text-xs text-blue-300 mt-0.5">
+                    Unlocks the account, clears all failed login attempts, and signs out all active sessions in one step.
+                    After this the user can log in fresh from any device.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRestoreAccess}
+                  disabled={!!busy.restore}
+                  className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-[#053161] text-sm font-bold hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow"
+                >
+                  {busy.restore
+                    ? <span className="w-4 h-4 border-2 border-[#053161]/30 border-t-[#053161] rounded-full animate-spin" />
+                    : <MdVpnKey className="w-4 h-4" />}
+                  Restore Login Access
+                </button>
+              </div>
+
+              {/* ── Section 1: Login Attempts & Lockout ── */}
+              <Section title="Login Attempts & Account Lock" icon={MdLock} iconColor="text-amber-600">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500">Failed Login Attempts:</span>
+                        <span className={`text-sm font-bold ${status.failed_attempts > 0 ? 'text-amber-600' : 'text-gray-800'}`}>
+                          {status.failed_attempts} out of {status.max_attempts}
+                        </span>
+                        {status.failed_attempts > 0 && (
+                          <div className="flex gap-0.5">
+                            {Array.from({ length: status.max_attempts }).map((_, i) => (
+                              <div key={i} className={`w-3 h-3 rounded-full border ${i < status.failed_attempts ? 'bg-amber-400 border-amber-500' : 'bg-gray-100 border-gray-300'}`} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500">Account Lock Status:</span>
+                        <StatusChip ok={!status.is_locked} label={status.is_locked ? `Locked — unlocks in ${status.minutes_remaining} min` : 'Not Locked'} />
+                      </div>
+                    </div>
+                    {(status.is_locked || status.failed_attempts > 0) && (
+                      <ActionBtn onClick={handleUnlock} loading={!!busy.unlock} color="amber" icon={MdLockOpen}>
+                        {status.is_locked ? 'Unlock & Clear Attempts' : 'Clear Failed Attempts'}
+                      </ActionBtn>
+                    )}
+                  </div>
+                  {status.failed_attempts === 0 && !status.is_locked && (
+                    <p className="text-xs text-emerald-600 flex items-center gap-1.5">
+                      <MdCheckCircle className="w-3.5 h-3.5" /> No login attempt issues found.
+                    </p>
+                  )}
+                </div>
+              </Section>
+
+              {/* ── Section 2: Active Sessions ── */}
+              <Section title="Active Sessions" icon={MdDevices} iconColor="text-blue-600">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-gray-500">Sessions open right now:</span>
+                      <span className="font-bold text-gray-800">{status.active_sessions_count}</span>
+                      {status.session_limit > 0 && (
+                        <span className="text-gray-400">of {status.session_limit} allowed</span>
+                      )}
+                      {status.session_limit > 0 && status.active_sessions_count >= status.session_limit && (
+                        <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">Limit Reached</span>
+                      )}
+                    </div>
+                    {status.active_sessions_count > 0 && (
+                      <ActionBtn onClick={handleRevokeAll} loading={!!busy.revokeAll} color="red" icon={MdLogout}>
+                        Sign Out All Sessions
+                      </ActionBtn>
+                    )}
+                  </div>
+
+                  {status.sessions.length === 0 ? (
+                    <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                      <MdInfo className="w-3.5 h-3.5" /> No active sessions.
+                    </p>
+                  ) : (
+                    <div className="rounded-lg border border-gray-200 overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">Device / Browser</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">IP Address</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">Last Active</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">Expires</th>
+                            <th className="px-3 py-2" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {status.sessions.map((s) => {
+                            const { browser, os } = parseUA(s.user_agent);
+                            return (
+                              <tr key={s.id} className="hover:bg-gray-50">
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <MdComputer className="w-3.5 h-3.5 text-gray-400" />
+                                    <span className="text-gray-700 font-medium">{browser}</span>
+                                    <span className="text-gray-400">/ {os}</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 font-mono text-gray-600">{s.ip || '—'}</td>
+                                <td className="px-3 py-2 text-gray-500">{fmtDate(s.last_activity || s.created_at)}</td>
+                                <td className="px-3 py-2 text-gray-500">
+                                  {s.expires_at ? fmtDate(s.expires_at) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <ActionBtn onClick={() => handleRevokeToken(s.id)} loading={!!busy[`tok_${s.id}`]} color="ghost" icon={MdLogout}>
+                                    Sign Out
+                                  </ActionBtn>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-gray-400">
+                    Signing out all sessions forces the user to log in again on every device.
+                    Use this if they are stuck due to reaching the session limit.
+                  </p>
+                </div>
+              </Section>
+
+              {/* ── Section 3: Security Flags ── */}
+              <Section title="Security Flags & Restrictions" icon={MdShield} iconColor="text-purple-600">
+                <div className="space-y-2.5">
+
+                  {/* Force password change */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Must Change Password on Next Login</p>
+                      <p className="text-xs text-gray-400">When this is ON, the user is forced to set a new password before they can use the system.</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <StatusChip ok={!status.force_password_change} label={status.force_password_change ? 'Required' : 'Not Required'} />
+                      {status.force_password_change && (
+                        <ActionBtn onClick={handleClearFPC} loading={!!busy.fpc} color="green" icon={MdKey}>
+                          Remove Requirement
+                        </ActionBtn>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Password expiry */}
+                  <div className="h-px bg-gray-100" />
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Password Expiry</p>
+                      <p className="text-xs text-gray-400">If expired, the user must reset their password before logging in.</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {status.password_expires_at
+                        ? <StatusChip ok={!status.is_password_expired} label={status.is_password_expired ? `Expired ${fmtDate(status.password_expires_at)}` : `Expires ${fmtDate(status.password_expires_at)}`} />
+                        : <span className="text-xs text-gray-400">No expiry set</span>}
+                    </div>
+                  </div>
+
+                  {/* Account expiry */}
+                  <div className="h-px bg-gray-100" />
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Account Expiry Date</p>
+                      <p className="text-xs text-gray-400">If expired, the user cannot log in at all until the date is extended.</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      {status.account_expires_at
+                        ? <StatusChip ok={!status.is_account_expired} label={status.is_account_expired ? `Expired ${fmtDate(status.account_expires_at)}` : `Expires ${fmtDate(status.account_expires_at)}`} />
+                        : <span className="text-xs text-gray-400">Never expires</span>}
+                    </div>
+                  </div>
+
+                  {/* Account status */}
+                  <div className="h-px bg-gray-100" />
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Account Status</p>
+                      <p className="text-xs text-gray-400">Account must be Active to allow login.</p>
+                    </div>
+                    <StatusChip ok={status.account_status === 'active'} label={status.account_status} />
+                  </div>
+
+                </div>
+              </Section>
+
+              {/* ── Section 4: Last Login Info ── */}
+              <Section title="Last Successful Login" icon={MdAccessTime} iconColor="text-gray-400">
+                {status.last_login_at ? (
+                  <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      { label: 'Date & Time', value: fmtDate(status.last_login_at) },
+                      { label: 'IP Address', value: status.last_login_ip || '—', mono: true },
+                      { label: 'Browser / Device', value: (() => { const { browser, os } = parseUA(status.last_login_user_agent); return `${browser} on ${os}`; })() },
+                    ].map(({ label, value, mono }) => (
+                      <div key={label}>
+                        <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</dt>
+                        <dd className={`text-sm text-gray-700 mt-0.5 ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="text-xs text-gray-400">This user has never signed in.</p>
+                )}
+              </Section>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 flex-shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const EMPTY_FORM = {
@@ -123,10 +506,11 @@ const UserManagement = () => {
   const [roles, setRoles]     = useState([]);
   const [branches, setBranches] = useState([]);
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal]     = useState(false);
-  const [showResetModal, setShowResetModal]   = useState(false);
-  const [selectedUser, setSelectedUser]       = useState(null);
+  const [showCreateModal, setShowCreateModal]         = useState(false);
+  const [showEditModal, setShowEditModal]             = useState(false);
+  const [showResetModal, setShowResetModal]           = useState(false);
+  const [showTroubleshooter, setShowTroubleshooter]   = useState(false);
+  const [selectedUser, setSelectedUser]               = useState(null);
   const [formData, setFormData]               = useState(EMPTY_FORM);
   const [formErrors, setFormErrors]           = useState({});
   const [submitting, setSubmitting]           = useState(false);
@@ -444,7 +828,7 @@ const UserManagement = () => {
             <select
               value={perPage}
               onChange={(e) => setPerPage(Number(e.target.value))}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
+              className="text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
             >
               {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
@@ -544,6 +928,12 @@ const UserManagement = () => {
                             className="p-1.5 rounded-lg text-orange-500 hover:bg-orange-50 transition-colors" title="Reset Password"
                           >
                             <MdLockReset className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => { setSelectedUser(user); setShowTroubleshooter(true); }}
+                            className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50 transition-colors" title="Troubleshoot Login"
+                          >
+                            <MdBuild className="w-4 h-4" />
                           </button>
                           <button onClick={() => handleToggleStatus(user)} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-50 transition-colors" title={user.status === 'active' ? 'Deactivate' : 'Activate'}>
                             {user.status === 'active'
@@ -653,6 +1043,15 @@ const UserManagement = () => {
           </div>
         </div>
       </Modal>
+
+      {/* ── Login Troubleshooter ── */}
+      {showTroubleshooter && selectedUser && (
+        <LoginTroubleshooterModal
+          user={selectedUser}
+          onClose={() => { setShowTroubleshooter(false); setSelectedUser(null); }}
+          onRefreshList={() => fetchUsers(currentPage)}
+        />
+      )}
     </div>
   );
 };

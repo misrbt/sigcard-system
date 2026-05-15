@@ -19,11 +19,12 @@ import { useAuth } from "../../hooks/useAuth";
 import api from "../../services/api";
 
 const ROLE_CUSTOMER_BASE = {
-  admin:             "/admin/customers",
-  manager:           "/manager/customers",
-  cashier:           "/cashier/customers",
-  user:              "/user/customers",
-  "compliance-audit": "/compliance/customers",
+  admin:              "/admin/customers",
+  manager:            "/manager/customers",
+  cashier:            "/cashier/customers",
+  user:               "/user/customers",
+  compliance: "/compliance/customers",
+  audit:      "/compliance/customers",
 };
 
 const riskStyle = {

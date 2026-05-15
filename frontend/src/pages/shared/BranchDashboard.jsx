@@ -3,31 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../services/api';
+import ReactApexChart from 'react-apexcharts';
 import {
-  HiOutlineUsers,
-  HiOutlineDocumentText,
-  HiOutlineCloudUpload,
-  HiOutlineUserGroup,
-  HiOutlineCheckCircle,
-  HiOutlineMoon,
-  HiOutlineExclamation,
-  HiOutlineLockClosed,
-  HiOutlineRefresh,
-  HiOutlineChevronRight,
-  HiOutlineOfficeBuilding,
-  HiOutlineShieldCheck,
-  HiOutlineCreditCard,
-  HiOutlineTrendingUp,
-  HiOutlineCalendar,
-  HiOutlineEye,
+  HiOutlineUsers, HiOutlineDocumentText, HiOutlineCloudUpload, HiOutlineUserGroup,
+  HiOutlineCheckCircle, HiOutlineMoon, HiOutlineExclamation, HiOutlineLockClosed,
+  HiOutlineRefresh, HiOutlineChevronRight, HiOutlineOfficeBuilding,
+  HiOutlineShieldCheck, HiOutlineCreditCard, HiOutlineTrendingUp, HiOutlineEye,
 } from 'react-icons/hi';
 
-// ── Status config ──────────────────────────────────────────────────────────────
 const STATUS_CFG = {
-  active:  { label: 'Active',  icon: HiOutlineCheckCircle,  gradient: 'from-emerald-500 to-green-600',  bg: 'bg-emerald-50',  text: 'text-emerald-700', ring: 'ring-emerald-200', dot: 'bg-emerald-500'  },
-  dormant: { label: 'Dormant', icon: HiOutlineMoon,         gradient: 'from-amber-500 to-yellow-600',   bg: 'bg-amber-50',    text: 'text-amber-700',   ring: 'ring-amber-200',   dot: 'bg-amber-500'    },
-  escheat: { label: 'Escheat', icon: HiOutlineExclamation,  gradient: 'from-orange-500 to-amber-600',   bg: 'bg-orange-50',   text: 'text-orange-700',  ring: 'ring-orange-200',  dot: 'bg-orange-500'   },
-  closed:  { label: 'Closed',  icon: HiOutlineLockClosed,   gradient: 'from-red-500 to-rose-600',       bg: 'bg-red-50',      text: 'text-red-700',     ring: 'ring-red-200',     dot: 'bg-red-500'      },
+  active:  { label: 'Active',  icon: HiOutlineCheckCircle, dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', circle: 'bg-emerald-600', bar: '#10B981' },
+  dormant: { label: 'Dormant', icon: HiOutlineMoon,        dot: 'bg-amber-500',   text: 'text-amber-700',   bg: 'bg-amber-50',   circle: 'bg-amber-600',   bar: '#F59E0B' },
+  escheat: { label: 'Escheat', icon: HiOutlineExclamation, dot: 'bg-orange-500',  text: 'text-orange-700',  bg: 'bg-orange-50',  circle: 'bg-orange-600',  bar: '#F97316' },
+  closed:  { label: 'Closed',  icon: HiOutlineLockClosed,  dot: 'bg-red-500',     text: 'text-red-700',     bg: 'bg-red-50',     circle: 'bg-red-600',     bar: '#EF4444' },
 };
 
 const RISK_COLORS = {
@@ -37,44 +25,53 @@ const RISK_COLORS = {
 };
 
 const ACCT_COLORS = {
-  Individual: { bar: 'bg-blue-500',   text: 'text-blue-700',   bg: 'bg-blue-50'   },
-  Regular:    { bar: 'bg-blue-500',   text: 'text-blue-700',   bg: 'bg-blue-50'   },
-  Joint:      { bar: 'bg-purple-500', text: 'text-purple-700', bg: 'bg-purple-50' },
-  Corporate:  { bar: 'bg-slate-500',  text: 'text-slate-700',  bg: 'bg-slate-100' },
+  Individual: { bar: 'bg-[#487FFF]', hex: '#487FFF' },
+  Regular:    { bar: 'bg-[#487FFF]', hex: '#487FFF' },
+  Joint:      { bar: 'bg-violet-500', hex: '#8B5CF6' },
+  Corporate:  { bar: 'bg-teal-500',   hex: '#14B8A6' },
 };
 
-// ── Card wrapper ───────────────────────────────────────────────────────────────
-const ClickableCard = ({ onClick, children, className = '', delay = 0 }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 16 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay: delay * 0.06, duration: 0.35 }}
-    whileHover={{ y: -3, boxShadow: '0 12px 28px -8px rgba(0,0,0,0.12)' }}
-    onClick={onClick}
-    className={`bg-white rounded-2xl border border-slate-200 shadow-sm transition-all ${onClick ? 'cursor-pointer' : ''} ${className}`}
-  >
-    {children}
-  </motion.div>
+const STAT_CARDS = [
+  { key: 'total_customers', label: 'Total Customers', iconBg: 'bg-cyan-600',    gradient: 'from-[#f2fdff] to-[#d4f7ff]', navKey: 'customers' },
+  { key: 'total_documents', label: 'Total Documents', iconBg: 'bg-teal-600',    gradient: 'from-[#f0fdfa] to-[#ccfbf1]', navKey: 'documents'  },
+  { key: 'today_uploads',   label: "Today's Uploads", iconBg: 'bg-orange-500',  gradient: 'from-[#fff7ed] to-[#ffefdd]', navKey: 'customers'  },
+  { key: 'branch_users',    label: 'Branch Users',    iconBg: 'bg-violet-600',  gradient: 'from-[#faf5ff] to-[#e9e0ff]', navKey: null         },
+];
+
+const STAT_ICONS = {
+  total_customers: HiOutlineUsers,
+  total_documents: HiOutlineDocumentText,
+  today_uploads:   HiOutlineCloudUpload,
+  branch_users:    HiOutlineUserGroup,
+};
+
+const CardWrap = ({ children, className = '' }) => (
+  <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden ${className}`}>{children}</div>
+);
+const CardHead = ({ children }) => (
+  <div className="border-b border-gray-100 px-6 py-4 flex items-center justify-between">{children}</div>
+);
+const CardBody = ({ children, className = '' }) => (
+  <div className={`px-6 py-5 ${className}`}>{children}</div>
 );
 
-// ── Skeleton ───────────────────────────────────────────────────────────────────
 const Skeleton = () => (
   <div className="space-y-5 animate-pulse">
-    <div className="h-28 bg-slate-200 rounded-2xl" />
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      {[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-slate-200 rounded-2xl" />)}
-    </div>
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-      {[...Array(4)].map((_, i) => <div key={i} className="h-24 bg-slate-200 rounded-2xl" />)}
-    </div>
-    <div className="grid grid-cols-2 gap-5">
-      <div className="h-48 bg-slate-200 rounded-2xl" />
-      <div className="h-48 bg-slate-200 rounded-2xl" />
+    <div className="h-24 bg-gray-200 rounded-2xl" />
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-gray-200 rounded-2xl" />)}</div>
+    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      <div className="xl:col-span-8 space-y-6">
+        <div className="h-72 bg-gray-200 rounded-2xl" />
+        <div className="grid grid-cols-2 gap-6"><div className="h-56 bg-gray-200 rounded-2xl" /><div className="h-56 bg-gray-200 rounded-2xl" /></div>
+      </div>
+      <div className="xl:col-span-4 space-y-6">
+        <div className="h-56 bg-gray-200 rounded-2xl" />
+        <div className="h-56 bg-gray-200 rounded-2xl" />
+      </div>
     </div>
   </div>
 );
 
-// ── Main component ─────────────────────────────────────────────────────────────
 const BranchDashboard = ({ title, apiEndpoint, basePath = '/manager' }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -107,7 +104,7 @@ const BranchDashboard = ({ title, apiEndpoint, basePath = '/manager' }) => {
           <HiOutlineExclamation className="w-8 h-8 text-red-500" />
         </div>
         <p className="text-red-600 font-semibold">{error}</p>
-        <button onClick={fetchDashboard} className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-semibold">
+        <button onClick={fetchDashboard} className="flex items-center gap-2 px-5 py-2.5 bg-[#487FFF] text-white rounded-lg hover:bg-[#486CEA] transition-colors text-sm font-semibold">
           <HiOutlineRefresh className="w-4 h-4" /> Try Again
         </button>
       </div>
@@ -115,394 +112,402 @@ const BranchDashboard = ({ title, apiEndpoint, basePath = '/manager' }) => {
   }
 
   const s = data.summary;
+  const uploads = data.monthly_uploads ?? [];
   const goCustomers = () => navigate(`${basePath}/customers`);
-  const goDocuments = () => navigate(`${basePath}/documents`);
+
+  // ── Chart configs ───────────────────────────────────────────────────────────
+  const barOpts = {
+    series: [{ name: 'Customers Uploaded', data: uploads.map(m => m.count) }],
+    colors: ['#487FFF'],
+    chart: { type: 'bar', height: 250, toolbar: { show: false } },
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '50%' } },
+    dataLabels: { enabled: false },
+    grid: { show: true, borderColor: '#E5E7EB', strokeDashArray: 4, position: 'back' },
+    xaxis: { categories: uploads.map(m => m.label) },
+    yaxis: { labels: { formatter: v => Number(v).toLocaleString() } },
+    legend: { show: false },
+  };
+
+  const acctKeys = Object.keys(data.by_account_type ?? {});
+  const acctVals = Object.values(data.by_account_type ?? {});
+  const acctPieOpts = {
+    series: acctVals,
+    chart: { type: 'pie', height: 220 },
+    labels: acctKeys,
+    colors: acctKeys.map(k => ACCT_COLORS[k]?.hex ?? '#6B7280'),
+    legend: { show: true, position: 'bottom' },
+  };
 
   return (
     <div className="space-y-6">
 
-      {/* ── Page Header ──────────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-6 shadow-xl">
-        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 80% 50%, #1877F2 0%, transparent 50%)' }} />
-        <div className="absolute top-0 right-0 w-64 h-64 opacity-5" style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-extrabold text-white tracking-tight">{title}</h1>
-            <div className="flex items-center gap-2 mt-2">
-              <HiOutlineOfficeBuilding className="w-4 h-4 text-blue-300" />
-              <p className="text-sm text-blue-200">
+      {/* ── Header ──────────────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #487FFF, #8B5CF6)' }}>
+              <HiOutlineOfficeBuilding className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">{title}</h1>
+              <p className="text-sm text-gray-500">
                 {data.branch?.branch_name ?? user?.branch?.branch_name ?? '—'}
+                {data.branch_breakdown?.length > 0 && (
+                  <span className="text-gray-400 ml-1">+ {data.branch_breakdown.length - 1} lite branches</span>
+                )}
               </p>
-              {data.branch_breakdown?.length > 0 && (
-                <span className="text-xs text-blue-300/60 ml-1">+ {data.branch_breakdown.length - 1} lite branches</span>
-              )}
             </div>
           </div>
-          <button
-            onClick={fetchDashboard}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-all self-start sm:self-auto backdrop-blur-sm"
-          >
+          <button onClick={fetchDashboard} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors self-start sm:self-auto">
             <HiOutlineRefresh className="w-4 h-4" /> Refresh
           </button>
         </div>
       </div>
 
-      {/* ── Primary Stat Cards (clickable) ───────────────────────────────────── */}
+      {/* ── Stat Cards ──────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Customers',  value: s.total_customers, icon: HiOutlineUsers,       gradient: 'from-blue-500 to-indigo-600',  onClick: goCustomers },
-          { label: 'Total Documents',  value: s.total_documents, icon: HiOutlineDocumentText, gradient: 'from-teal-500 to-cyan-600',    onClick: goDocuments },
-          { label: "Today's Uploads",  value: s.today_uploads,   icon: HiOutlineCloudUpload,  gradient: 'from-violet-500 to-purple-600', onClick: goCustomers },
-          { label: 'Branch Users',     value: s.branch_users,    icon: HiOutlineUserGroup,    gradient: 'from-slate-500 to-slate-600',   onClick: null },
-        ].map(({ label, value, icon: Icon, gradient, onClick }, i) => (
-          <ClickableCard key={label} onClick={onClick} delay={i}>
-            <div className="p-5 flex items-start justify-between">
-              <div className="flex-1">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-                <p className="text-3xl font-extrabold text-slate-900 mt-2">{value?.toLocaleString() ?? '—'}</p>
+        {STAT_CARDS.map(({ key, label, iconBg, gradient, navKey }, i) => {
+          const Icon  = STAT_ICONS[key];
+          const value = s[key];
+          const to    = navKey ? `${basePath}/${navKey}` : null;
+          return (
+            <motion.div
+              key={key}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06 }}
+              onClick={to ? () => navigate(to) : undefined}
+              className={`p-4 rounded-2xl border border-white/80 bg-gradient-to-r ${gradient} shadow-sm ${to ? 'cursor-pointer hover:-translate-y-0.5 transition-transform' : ''}`}
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <span className={`w-12 h-12 ${iconBg} flex-shrink-0 text-white flex justify-center items-center rounded-full text-lg`}>
+                  <Icon />
+                </span>
+                <div>
+                  <span className="font-medium text-gray-600 text-sm">{label}</span>
+                  <h6 className="font-bold text-gray-900 text-xl mt-0.5">{value?.toLocaleString() ?? '—'}</h6>
+                </div>
               </div>
-              <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center flex-shrink-0 shadow-lg`}>
-                <Icon className="w-5 h-5 text-white" />
-              </div>
-            </div>
-            {onClick && (
-              <div className="px-5 py-2.5 border-t border-slate-100 flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
-                View Details <HiOutlineChevronRight className="w-3.5 h-3.5" />
-              </div>
-            )}
-          </ClickableCard>
-        ))}
+              {to && (
+                <p className="text-xs text-[#487FFF] font-semibold flex items-center gap-1 mt-1">
+                  View Details <HiOutlineChevronRight className="w-3 h-3" />
+                </p>
+              )}
+            </motion.div>
+          );
+        })}
       </div>
 
-      {/* ── Status Breakdown Cards (clickable) ───────────────────────────────── */}
-      <div>
-        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">Customer Status Overview</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {['active', 'dormant', 'escheat', 'closed'].map((key, i) => {
-            const cfg = STATUS_CFG[key];
-            const Icon = cfg.icon;
-            const value = s[key] ?? 0;
-            const pct = s.total_customers > 0 ? ((value / s.total_customers) * 100).toFixed(1) : '0.0';
+      {/* ── Main 8/4 Grid ─────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
 
-            return (
-              <ClickableCard key={key} onClick={goCustomers} delay={i + 4} className={`ring-1 ${cfg.ring}`}>
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${cfg.gradient} flex items-center justify-center shadow-sm`}>
-                      <Icon className="w-4 h-4 text-white" />
+        {/* ── Left 8 columns ─────────────────────────────────────────────────── */}
+        <div className="xl:col-span-8 space-y-6">
+
+          {/* Monthly Bar Chart */}
+          <CardWrap>
+            <CardHead>
+              <h6 className="font-bold text-lg text-gray-900">Monthly Customer Uploads</h6>
+              <span className="text-xs text-gray-400">Last {uploads.length} months</span>
+            </CardHead>
+            <CardBody>
+              {uploads.length > 0
+                ? <ReactApexChart options={barOpts} series={barOpts.series} type="bar" height={250} />
+                : <p className="text-center text-gray-400 py-12">No upload data yet</p>
+              }
+            </CardBody>
+          </CardWrap>
+
+          {/* Status Breakdown + Account Type Pie */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            {/* Customer Status Progress */}
+            <CardWrap>
+              <CardHead>
+                <h6 className="font-bold text-lg text-gray-900">Customer Status</h6>
+                <button onClick={goCustomers} className="text-[#487FFF] text-sm font-medium hover:underline flex items-center gap-1">
+                  View All <HiOutlineChevronRight className="w-3 h-3" />
+                </button>
+              </CardHead>
+              <CardBody className="space-y-5">
+                {Object.entries(STATUS_CFG).map(([key, cfg]) => {
+                  const value = s[key] ?? 0;
+                  const pct   = s.total_customers > 0 ? ((value / s.total_customers) * 100).toFixed(1) : '0.0';
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4">
+                      <div className="flex items-center w-full gap-4 grow">
+                        <span className={`w-10 h-10 rounded-full flex justify-center items-center shrink-0 ${cfg.bg}`}>
+                          <span className={`w-3 h-3 rounded-full ${cfg.dot}`} />
+                        </span>
+                        <div className="grow">
+                          <h6 className="text-sm font-medium text-gray-800 mb-0">{cfg.label}</h6>
+                          <span className="text-xs text-gray-500">{value.toLocaleString()} customers</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-16">
+                          <div className="w-full bg-gray-100 rounded-full h-1.5">
+                            <div className={`${cfg.dot} h-full rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                        <span className="text-gray-600 text-xs font-semibold w-8 text-right">{pct}%</span>
+                      </div>
                     </div>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>{pct}%</span>
+                  );
+                })}
+              </CardBody>
+            </CardWrap>
+
+            {/* Account Type Pie */}
+            <CardWrap>
+              <CardHead>
+                <h6 className="font-bold text-lg text-gray-900">Account Types</h6>
+                <button onClick={goCustomers} className="text-[#487FFF] text-sm font-medium hover:underline flex items-center gap-1">
+                  View All <HiOutlineChevronRight className="w-3 h-3" />
+                </button>
+              </CardHead>
+              <CardBody>
+                {acctVals.length > 0
+                  ? <ReactApexChart options={acctPieOpts} series={acctPieOpts.series} type="pie" height={220} />
+                  : <p className="text-center text-gray-400 py-10">No data</p>
+                }
+              </CardBody>
+            </CardWrap>
+          </div>
+
+          {/* Risk Distribution */}
+          <CardWrap>
+            <CardHead>
+              <h6 className="font-bold text-lg text-gray-900">Risk Distribution</h6>
+              <div className="flex items-center gap-1 text-gray-400 text-xs"><HiOutlineShieldCheck /> AML Risk Classification</div>
+            </CardHead>
+            <div>
+              {Object.entries(data.by_risk_level ?? {}).map(([level, count], idx) => {
+                const c   = RISK_COLORS[level] ?? { bar: 'bg-gray-400', text: 'text-gray-600', bg: 'bg-gray-50' };
+                const pct = s.total_customers > 0 ? ((count / s.total_customers) * 100).toFixed(1) : '0.0';
+                return (
+                  <div key={level} className={`flex items-center justify-between px-6 py-4 border-b border-gray-100 last:border-0 ${idx % 2 === 0 ? 'bg-gray-50/50' : 'bg-white'}`}>
+                    <div className="flex items-center gap-4 grow">
+                      <span className={`w-10 h-10 rounded-full flex justify-center items-center shrink-0 ${c.bg}`}>
+                        <span className={`w-3 h-3 rounded-full ${c.bar}`} />
+                      </span>
+                      <div className="grow">
+                        <h6 className={`text-sm font-medium ${c.text}`}>{level}</h6>
+                        <span className="text-xs text-gray-500">{Number(count).toLocaleString()} customers</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-24">
+                        <div className="w-full bg-gray-100 rounded-full h-1.5">
+                          <div className={`${c.bar} h-full rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                      <span className={`text-sm font-semibold ${c.text} w-10 text-right`}>{pct}%</span>
+                    </div>
                   </div>
-                  <p className="text-2xl font-extrabold text-slate-900">{value.toLocaleString()}</p>
-                  <p className="text-xs font-semibold text-slate-500 mt-0.5">{cfg.label}</p>
-                  {/* Progress bar */}
-                  <div className="w-full bg-slate-100 rounded-full h-1.5 mt-3">
-                    <div className={`${cfg.dot} h-full rounded-full transition-all duration-700`} style={{ width: `${pct}%` }} />
+                );
+              })}
+            </div>
+          </CardWrap>
+
+          {/* Branch Breakdown Table (for multi-branch managers) */}
+          {data.branch_breakdown?.length > 0 && (
+            <CardWrap>
+              <CardHead>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #487FFF, #8B5CF6)' }}>
+                    <HiOutlineOfficeBuilding className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h6 className="font-bold text-base text-gray-900">Branch Summary</h6>
+                    <p className="text-[10px] text-gray-400">{data.branch_breakdown.length} branches under your scope</p>
                   </div>
                 </div>
-              </ClickableCard>
-            );
-          })}
+              </CardHead>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs uppercase tracking-wider">
+                      <th className="px-5 py-3 text-left text-gray-500 font-semibold">Branch</th>
+                      <th className="px-4 py-3 text-center text-gray-500 font-semibold">Total</th>
+                      <th className="px-4 py-3 text-center text-emerald-600 font-semibold">Active</th>
+                      <th className="px-4 py-3 text-center text-amber-600 font-semibold">Dormant</th>
+                      <th className="px-4 py-3 text-center text-orange-600 font-semibold">Escheat</th>
+                      <th className="px-4 py-3 text-center text-red-600 font-semibold">Closed</th>
+                      <th className="px-4 py-3 text-center text-[#487FFF] font-semibold">Today</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {data.branch_breakdown.map((b, idx) => (
+                      <tr key={b.branch_id} className={`hover:bg-blue-50/40 transition-colors ${idx === 0 ? 'bg-blue-50/20' : ''}`}>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center ${idx === 0 ? 'bg-blue-100' : 'bg-violet-100'}`}>
+                              <span className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-[#487FFF]' : 'bg-violet-400'}`} />
+                            </div>
+                            <div>
+                              <p className={`font-semibold text-gray-800 ${idx === 0 ? 'text-blue-900' : ''}`}>{b.branch_name}</p>
+                              <p className="text-[10px] text-gray-400">{b.brak}</p>
+                            </div>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${idx === 0 ? 'bg-blue-100 text-[#487FFF]' : 'bg-violet-100 text-violet-600'}`}>
+                              {idx === 0 ? 'Mother' : 'Lite'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-gray-900">{b.total.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-emerald-700">{b.active.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-amber-700">{b.dormant.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-orange-700">{b.escheat.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-red-700">{b.closed.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-[#487FFF]">{b.today_uploads.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardWrap>
+          )}
+        </div>
+
+        {/* ── Right 4 columns ──────────────────────────────────────────────────── */}
+        <div className="xl:col-span-4 space-y-6">
+
+          {/* Branch Overview */}
+          <CardWrap>
+            <CardHead>
+              <h6 className="font-bold text-lg text-gray-900">Branch Overview</h6>
+            </CardHead>
+            <CardBody className="p-0">
+              <div className="p-5">
+                <div className="relative py-8 text-center px-4 rounded-xl" style={{ background: 'linear-gradient(135deg, #487FFF 0%, #8B5CF6 100%)' }}>
+                  <h3 className="text-white text-3xl font-bold">{s.total_customers?.toLocaleString() ?? '0'}</h3>
+                  <span className="text-white/80 text-sm">Total Customers</span>
+                </div>
+              </div>
+              <div className="px-6 bg-gray-50 border-y border-gray-100 py-3">
+                <h6 className="font-bold text-base text-gray-800">Key Metrics</h6>
+              </div>
+              <div className="px-6 py-4 space-y-3">
+                {[
+                  { icon: <HiOutlineDocumentText />, label: 'Total Documents', value: s.total_documents ?? 0, color: 'text-teal-600' },
+                  { icon: <HiOutlineCloudUpload />,  label: "Today's Uploads",  value: s.today_uploads ?? 0, color: 'text-orange-500' },
+                  { icon: <HiOutlineUserGroup />,    label: 'Branch Users',     value: s.branch_users ?? 0,  color: 'text-violet-600' },
+                  { icon: <HiOutlineCheckCircle />,  label: 'Active Customers', value: s.active ?? 0,        color: 'text-emerald-600' },
+                ].map(({ icon, label, value, color }) => (
+                  <div key={label} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`${color} text-base`}>{icon}</span>
+                      <span className="text-sm text-gray-600">{label}</span>
+                    </div>
+                    <span className="text-sm font-bold text-gray-900">{Number(value).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </CardWrap>
+
+          {/* Status Distribution Card */}
+          <CardWrap>
+            <CardHead>
+              <h6 className="font-bold text-lg text-gray-900">Status Distribution</h6>
+            </CardHead>
+            <CardBody>
+              <div className="space-y-3">
+                {Object.entries(STATUS_CFG).map(([key, cfg]) => {
+                  const value = s[key] ?? 0;
+                  const pct   = s.total_customers > 0 ? ((value / s.total_customers) * 100).toFixed(1) : '0.0';
+                  return (
+                    <div key={key}>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot}`} />
+                          <span className={`text-sm font-medium ${cfg.text}`}>{cfg.label}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-gray-900">{value.toLocaleString()}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>{pct}%</span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div className={`${cfg.dot} h-full rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardBody>
+          </CardWrap>
+
         </div>
       </div>
 
-      {/* ── Account Types & Risk Level (side by side, clickable) ──────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-
-        {/* Account Types */}
-        <ClickableCard onClick={goCustomers} delay={8}>
-          <div className="p-5">
-            <div className="flex items-center gap-2.5 mb-5">
-              <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center">
-                <HiOutlineCreditCard className="w-4 h-4 text-blue-600" />
-              </div>
-              <h2 className="text-sm font-bold text-slate-800">Account Types</h2>
-              <HiOutlineChevronRight className="w-4 h-4 text-slate-300 ml-auto" />
-            </div>
-            <div className="space-y-4">
-              {Object.entries(data.by_account_type).map(([type, count]) => {
-                const pct = s.total_customers > 0 ? ((count / s.total_customers) * 100).toFixed(1) : '0.0';
-                const c = ACCT_COLORS[type] || { bar: 'bg-gray-400', text: 'text-gray-600', bg: 'bg-gray-50' };
-                return (
-                  <div key={type}>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full ${c.bar}`} />
-                        <span className="text-sm font-semibold text-slate-700">{type}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-900">{Number(count).toLocaleString()}</span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${c.bg} ${c.text}`}>{pct}%</span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div className={`${c.bar} h-full rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </ClickableCard>
-
-        {/* Risk Levels */}
-        <ClickableCard onClick={goCustomers} delay={9}>
-          <div className="p-5">
-            <div className="flex items-center gap-2.5 mb-5">
-              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center">
-                <HiOutlineShieldCheck className="w-4 h-4 text-amber-600" />
-              </div>
-              <h2 className="text-sm font-bold text-slate-800">Risk Distribution</h2>
-              <HiOutlineChevronRight className="w-4 h-4 text-slate-300 ml-auto" />
-            </div>
-            <div className="space-y-4">
-              {Object.entries(data.by_risk_level).map(([level, count]) => {
-                const pct = s.total_customers > 0 ? ((count / s.total_customers) * 100).toFixed(1) : '0.0';
-                const c = RISK_COLORS[level] || { bar: 'bg-gray-400', text: 'text-gray-600', bg: 'bg-gray-50' };
-                return (
-                  <div key={level}>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full ${c.bar}`} />
-                        <span className={`text-sm font-semibold ${c.text}`}>{level}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-900">{Number(count).toLocaleString()}</span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${c.bg} ${c.text}`}>{pct}%</span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div className={`${c.bar} h-full rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </ClickableCard>
-      </div>
-
-      {/* ── Monthly Uploads ─────────────────────────────────────────────────── */}
-      {(() => {
-        const uploads = data.monthly_uploads ?? [];
-        const totalUploads = uploads.reduce((sum, m) => sum + m.count, 0);
-        const max = Math.max(...uploads.map((x) => x.count), 1);
-        const avg = uploads.length > 0 ? Math.round(totalUploads / uploads.length) : 0;
-        const curr = uploads.length >= 1 ? uploads[uploads.length - 1] : null;
-        const prev = uploads.length >= 2 ? uploads[uploads.length - 2] : null;
-        const change = prev && prev.count > 0 ? (((curr?.count ?? 0) - prev.count) / prev.count * 100).toFixed(0) : null;
-        const bestIdx = uploads.reduce((bi, m, i, arr) => m.count > arr[bi].count ? i : bi, 0);
-
-        return (
-          <ClickableCard delay={10}>
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center">
-                <HiOutlineTrendingUp className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-sm font-bold text-slate-800">Monthly Uploads</h2>
-                <p className="text-[10px] text-slate-400">Last 6 months</p>
-              </div>
-            </div>
-
-            {/* Highlight strip */}
-            <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
-              <div className="px-5 py-3 text-center">
-                <p className="text-xl font-extrabold text-slate-900">{totalUploads.toLocaleString()}</p>
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">Total</p>
-              </div>
-              <div className="px-5 py-3 text-center">
-                <p className="text-xl font-extrabold text-slate-900">{avg.toLocaleString()}</p>
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">Monthly Avg</p>
-              </div>
-              <div className="px-5 py-3 text-center">
-                <div className="flex items-center justify-center gap-1">
-                  <p className="text-xl font-extrabold text-slate-900">{curr?.count?.toLocaleString() ?? '0'}</p>
-                  {change !== null && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${Number(change) >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                      {Number(change) >= 0 ? '↑' : '↓'}{Math.abs(Number(change))}%
-                    </span>
-                  )}
-                </div>
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">This Month</p>
-              </div>
-            </div>
-
-            {/* Horizontal bar rows */}
-            <div className="px-5 py-4 space-y-3">
-              {uploads.map((m, i) => {
-                const pct = (m.count / max) * 100;
-                const isCurrent = i === uploads.length - 1;
-                const isBest = i === bestIdx && m.count > 0;
-
-                return (
-                  <motion.div
-                    key={m.label}
-                    initial={{ opacity: 0, x: -12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.1 + i * 0.06 }}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${isCurrent ? 'bg-blue-50/70 ring-1 ring-blue-200' : 'hover:bg-slate-50'}`}
-                  >
-                    {/* Month */}
-                    <div className="w-16 flex-shrink-0">
-                      <p className={`text-xs font-bold ${isCurrent ? 'text-blue-700' : 'text-slate-700'}`}>{m.label.split(' ')[0]}</p>
-                      <p className="text-[10px] text-slate-400">{m.label.split(' ')[1]}</p>
-                    </div>
-
-                    {/* Bar */}
-                    <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${Math.max(pct, m.count > 0 ? 4 : 0)}%` }}
-                        transition={{ delay: 0.2 + i * 0.08, duration: 0.5, ease: 'easeOut' }}
-                        className={`h-full rounded-full ${
-                          isCurrent
-                            ? 'bg-gradient-to-r from-blue-600 to-blue-400'
-                            : isBest
-                            ? 'bg-gradient-to-r from-indigo-600 to-indigo-400'
-                            : 'bg-gradient-to-r from-slate-400 to-slate-300'
-                        }`}
-                      />
-                    </div>
-
-                    {/* Count */}
-                    <span className={`text-sm font-bold w-10 text-right flex-shrink-0 ${isCurrent ? 'text-blue-700' : 'text-slate-800'}`}>
-                      {m.count}
-                    </span>
-
-                    {/* Badge */}
-                    <div className="w-12 flex-shrink-0 text-right">
-                      {isCurrent && <span className="text-[9px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full">NOW</span>}
-                      {isBest && !isCurrent && <span className="text-[9px] font-bold text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded-full">TOP</span>}
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </ClickableCard>
-        );
-      })()}
-
-      {/* ── Branch Breakdown (only for multi-branch managers) ──────────────────── */}
-      {data.branch_breakdown?.length > 0 && (
-        <ClickableCard delay={11}>
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center">
-              <HiOutlineOfficeBuilding className="w-4 h-4 text-purple-600" />
+      {/* ── Recent Uploads Table ─────────────────────────────────────────────────── */}
+      <CardWrap>
+        <CardHead>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #487FFF, #8B5CF6)' }}>
+              <HiOutlineTrendingUp className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-800">Branch Summary</h2>
-              <p className="text-[10px] text-slate-400">{data.branch_breakdown.length} branches under your scope</p>
+              <h6 className="font-bold text-base text-gray-900">Recent Customer Uploads</h6>
+              <p className="text-[10px] text-gray-400">Latest records across your branch{data.branch_breakdown?.length > 1 ? 'es' : ''}</p>
             </div>
           </div>
+          <button onClick={goCustomers} className="text-[#487FFF] text-sm font-medium hover:underline flex items-center gap-1">
+            View All <HiOutlineChevronRight className="w-3 h-3" />
+          </button>
+        </CardHead>
+        {data.recent_uploads.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-2">
+            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+              <HiOutlineUsers className="w-6 h-6 text-gray-300" />
+            </div>
+            <p className="text-sm font-medium text-gray-400">No customers uploaded yet</p>
+          </div>
+        ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-5 py-3 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider">Branch</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Active</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold text-amber-600 uppercase tracking-wider">Dormant</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold text-orange-600 uppercase tracking-wider">Escheat</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold text-red-600 uppercase tracking-wider">Closed</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Today</th>
+                <tr className="bg-gray-50 border-b border-gray-200 text-xs uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-gray-500 font-semibold">Customer</th>
+                  <th className="px-4 py-3 text-center text-gray-500 font-semibold">Type</th>
+                  <th className="px-4 py-3 text-center text-gray-500 font-semibold">Status</th>
+                  <th className="px-4 py-3 text-left text-gray-500 font-semibold">Date</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.branch_breakdown.map((b, idx) => (
-                  <tr key={b.branch_id} className={`hover:bg-blue-50/50 transition-colors ${idx === 0 ? 'bg-blue-50/30' : ''}`}>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${idx === 0 ? 'bg-blue-500' : 'bg-purple-400'}`} />
-                        <div>
-                          <p className={`font-semibold text-slate-800 ${idx === 0 ? 'text-blue-900' : ''}`}>{b.branch_name}</p>
-                          <p className="text-[10px] text-slate-400">{b.brak}</p>
+              <tbody className="divide-y divide-gray-100">
+                {data.recent_uploads.map(c => {
+                  const sCfg = STATUS_CFG[c.status];
+                  return (
+                    <tr key={c.id} onClick={() => navigate(`${basePath}/customers/${c.id}/view`)} className="hover:bg-blue-50/40 transition-colors cursor-pointer group">
+                      <td className="px-6 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: 'linear-gradient(135deg, #487FFF, #8B5CF6)' }}>
+                            {(c.full_name?.[0] ?? '?').toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800 group-hover:text-[#487FFF] transition-colors">{c.full_name}</p>
+                            {c.branch_name && data.branch_breakdown?.length > 0 && (
+                              <p className="text-[10px] text-gray-400">{c.branch_name}</p>
+                            )}
+                          </div>
                         </div>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${idx === 0 ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
-                          {idx === 0 ? 'Mother' : 'Lite'}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center font-bold text-slate-900">{b.total.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-emerald-700">{b.active.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-amber-700">{b.dormant.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-orange-700">{b.escheat.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-red-700">{b.closed.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-indigo-700">{b.today_uploads.toLocaleString()}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3 text-center"><span className="px-3 py-0.5 rounded-full bg-blue-50 text-[#487FFF] text-xs font-semibold">{c.account_type}</span></td>
+                      <td className="px-4 py-3 text-center">
+                        {sCfg && <span className={`px-3 py-0.5 rounded-full text-xs font-semibold uppercase ${sCfg.bg} ${sCfg.text}`}>{c.status}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">{c.uploaded_at}</td>
+                      <td className="px-4 py-3 text-center"><HiOutlineEye className="w-4 h-4 text-gray-300 group-hover:text-[#487FFF] transition-colors mx-auto" /></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </ClickableCard>
-      )}
-
-      {/* ── Recent Uploads ────────────────────────────────────────────────────── */}
-      <ClickableCard delay={12}>
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-sky-100 flex items-center justify-center">
-              <HiOutlineCalendar className="w-4 h-4 text-sky-600" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-800">Recent Customer Uploads</h2>
-              <p className="text-[10px] text-slate-400">Latest records across your branch{data.branch_breakdown?.length > 1 ? 'es' : ''}</p>
-            </div>
-          </div>
-          <button onClick={goCustomers} className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors">
-            View All <HiOutlineChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {data.recent_uploads.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 gap-2">
-            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-              <HiOutlineUsers className="w-6 h-6 text-slate-300" />
-            </div>
-            <p className="text-sm font-medium text-slate-400">No customers uploaded yet</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {data.recent_uploads.map((c) => {
-              const sCfg = STATUS_CFG[c.status];
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => navigate(`${basePath}/customers/${c.id}/view`)}
-                  className="flex items-center gap-4 px-5 py-3.5 hover:bg-blue-50/50 transition-colors cursor-pointer group"
-                >
-                  {/* Avatar */}
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-sm">
-                    {(c.full_name?.[0] ?? '?').toUpperCase()}
-                  </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-700 transition-colors">{c.full_name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-slate-400">{c.uploaded_at}</span>
-                      {data.branch_breakdown?.length > 0 && c.branch_name && (
-                        <>
-                          <span className="text-slate-300">·</span>
-                          <span className="text-[10px] text-slate-400">{c.branch_name}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {/* Badges */}
-                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold flex-shrink-0">{c.account_type}</span>
-                  {sCfg && (
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${sCfg.bg} ${sCfg.text}`}>
-                      {c.status}
-                    </span>
-                  )}
-                  <HiOutlineEye className="w-4 h-4 text-slate-300 group-hover:text-blue-500 transition-colors flex-shrink-0" />
-                </div>
-              );
-            })}
-          </div>
         )}
-      </ClickableCard>
+      </CardWrap>
 
     </div>
   );

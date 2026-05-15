@@ -14,6 +14,7 @@ class CustomerAccount extends Model
         'date_opened',
         'date_updated',
         'status',
+        'status_date',
     ];
 
     protected function casts(): array
@@ -21,6 +22,7 @@ class CustomerAccount extends Model
         return [
             'date_opened' => 'date:Y-m-d',
             'date_updated' => 'date:Y-m-d',
+            'status_date' => 'date:Y-m-d',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

@@ -53,11 +53,12 @@ const BranchForm = ({ isEdit, formData, formErrors, onChange, branches, submitti
 // ── Data Access Scope Badge ──────────────────────────────────────────────────
 const ScopeBadge = ({ role }) => {
   const scopes = {
-    admin: { label: 'All Branches', color: 'bg-purple-100 text-purple-700' },
-    'compliance-audit': { label: 'All Branches', color: 'bg-purple-100 text-purple-700' },
-    manager: { label: 'Branch + BLU Children', color: 'bg-blue-100 text-blue-700' },
-    cashier: { label: 'Branch + BLU Children', color: 'bg-blue-100 text-blue-700' },
-    user: { label: 'Own Branch Only', color: 'bg-gray-100 text-gray-600' },
+    admin:              { label: 'All Branches', color: 'bg-purple-100 text-purple-700' },
+    compliance: { label: 'All Branches', color: 'bg-purple-100 text-purple-700' },
+    audit:      { label: 'All Branches', color: 'bg-purple-100 text-purple-700' },
+    manager:            { label: 'Branch + BLU Children', color: 'bg-blue-100 text-blue-700' },
+    cashier:            { label: 'Branch + BLU Children', color: 'bg-blue-100 text-blue-700' },
+    user:               { label: 'Own Branch Only', color: 'bg-gray-100 text-gray-600' },
   };
   const scope = scopes[role] || { label: role, color: 'bg-gray-100 text-gray-600' };
   return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${scope.color}`}>{scope.label}</span>;
@@ -66,11 +67,12 @@ const ScopeBadge = ({ role }) => {
 // ── Role Badge ───────────────────────────────────────────────────────────────
 const RoleBadge = ({ role }) => {
   const colors = {
-    admin: 'bg-red-100 text-red-700',
-    manager: 'bg-amber-100 text-amber-700',
-    'compliance-audit': 'bg-indigo-100 text-indigo-700',
-    cashier: 'bg-emerald-100 text-emerald-700',
-    user: 'bg-sky-100 text-sky-700',
+    admin:              'bg-red-100 text-red-700',
+    manager:            'bg-amber-100 text-amber-700',
+    compliance: 'bg-indigo-100 text-indigo-700',
+    audit:      'bg-violet-100 text-violet-700',
+    cashier:            'bg-emerald-100 text-emerald-700',
+    user:               'bg-sky-100 text-sky-700',
   };
   return (
     <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${colors[role] || 'bg-gray-100 text-gray-600'}`}>

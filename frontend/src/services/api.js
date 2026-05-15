@@ -36,7 +36,26 @@ api.interceptors.request.use(
 // so we only reject here – no hard redirect that would fight with React Router
 api.interceptors.response.use(
   (response) => response,
-  (error) => Promise.reject(error)
+  (error) => {
+    if (error.response?.status === 503 && window.location.pathname !== '/maintenance') {
+      // Admins are exempt from maintenance mode — never redirect them to the maintenance page.
+      try {
+        const stored = localStorage.getItem('user');
+        const u = stored ? JSON.parse(stored) : null;
+        const isAdmin = Array.isArray(u?.roles) && u.roles.some((r) => (r.name ?? r) === 'admin');
+        if (isAdmin) return Promise.reject(error);
+      } catch {
+        // fall through on parse failure
+      }
+
+      // Non-admin: clear session so /login shows the form instead of auto-redirecting
+      // to a dashboard that would 503 again.
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      window.location.replace('/maintenance');
+    }
+    return Promise.reject(error);
+  }
 );
 
 export default api;

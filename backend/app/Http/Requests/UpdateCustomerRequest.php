@@ -29,6 +29,7 @@ class UpdateCustomerRequest extends FormRequest
             'account_type' => 'sometimes|required|in:Regular,Joint,Corporate',
             'risk_level' => 'sometimes|required|in:Low Risk,Medium Risk,High Risk',
             'status' => 'sometimes|in:active,reactivated,dormant,escheat,closed',
+            'status_date' => 'sometimes|nullable|date',
             'branch_id' => 'nullable|exists:branches,id',
 
             // Additional accounts for the same person (Regular only)
@@ -36,6 +37,7 @@ class UpdateCustomerRequest extends FormRequest
             'additionalAccounts.*.account_no' => 'nullable|string|max:100',
             'additionalAccounts.*.risk_level' => 'required_with:additionalAccounts|in:Low Risk,Medium Risk,High Risk',
             'additionalAccounts.*.date_opened' => 'nullable|date',
+            'additionalAccounts.*.status_date' => 'nullable|date',
 
             // Additional holders (Person 2+) for Joint accounts
             'additionalPersons' => 'sometimes|nullable|array',
@@ -44,6 +46,8 @@ class UpdateCustomerRequest extends FormRequest
             'additionalPersons.*.lastname' => 'required_with:additionalPersons|string|max:255',
             'additionalPersons.*.suffix' => 'nullable|string|max:50',
             'additionalPersons.*.risk_level' => 'required_with:additionalPersons|in:Low Risk,Medium Risk,High Risk',
+
+            'account_status' => 'sometimes|nullable|string|in:active,reactivated,dormant,escheat,closed',
 
             'sigcardPairs' => 'sometimes|array|min:1',
             'sigcardPairs.*.front' => 'sometimes|image|max:10240',

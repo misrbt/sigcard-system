@@ -24,12 +24,21 @@ const Login = () => {
   const [apiError, setApiError] = useState({ message: "", type: "" });
   const [rememberMe, setRememberMe] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [lockoutCountdown, setLockoutCountdown] = useState(0);
 
   // Force password change state
   const [forcePasswordChange, setForcePasswordChange] = useState(false);
   const [forcePwdForm, setForcePwdForm] = useState({ current_password: '', new_password: '', new_password_confirmation: '' });
   const [forcePwdErrors, setForcePwdErrors] = useState({});
   const [forcePwdLoading, setForcePwdLoading] = useState(false);
+
+  // 2FA verify step (user already has 2FA set up)
+  const [twoFactor, setTwoFactor] = useState({ required: false, temporaryToken: '' });
+  const [otpCode, setOtpCode] = useState('');
+
+  // 2FA forced setup step (system requires 2FA, user hasn't enrolled yet)
+  const [setupMFA, setSetupMFA] = useState({ required: false, temporaryToken: '', secret: '', qrCodeUrl: '' });
+  const [setupOtp, setSetupOtp] = useState('');
 
   const formattedTime = currentTime.toLocaleTimeString("en-US", {
     hour: "2-digit",
@@ -52,6 +61,20 @@ const Login = () => {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (lockoutCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutCountdown > 0]);
+
   // Redirect if already authenticated — skip if force password change is pending
   useEffect(() => {
     if (isAuthenticated && localStorage.getItem("authToken")) {
@@ -65,11 +88,12 @@ const Login = () => {
 
   const redirectByRole = (role) => {
     const routes = {
-      admin: "/admin",
-      manager: "/manager/dashboard",
-      "compliance-audit": "/compliance",
-      user: "/user",
-      cashier: "/cashier",
+      admin:              "/admin",
+      manager:            "/manager/dashboard",
+      compliance: "/compliance",
+      audit:      "/compliance",
+      user:               "/user",
+      cashier:            "/cashier",
     };
     navigate(routes[role] || "/user", { replace: true });
   };
@@ -80,7 +104,7 @@ const Login = () => {
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
-    if (apiError.message) setApiError({ message: "", type: "" });
+    if (apiError.message) { setApiError({ message: "", type: "" }); setLockoutCountdown(0); }
   };
 
   const validateForm = () => {
@@ -111,12 +135,27 @@ const Login = () => {
         Math.random().toString(36).slice(2);
       localStorage.setItem("device_id", deviceId);
 
-      await login({
+      const result = await login({
         email: formData.email,
         password: formData.password,
         device_id: deviceId,
         remember_me: rememberMe,
       });
+
+      if (result?.data?.status === 'two_factor_required') {
+        setTwoFactor({ required: true, temporaryToken: result.data.temporary_token });
+        return;
+      }
+
+      if (result?.data?.status === 'setup_two_factor_required') {
+        setSetupMFA({
+          required: true,
+          temporaryToken: result.data.temporary_token,
+          secret: result.data.secret,
+          qrCodeUrl: result.data.qr_code_url,
+        });
+        return;
+      }
     } catch (error) {
       const errs = error.response?.data?.errors || {};
       // Pick the most specific message from the errors object
@@ -138,6 +177,11 @@ const Login = () => {
       else if (/not active/i.test(msg) || /inactive/i.test(msg)) type = "inactive";
       else if (/concurrent|session/i.test(msg)) type = "session";
       else if (/verification required|unusual/i.test(msg)) type = "security";
+
+      if (type === "rate_limited" || type === "locked") {
+        const match = msg.match(/Please try again in (\d+) seconds/i);
+        if (match) setLockoutCountdown(parseInt(match[1], 10));
+      }
 
       setApiError({ message: msg, type });
     } finally {
@@ -172,6 +216,216 @@ const Login = () => {
     }
   };
 
+  const handleSetup2FA = async (e) => {
+    e.preventDefault();
+    if (setupOtp.length !== 6) return;
+    setLoading(true);
+    setApiError({ message: '', type: '' });
+    try {
+      const res = await api.post('/auth/setup-2fa', {
+        temporary_token: setupMFA.temporaryToken,
+        otp_code: setupOtp,
+      });
+      const data = res.data.data;
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      await fetchUser();
+    } catch (err) {
+      const msg =
+        err.response?.data?.errors?.otp_code?.[0] ||
+        err.response?.data?.message ||
+        'Invalid code. Please try again.';
+      setApiError({ message: msg, type: 'generic' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (setupMFA.required) {
+    return (
+      <div className="flex flex-col w-full min-h-screen bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 items-center justify-center px-4 py-12">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md"
+          >
+            <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
+              <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
+                <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
+                <div>
+                  <p className="text-white font-bold text-base tracking-widest">DIGICUR</p>
+                  <p className="text-blue-300 text-xs tracking-widest">RBT Bank Inc.</p>
+                </div>
+              </div>
+              <div className="px-6 py-6 space-y-4">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Set Up Two-Factor Authentication</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Your organization requires 2FA. Scan the QR code with Google Authenticator or Authy, then enter the 6-digit code.
+                  </p>
+                </div>
+
+                {/* QR Code */}
+                <div className="flex justify-center">
+                  <img
+                    src={setupMFA.qrCodeUrl}
+                    alt="2FA QR Code"
+                    className="rounded-xl border border-gray-200 shadow-sm"
+                    width={180}
+                    height={180}
+                  />
+                </div>
+
+                {/* Manual secret */}
+                <div className="rounded-xl bg-gray-50 border border-gray-200 px-4 py-3">
+                  <p className="text-xs text-gray-500 mb-1">Or enter this key manually in your app:</p>
+                  <p className="text-sm font-mono font-semibold text-gray-800 break-all tracking-widest">{setupMFA.secret}</p>
+                </div>
+
+                <form onSubmit={handleSetup2FA} className="space-y-4">
+                  {apiError.message && (
+                    <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                      {apiError.message}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Enter 6-digit code from your app</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={setupOtp}
+                      onChange={(e) => setSetupOtp(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-4 py-3 text-center text-2xl font-bold tracking-[0.5em] border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                      placeholder="000000"
+                      autoFocus
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={loading}
+                    disabled={setupOtp.length !== 6}
+                    className="!bg-[#1877F2] hover:!bg-[#0f4fc5]"
+                  >
+                    {loading ? 'Verifying...' : 'Complete Setup & Sign In'}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setSetupMFA({ required: false, temporaryToken: '', secret: '', qrCodeUrl: '' }); setSetupOtp(''); }}
+                    className="w-full text-sm text-gray-500 hover:text-gray-700 text-center"
+                  >
+                    Back to login
+                  </button>
+                </form>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  const handleVerify2FA = async (e) => {
+    e.preventDefault();
+    if (otpCode.length !== 6) return;
+    setLoading(true);
+    setApiError({ message: '', type: '' });
+    try {
+      const res = await api.post('/auth/verify-2fa', {
+        temporary_token: twoFactor.temporaryToken,
+        otp_code: otpCode,
+      });
+      const data = res.data.data;
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      await fetchUser();
+    } catch (err) {
+      const msg =
+        err.response?.data?.errors?.otp_code?.[0] ||
+        err.response?.data?.message ||
+        'Invalid code. Please try again.';
+      setApiError({ message: msg, type: 'generic' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (twoFactor.required) {
+    return (
+      <div className="flex flex-col w-full min-h-screen bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 items-center justify-center px-4 py-12">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md"
+          >
+            <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
+              <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
+                <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
+                <div>
+                  <p className="text-white font-bold text-base tracking-widest">DIGICUR</p>
+                  <p className="text-blue-300 text-xs tracking-widest">RBT Bank Inc.</p>
+                </div>
+              </div>
+              <div className="px-6 py-6 space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Two-Factor Authentication</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Enter the 6-digit code from your authenticator app to complete sign in.
+                  </p>
+                </div>
+                <form onSubmit={handleVerify2FA} className="space-y-4">
+                  {apiError.message && (
+                    <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                      {apiError.message}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Authentication Code</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-4 py-3 text-center text-2xl font-bold tracking-[0.5em] border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                      placeholder="000000"
+                      autoFocus
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={loading}
+                    disabled={otpCode.length !== 6}
+                    className="!bg-[#1877F2] hover:!bg-[#0f4fc5]"
+                  >
+                    {loading ? 'Verifying...' : 'Verify Code'}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setTwoFactor({ required: false, temporaryToken: '' }); setOtpCode(''); }}
+                    className="w-full text-sm text-gray-500 hover:text-gray-700 text-center"
+                  >
+                    Back to login
+                  </button>
+                </form>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
   if (forcePasswordChange) {
     return (
       <div className="flex flex-col w-full min-h-screen bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
@@ -187,7 +441,7 @@ const Login = () => {
               <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
                 <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
                 <div>
-                  <p className="text-white font-bold text-base tracking-widest">SIGCARD SYSTEM</p>
+                  <p className="text-white font-bold text-base tracking-widest">DIGICUR</p>
                   <p className="text-blue-300 text-xs tracking-widest">RBT Bank Inc.</p>
                 </div>
               </div>
@@ -279,7 +533,7 @@ const Login = () => {
       <div className="hidden md:flex gap-3 px-6 py-3 md:flex-col lg:flex-row lg:items-center lg:justify-between bg-[#051637]">
         <div>
           <p className="text-[clamp(1.2rem,3vw,2.2rem)] font-semibold tracking-[0.35em] text-white">
-            RBT BANK INC. <span className="text-[clamp(0.55rem,1.2vw,0.75rem)] tracking-[0.25em] text-white/70">(A Rural Bank of Talisayan, Misamis Oriental)</span>
+            RBT BANK INC, <span className="text-[clamp(0.55rem,1.2vw,0.75rem)] tracking-[0.25em] text-white/70">(A Rural Bank of Talisayan, Misamis Oriental)</span>
           </p>
         </div>
         <div className="flex flex-col gap-2 text-right sm:flex-row sm:items-center sm:gap-4">
@@ -334,7 +588,7 @@ const Login = () => {
             <div className="flex items-center gap-2">
               <span className="inline-flex h-1.5 w-6 rounded-full bg-sky-400/80" />
               <p className="text-[10px] font-medium uppercase tracking-[0.65em] text-white/60">
-                Client Signature Oversight
+                Digital Customer Record System
               </p>
             </div>
 
@@ -353,22 +607,25 @@ const Login = () => {
                 />
                 <img
                   src={logo}
-                  alt="RBT Bank SigCard Logo"
+                  alt="RBT Bank DIGICUR Logo"
                   className="relative z-10 h-32 w-auto object-contain"
                 />
               </div>
 
               <div className="flex flex-col items-center gap-2">
                 <h2 className="text-2xl font-bold uppercase tracking-widest text-white drop-shadow-md">
-                  SigCard System
+                  DIGICUR
                 </h2>
+                <p className="text-[10px] font-medium tracking-[0.4em] text-white/60">
+                  Digital Customer Record System
+                </p>
                 <p className="text-[10px] font-medium tracking-[0.4em] text-white/50">
                   RBT BANK INC. (A Rural Bank of Talisayan, Misamis Oriental)
                 </p>
                 <div className="flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1">
                   <HiShieldCheck className="h-3 w-3 text-sky-300" />
                   <span className="text-[10px] font-semibold uppercase tracking-[0.4em] text-sky-200">
-                    DIGICUR
+                    BSP COMPLIANT
                   </span>
                 </div>
               </div>
@@ -379,14 +636,14 @@ const Login = () => {
 
             {/* Description */}
             <p className="px-1 text-center text-xs leading-relaxed text-white/70">
-              Manage every customer signature card from upload to approval.
+              Manage every customer record and document from upload to verification.
               Every action is logged for Bangko Sentral ng Pilipinas standards.
             </p>
 
             {/* Feature pills */}
             <div className="flex flex-col gap-2">
               {[
-                { icon: MdUploadFile, label: "Upload & Capture Sigcards" },
+                { icon: MdUploadFile, label: "Upload & Manage Customer Documents" },
                 { icon: MdVerified, label: "Verify Client Information" },
               ].map(({ icon: Icon, label }) => (
                 <div
@@ -413,7 +670,7 @@ const Login = () => {
           <div className="w-full max-w-md space-y-4">
             {/* Logo + brand — mobile only */}
             <div className="flex flex-col items-center gap-2 md:hidden">
-              <img src={logo} alt="Sigcard Logo" className="h-20 w-auto object-contain" />
+              <img src={logo} alt="DIGICUR Logo" className="h-20 w-auto object-contain" />
               <div className="text-center">
                 <p className="text-lg font-semibold tracking-[0.25em] text-slate-900">RBT BANK INC.</p>
                 <p className="text-[10px] tracking-[0.4em] text-slate-500">(A Rural Bank of Talisayan, Misamis Oriental)</p>
@@ -446,13 +703,16 @@ const Login = () => {
                     generic:      { bg: "bg-red-50",    border: "border-red-200",   text: "text-red-700",   icon: <HiExclamationCircle className="h-4 w-4 mt-0.5 shrink-0" />, label: "Sign-in Failed" },
                   };
                   const c = configs[apiError.type] || configs.generic;
+                  const displayMessage = (apiError.type === "rate_limited" || apiError.type === "locked") && lockoutCountdown > 0
+                    ? `${apiError.type === "locked" ? "Account is temporarily locked." : "Too many login attempts."} Please try again in ${lockoutCountdown} second${lockoutCountdown !== 1 ? "s" : ""}.`
+                    : apiError.message;
                   return (
                     <div className={`rounded-lg border ${c.border} ${c.bg} px-4 py-3 text-sm ${c.text}`}>
                       <div className="flex items-start gap-2">
                         {c.icon}
                         <div>
                           <p className="font-semibold">{c.label}</p>
-                          <p className="mt-0.5 font-normal opacity-90">{apiError.message}</p>
+                          <p className="mt-0.5 font-normal opacity-90">{displayMessage}</p>
                         </div>
                       </div>
                     </div>

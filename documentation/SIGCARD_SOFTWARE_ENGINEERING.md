@@ -1,4 +1,5 @@
-# SigCard System — Software Engineering Documentation
+# DIGICUR — Software Engineering Documentation
+### *Digital Customer Record System*
 
 **Rural Bank of Talisayan, Inc. (RBT Bank)**
 **Misamis Oriental, Philippines**

@@ -7,6 +7,7 @@ import ComplianceRoutes from "./router/compliance.jsx";
 import ManagerRoutes from "./router/manager.jsx";
 import CashierRoutes from "./router/cashier.jsx";
 import NotFound from "./NotFound.jsx";
+import Maintenance from "./Maintenance.jsx";
 import Unauthorized from "./pages/shared/Unauthorized.jsx";
 
 function CrisChen() {
@@ -41,6 +42,9 @@ function CrisChen() {
 
         {/* Cashier Routes */}
         {CashierRoutes()}
+
+        {/* Maintenance */}
+        <Route path="/maintenance" element={<Maintenance />} />
 
         {/* Unauthorized */}
         <Route path="/unauthorized" element={<Unauthorized />} />

@@ -12,9 +12,9 @@ import { useAuth } from "../../hooks/useAuth";
 import { ROLE_LABELS } from "../../constants/roles";
 
 const defaultNavLinks = [
-  { to: "/user/dashboard",  label: "Home"              },
-  { to: "/user/upload",     label: "Upload"            },
-  { to: "/user/customers",  label: "Customer Profiles" },
+  { to: "/user/dashboard", label: "Home",              permission: null },
+  { to: "/user/upload",    label: "Upload",            permission: "create-customers" },
+  { to: "/user/customers", label: "Customer Profiles", permission: "view-customers" },
 ];
 
 const Navbar = ({ navLinks = defaultNavLinks }) => {
@@ -22,7 +22,11 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
-  const { user, getPrimaryRole, logout, loading } = useAuth();
+  const { user, getPrimaryRole, logout, loading, hasPermission } = useAuth();
+
+  const visibleLinks = navLinks.filter(
+    (link) => !link.permission || hasPermission(link.permission)
+  );
 
   const roleLabel = ROLE_LABELS[getPrimaryRole()] ?? getPrimaryRole() ?? "User";
 
@@ -60,10 +64,10 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
               to="/user/dashboard"
               className="flex items-center gap-4 transition-transform hover:scale-105"
             >
-              <img src={logo} alt="Sigcard Logo" className="w-auto h-10" />
+              <img src={logo} alt="DIGICUR Logo" className="w-auto h-10" />
               <div className="hidden sm:block">
                 <p className="text-xs uppercase tracking-[0.45em] text-white/70">
-                  Sigcard System
+                  DIGICUR
                 </p>
                 <p className="text-xl font-semibold tracking-wide">RBTBK</p>
               </div>
@@ -71,7 +75,7 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
 
             {/* Desktop Navigation Links */}
             <div className="items-center hidden gap-8 lg:flex">
-              {navLinks.map((link) => (
+              {visibleLinks.map((link) => (
                 <Link
                   key={link.to}
                   to={link.to}
@@ -205,7 +209,7 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
                 className="overflow-hidden border-t border-white/10 lg:hidden"
               >
                 <div className="py-4 space-y-1">
-                  {navLinks.map((link) => (
+                  {visibleLinks.map((link) => (
                     <Link
                       key={link.to}
                       to={link.to}

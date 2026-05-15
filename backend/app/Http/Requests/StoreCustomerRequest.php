@@ -16,11 +16,18 @@ class StoreCustomerRequest extends FormRequest
      */
     public function rules(): array
     {
+        // Escheat accounts dated 2021 or earlier are exempt from the Data Privacy requirement
+        // (the policy was only implemented in 2022).
+        $privacyExempt = $this->input('status') === 'escheat'
+            && $this->input('status_date')
+            && (int) date('Y', strtotime($this->input('status_date'))) <= 2021;
+
         return [
             'account_no' => 'nullable|string|max:100',
             'date_opened' => 'nullable|date',
             'date_updated' => 'nullable|date',
             'status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
+            'status_date' => 'nullable|date',
             'photo' => 'nullable|image|max:10240',
 
             // Primary holder (Person 1)
@@ -30,6 +37,7 @@ class StoreCustomerRequest extends FormRequest
             'suffix' => 'nullable|string|max:50',
             'account_type' => 'required|in:Regular,Joint,Corporate',
             'joint_sub_type' => 'required_if:account_type,Joint|nullable|in:ITF,Non-ITF',
+            'corporate_sub_type' => 'required_if:account_type,Corporate|nullable|in:Corporate,Sole Proprietorship',
             'risk_level' => 'required|in:Low Risk,Medium Risk,High Risk',
             'branch_id' => 'nullable|exists:branches,id',
 
@@ -43,6 +51,7 @@ class StoreCustomerRequest extends FormRequest
             'additionalAccounts.*.date_opened' => 'nullable|date',
             'additionalAccounts.*.date_updated' => 'nullable|date',
             'additionalAccounts.*.status' => 'nullable|in:active,dormant,reactivated,escheat,closed',
+            'additionalAccounts.*.status_date' => 'nullable|date',
 
             // Additional holders (Person 2+) — required for Joint accounts
             'additionalPersons' => 'nullable|array',
@@ -62,9 +71,9 @@ class StoreCustomerRequest extends FormRequest
             'naisPairs.*.front' => 'required|image|max:10240',
             'naisPairs.*.back' => 'nullable|image|max:10240',
 
-            'privacyPairs' => 'required|array|min:1',
-            'privacyPairs.*.front' => 'required|image|max:10240',
-            'privacyPairs.*.back' => 'required|image|max:10240',
+            'privacyPairs' => $privacyExempt ? 'nullable|array' : 'required|array|min:1',
+            'privacyPairs.*.front' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
+            'privacyPairs.*.back' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
 
             // Optional additional documents — keyed by person/account index (1-based)
             'otherDocs' => 'nullable|array',
@@ -81,6 +90,7 @@ class StoreCustomerRequest extends FormRequest
             if ($accountType === 'Joint') {
                 $subType = $this->input('joint_sub_type');
 
+                // ITF: exactly 2 holders (primary + 1 additional)
                 if ($subType === 'ITF') {
                     if (count($this->input('additionalPersons', [])) !== 1) {
                         $validator->errors()->add(
@@ -88,17 +98,11 @@ class StoreCustomerRequest extends FormRequest
                             'ITF joint accounts require exactly 2 account holders.'
                         );
                     }
-                } else {
-                    if (count($this->input('additionalPersons', [])) < 1) {
-                        $validator->errors()->add(
-                            'additionalPersons',
-                            'Non-ITF joint accounts require at least 2 account holders.'
-                        );
-                    }
                 }
+                // Non-ITF: one customer with one or more accounts — no additional persons required
             }
 
-            if ($accountType === 'Corporate') {
+            if ($accountType === 'Corporate' && $this->input('corporate_sub_type') !== 'Sole Proprietorship') {
                 if (count($this->input('additionalPersons', [])) < 1) {
                     $validator->errors()->add(
                         'additionalPersons',
@@ -119,6 +123,8 @@ class StoreCustomerRequest extends FormRequest
             'account_type.in' => 'Account type must be Regular, Joint, or Corporate.',
             'joint_sub_type.required_if' => 'Joint sub-type is required for Joint accounts.',
             'joint_sub_type.in' => 'Joint sub-type must be ITF or Non-ITF.',
+            'corporate_sub_type.required_if' => 'Corporate sub-type is required for Corporate accounts.',
+            'corporate_sub_type.in' => 'Corporate sub-type must be Corporate or Sole Proprietorship.',
             'risk_level.required' => 'Risk level is required.',
             'risk_level.in' => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
             'branch_id.exists' => 'The selected branch does not exist.',

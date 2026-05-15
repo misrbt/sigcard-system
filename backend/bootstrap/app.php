@@ -14,7 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->redirectGuestsTo(fn() => null);
+        $middleware->redirectGuestsTo(fn () => null);
+
+        $middleware->appendToGroup('api', \App\Http\Middleware\ApiMaintenanceMode::class);
 
         $middleware->alias([
             'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,

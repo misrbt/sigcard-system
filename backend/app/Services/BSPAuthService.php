@@ -4,12 +4,11 @@ namespace App\Services;
 
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
-use Carbon\Carbon;
 use Laravel\Sanctum\PersonalAccessToken;
 
 /**
@@ -26,9 +25,13 @@ use Laravel\Sanctum\PersonalAccessToken;
 class BSPAuthService
 {
     const MAX_LOGIN_ATTEMPTS = 5;
+
     const LOCKOUT_DURATION = 30; // minutes
+
     const PASSWORD_EXPIRY_DAYS = 90;
+
     const SESSION_TIMEOUT_MINUTES = 30;
+
     const MAX_CONCURRENT_SESSIONS = 3;
 
     /**
@@ -37,11 +40,22 @@ class BSPAuthService
     public static function getPasswordExpiryDays(): int
     {
         $enabled = Cache::get('system_setting_password_expiry_enabled', false);
-        if (!$enabled) {
+        if (! $enabled) {
             return 0; // disabled
         }
 
         return (int) Cache::get('system_setting_password_expiry_days', self::PASSWORD_EXPIRY_DAYS);
+    }
+
+    /**
+     * Get the admin-configured lockout duration in seconds.
+     */
+    public static function getLockoutDurationSeconds(): int
+    {
+        $value = (int) Cache::get('system_setting_account_lockout_duration', self::LOCKOUT_DURATION);
+        $unit = Cache::get('system_setting_account_lockout_duration_unit', 'minutes');
+
+        return $unit === 'seconds' ? $value : $value * 60;
     }
 
     /**
@@ -69,19 +83,19 @@ class BSPAuthService
             'email' => 'required|email',
             'password' => 'required|string',
             'otp_code' => 'nullable|string|size:6',
-            'device_id' => 'required|string'
+            'device_id' => 'required|string',
         ]);
 
         // Rate limiting check (BSP requirement: prevent brute force)
         $this->checkRateLimit($request);
 
         // Find user
-        $user = User::where('email', $credentials['email'])->first();
+        $user = User::query()->where('email', $credentials['email'])->first();
 
-        if (!$user) {
+        if (! $user) {
             $this->logFailedAttempt($request, 'Invalid credentials');
             throw ValidationException::withMessages([
-                'email' => ['Invalid credentials provided.']
+                'email' => ['Invalid credentials provided.'],
             ]);
         }
 
@@ -89,17 +103,24 @@ class BSPAuthService
         $this->performBSPComplianceChecks($user, $request);
 
         // Verify password
-        if (!Hash::check($credentials['password'], $user->password)) {
+        if (! Hash::check($credentials['password'], $user->password)) {
             $user->incrementFailedLoginAttempts();
             $this->logFailedAttempt($request, 'Invalid password', $user);
             throw ValidationException::withMessages([
-                'password' => ['Invalid credentials provided.']
+                'password' => ['Invalid credentials provided.'],
             ]);
         }
 
-        // Check if 2FA is required
-        if ($user->two_factor_enabled) {
+        $systemRequires2FA = (bool) Cache::get('system_setting_require_two_factor', false);
+
+        // Only challenge 2FA when system-wide setting is ON AND user has 2FA enrolled
+        if ($systemRequires2FA && $user->two_factor_enabled) {
             return $this->handleTwoFactorAuthentication($user, $request, $credentials);
+        }
+
+        // System-wide 2FA required but user hasn't enrolled yet — force setup
+        if ($systemRequires2FA && ! $user->two_factor_enabled) {
+            return $this->handleTwoFactorSetupRequired($user);
         }
 
         // Complete authentication
@@ -115,15 +136,16 @@ class BSPAuthService
         if ($user->status !== 'active') {
             $this->logSecurityEvent($request, 'Account not active', $user);
             throw ValidationException::withMessages([
-                'account' => ['Account is not active. Contact administrator.']
+                'account' => ['Account is not active. Contact administrator.'],
             ]);
         }
 
         // Check account lockout
         if ($user->isAccountLocked()) {
             $this->logSecurityEvent($request, 'Account locked', $user);
+            $seconds = (int) now()->diffInSeconds($user->account_locked_at);
             throw ValidationException::withMessages([
-                'account' => ['Account is temporarily locked. Try again later.']
+                'account' => ["Account is temporarily locked. Please try again in {$seconds} seconds."],
             ]);
         }
 
@@ -132,15 +154,15 @@ class BSPAuthService
         if ($expiryDays > 0 && $user->isPasswordExpired()) {
             $this->logSecurityEvent($request, 'Password expired', $user);
             throw ValidationException::withMessages([
-                'password' => ['Password has expired. Please reset your password.']
+                'password' => ['Password has expired. Please reset your password.'],
             ]);
         }
 
         // Check account expiry
-        if ($user->account_expires_at && $user->account_expires_at->isPast()) {
+        if ($user->account_expires_at?->isPast()) {
             $this->logSecurityEvent($request, 'Account expired', $user);
             throw ValidationException::withMessages([
-                'account' => ['Account has expired. Contact administrator.']
+                'account' => ['Account has expired. Contact administrator.'],
             ]);
         }
 
@@ -156,20 +178,20 @@ class BSPAuthService
      */
     private function handleTwoFactorAuthentication(User $user, Request $request, array $credentials): array
     {
-        if (!isset($credentials['otp_code'])) {
+        if (! isset($credentials['otp_code'])) {
             return [
                 'status' => 'two_factor_required',
                 'message' => 'Two-factor authentication code required',
-                'temporary_token' => $this->generateTemporaryToken($user)
+                'temporary_token' => $this->generateTemporaryToken($user),
             ];
         }
 
         // Verify OTP code (implement your OTP verification logic)
-        if (!$this->verifyOTP($user, $credentials['otp_code'])) {
+        if (! $this->verifyOTP($user, $credentials['otp_code'])) {
             $user->incrementFailedLoginAttempts();
             $this->logFailedAttempt($request, 'Invalid OTP', $user);
             throw ValidationException::withMessages([
-                'otp_code' => ['Invalid two-factor authentication code.']
+                'otp_code' => ['Invalid two-factor authentication code.'],
             ]);
         }
 
@@ -179,7 +201,7 @@ class BSPAuthService
     /**
      * Complete authentication process
      */
-    private function completeAuthentication(User $user, Request $request): array
+    public function completeAuthentication(User $user, Request $request): array
     {
         // Reset failed attempts
         $user->resetFailedLoginAttempts();
@@ -192,7 +214,7 @@ class BSPAuthService
             'last_login_ip' => $request->ip(),
             'last_login_user_agent' => $request->userAgent(),
             'session_id' => session()->getId(),
-            'session_expires_at' => now()->addMinutes($tokenMinutes)
+            'session_expires_at' => now()->addMinutes($tokenMinutes),
         ]);
 
         // Create token with configurable expiration
@@ -218,7 +240,8 @@ class BSPAuthService
             'expires_at' => $token->accessToken->expires_at,
             'session_timeout' => $tokenMinutes,
             'permissions' => $user->getAllPermissions()->pluck('name'),
-            'roles' => $user->roles->pluck('name')
+            'direct_permissions' => $user->getDirectPermissions()->pluck('name'),
+            'roles' => $user->roles->pluck('name'),
         ];
     }
 
@@ -241,11 +264,11 @@ class BSPAuthService
             $this->logSecurityEvent($request, 'Rate limit exceeded');
 
             throw ValidationException::withMessages([
-                'email' => ["Too many login attempts. Please try again in {$seconds} seconds."]
+                'email' => ["Too many login attempts. Please try again in {$seconds} seconds."],
             ]);
         }
 
-        RateLimiter::hit($key, 900); // 15 minutes
+        RateLimiter::hit($key, self::getLockoutDurationSeconds());
     }
 
     /**
@@ -263,7 +286,7 @@ class BSPAuthService
 
         if (count($activeSessions) >= $limit) {
             throw ValidationException::withMessages([
-                'session' => ['Maximum concurrent sessions reached. Please logout from other devices.']
+                'session' => ['Maximum concurrent sessions reached. Please logout from other devices.'],
             ]);
         }
     }
@@ -278,7 +301,7 @@ class BSPAuthService
             'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'created_at' => now()->toISOString(),
-            'last_activity' => now()->toISOString()
+            'last_activity' => now()->toISOString(),
         ];
 
         $sessions = Cache::get("user_sessions_{$user->id}", []);
@@ -318,16 +341,50 @@ class BSPAuthService
         if ($riskScore >= 50) {
             $this->logSecurityEvent($request, 'High-risk login attempt', $user, [
                 'risk_score' => $riskScore,
-                'risk_factors' => $riskFactors
+                'risk_factors' => $riskFactors,
             ]);
 
             // For very high risk, require additional authentication
             if ($riskScore >= 75) {
                 throw ValidationException::withMessages([
-                    'security' => ['Additional verification required due to unusual activity.']
+                    'security' => ['Additional verification required due to unusual activity.'],
                 ]);
             }
         }
+    }
+
+    /**
+     * Force the user through a first-time 2FA enrollment during login.
+     * Returns setup data (QR code + secret) along with a temporary token.
+     */
+    private function handleTwoFactorSetupRequired(User $user): array
+    {
+        $secret = $this->generateBase32Secret();
+        $setupToken = $this->generateSetupToken($user, $secret);
+
+        $issuer = 'DIGICUR';
+        $account = urlencode($user->email);
+        $otpauthUrl = "otpauth://totp/{$issuer}:{$account}?secret={$secret}&issuer={$issuer}&algorithm=SHA1&digits=6&period=30";
+        $qrCodeUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data='.urlencode($otpauthUrl);
+
+        return [
+            'status' => 'setup_two_factor_required',
+            'message' => 'Two-factor authentication is required by your organization. Scan the QR code to enroll.',
+            'temporary_token' => $setupToken,
+            'secret' => $secret,
+            'qr_code_url' => $qrCodeUrl,
+        ];
+    }
+
+    /**
+     * Store user ID + secret for the forced 2FA setup flow (10-minute TTL).
+     */
+    private function generateSetupToken(User $user, string $secret): string
+    {
+        $token = hash('sha256', $user->id.now()->timestamp.random_bytes(32));
+        Cache::put("setup_2fa_token_{$token}", ['user_id' => $user->id, 'secret' => $secret], now()->addMinutes(10));
+
+        return $token;
     }
 
     /**
@@ -335,19 +392,99 @@ class BSPAuthService
      */
     private function generateTemporaryToken(User $user): string
     {
-        $token = hash('sha256', $user->id . now()->timestamp . random_bytes(32));
+        $token = hash('sha256', $user->id.now()->timestamp.random_bytes(32));
         Cache::put("temp_2fa_token_{$token}", $user->id, now()->addMinutes(5));
+
         return $token;
     }
 
     /**
-     * Verify OTP code (implement based on your 2FA provider)
+     * Generate a random 32-character Base32 secret for TOTP setup.
+     */
+    public function generateBase32Secret(): string
+    {
+        $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $secret = '';
+        for ($i = 0; $i < 32; $i++) {
+            $secret .= $chars[random_int(0, 31)];
+        }
+
+        return $secret;
+    }
+
+    /**
+     * Verify a TOTP code against a Base32 secret, allowing ±1 time-step tolerance.
+     */
+    public function verifyTOTP(string $base32Secret, string $code, int $window = 1): bool
+    {
+        $counter = (int) floor(time() / 30);
+        $binarySecret = $this->base32Decode($base32Secret);
+
+        for ($i = -$window; $i <= $window; $i++) {
+            if ($this->computeTOTP($binarySecret, $counter + $i) === $code) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Verify OTP code using TOTP against the user's stored secret.
      */
     private function verifyOTP(User $user, string $otpCode): bool
     {
-        // Implement your OTP verification logic here
-        // This could be Google Authenticator, SMS, etc.
-        return true; // Placeholder
+        if (! $user->two_factor_secret) {
+            return false;
+        }
+
+        $secret = decrypt($user->two_factor_secret);
+
+        return $this->verifyTOTP($secret, $otpCode);
+    }
+
+    /**
+     * Decode a Base32-encoded string to its raw binary representation.
+     */
+    private function base32Decode(string $secret): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $secret = strtoupper(rtrim($secret, '='));
+        $buffer = 0;
+        $bitsLeft = 0;
+        $result = '';
+
+        for ($i = 0; $i < strlen($secret); $i++) {
+            $val = strpos($alphabet, $secret[$i]);
+            if ($val === false) {
+                continue;
+            }
+            $buffer = ($buffer << 5) | $val;
+            $bitsLeft += 5;
+            if ($bitsLeft >= 8) {
+                $bitsLeft -= 8;
+                $result .= chr(($buffer >> $bitsLeft) & 0xFF);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Compute a 6-digit TOTP code for a given binary secret and counter (RFC 4226 / 6238).
+     */
+    private function computeTOTP(string $binarySecret, int $counter, int $digits = 6): string
+    {
+        // 8-byte big-endian counter (counter fits in 32 bits for decades to come)
+        $timeBytes = pack('NN', 0, $counter);
+        $hash = hash_hmac('sha1', $timeBytes, $binarySecret, true);
+        $offset = ord($hash[19]) & 0x0F;
+        $binCode = ((ord($hash[$offset]) & 0x7F) << 24)
+            | ((ord($hash[$offset + 1]) & 0xFF) << 16)
+            | ((ord($hash[$offset + 2]) & 0xFF) << 8)
+            | (ord($hash[$offset + 3]) & 0xFF);
+
+        return str_pad((string) ($binCode % (10 ** $digits)), $digits, '0', STR_PAD_LEFT);
     }
 
     /**
@@ -355,7 +492,7 @@ class BSPAuthService
      */
     private function throttleKey(Request $request): string
     {
-        return 'login_attempts:' . $request->ip() . ':' . strtolower($request->input('email'));
+        return 'login_attempts:'.$request->ip().':'.strtolower($request->input('email'));
     }
 
     /**
@@ -369,7 +506,7 @@ class BSPAuthService
             'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'email' => $request->input('email'),
-            'timestamp' => now()->toISOString()
+            'timestamp' => now()->toISOString(),
         ];
 
         if ($user) {
@@ -382,11 +519,11 @@ class BSPAuthService
         $logger = activity()
             ->useLog('security')
             ->withProperties([
-                'action'     => 'failed_login',
-                'reason'     => $reason,
-                'ip'         => $request->ip(),
+                'action' => 'failed_login',
+                'reason' => $reason,
+                'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'email'      => $request->input('email'),
+                'email' => $request->input('email'),
             ]);
 
         if ($user) {
@@ -407,7 +544,7 @@ class BSPAuthService
             'email' => $user->email,
             'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
-            'timestamp' => now()->toISOString()
+            'timestamp' => now()->toISOString(),
         ]);
 
         // Log activity using Spatie Activity Log
@@ -425,7 +562,7 @@ class BSPAuthService
             'event' => $event,
             'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
-            'timestamp' => now()->toISOString()
+            'timestamp' => now()->toISOString(),
         ], $additional);
 
         if ($user) {
@@ -438,9 +575,9 @@ class BSPAuthService
         $logger = activity()
             ->useLog('security')
             ->withProperties(array_merge([
-                'action'     => 'security_event',
-                'event'      => $event,
-                'ip'         => $request->ip(),
+                'action' => 'security_event',
+                'event' => $event,
+                'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ], $additional));
 
@@ -478,7 +615,7 @@ class BSPAuthService
                 'event' => 'logout',
                 'user_id' => $user->id,
                 'ip' => $request->ip(),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             activity()
@@ -500,22 +637,22 @@ class BSPAuthService
         }
 
         // Must contain uppercase letter
-        if (!preg_match('/[A-Z]/', $password)) {
+        if (! preg_match('/[A-Z]/', $password)) {
             $errors[] = 'Password must contain at least one uppercase letter';
         }
 
         // Must contain lowercase letter
-        if (!preg_match('/[a-z]/', $password)) {
+        if (! preg_match('/[a-z]/', $password)) {
             $errors[] = 'Password must contain at least one lowercase letter';
         }
 
         // Must contain number
-        if (!preg_match('/[0-9]/', $password)) {
+        if (! preg_match('/[0-9]/', $password)) {
             $errors[] = 'Password must contain at least one number';
         }
 
         // Must contain special character
-        if (!preg_match('/[!@#$%^&*(),.?":{}|<>]/', $password)) {
+        if (! preg_match('/[!@#$%^&*(),.?":{}|<>]/', $password)) {
             $errors[] = 'Password must contain at least one special character';
         }
 

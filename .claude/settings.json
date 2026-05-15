@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$ts = Get-Date -Format 'yyyy-MM-dd HH:mm'; Add-Content -Path 'C:\\www\\project\\sigcard\\.session_log.txt' -Value \"$ts -- Session ended. Check ACCOMPLISHMENTS.md and update project_current_work.md for next session.\" 2>$null; exit 0",
+            "statusMessage": "Saving session log...",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

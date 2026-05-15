@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Models\Customer;
+use App\Models\CustomerDocument;
+use App\Models\CustomerStatusLog;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * User Controller - Basic Banking Operations
@@ -14,6 +17,207 @@ use Illuminate\Http\JsonResponse;
  */
 class UserController extends Controller
 {
+    /**
+     * Dashboard summary — status counts, account-type breakdown, monthly trend, and recent uploads.
+     * Branch-scoped when the authenticated user has a branch_id.
+     */
+    public function getDashboard(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $branchId = $user->branch_id;
+
+        $base = Customer::query();
+        if ($branchId) {
+            $base->where('branch_id', $branchId);
+        }
+
+        // Status counts
+        $statuses = ['active', 'dormant', 'escheat', 'closed', 'reactivated'];
+        $statusCounts = [];
+        foreach ($statuses as $status) {
+            $statusCounts[$status] = (clone $base)->where('status', $status)->count();
+        }
+
+        // Account type breakdown
+        $accountTypes = (clone $base)
+            ->selectRaw('account_type, COUNT(*) as count')
+            ->groupBy('account_type')
+            ->pluck('count', 'account_type')
+            ->toArray();
+
+        // Risk level distribution (Individual/Corporate only — Joint has per-holder risk)
+        $riskLevels = (clone $base)
+            ->whereNotNull('risk_level')
+            ->selectRaw('risk_level, COUNT(*) as count')
+            ->groupBy('risk_level')
+            ->pluck('count', 'risk_level')
+            ->toArray();
+
+        // Monthly uploads — last 6 months (simple total, kept for backwards compat)
+        $monthly = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $month = now()->subMonths($i);
+            $monthly[] = [
+                'month' => $month->format('M Y'),
+                'count' => (clone $base)
+                    ->whereYear('created_at', $month->year)
+                    ->whereMonth('created_at', $month->month)
+                    ->count(),
+            ];
+        }
+
+        // Monthly enrollments by status — last 24 months (from customers.created_at)
+        $monthlyByStatus = [];
+        for ($i = 23; $i >= 0; $i--) {
+            $month = now()->subMonths($i);
+            $counts = (clone $base)
+                ->whereYear('created_at', $month->year)
+                ->whereMonth('created_at', $month->month)
+                ->selectRaw('status, COUNT(*) as count')
+                ->groupBy('status')
+                ->pluck('count', 'status')
+                ->toArray();
+
+            $row = [
+                'month' => $month->format('M Y'),
+                'month_key' => $month->format('Y-m'),
+                'active' => (int) ($counts['active'] ?? 0),
+                'dormant' => (int) ($counts['dormant'] ?? 0),
+                'escheat' => (int) ($counts['escheat'] ?? 0),
+                'closed' => (int) ($counts['closed'] ?? 0),
+                'reactivated' => (int) ($counts['reactivated'] ?? 0),
+            ];
+            $row['total'] = $row['active'] + $row['dormant'] + $row['escheat'] + $row['closed'] + $row['reactivated'];
+            $monthlyByStatus[] = $row;
+        }
+
+        // Monthly status transitions — last 12 months (from customer_status_logs)
+        $monthlyTransitions = [];
+        for ($i = 11; $i >= 0; $i--) {
+            $month = now()->subMonths($i);
+            $logQ = CustomerStatusLog::query();
+            if ($branchId) {
+                $logQ->whereHas('customer', fn ($q) => $q->where('branch_id', $branchId));
+            }
+            $counts = $logQ
+                ->whereYear('created_at', $month->year)
+                ->whereMonth('created_at', $month->month)
+                ->selectRaw('status, COUNT(*) as count')
+                ->groupBy('status')
+                ->pluck('count', 'status')
+                ->toArray();
+
+            $row = [
+                'month' => $month->format('M Y'),
+                'month_key' => $month->format('Y-m'),
+                'active' => (int) ($counts['active'] ?? 0),
+                'dormant' => (int) ($counts['dormant'] ?? 0),
+                'escheat' => (int) ($counts['escheat'] ?? 0),
+                'closed' => (int) ($counts['closed'] ?? 0),
+                'reactivated' => (int) ($counts['reactivated'] ?? 0),
+            ];
+            $row['total'] = $row['active'] + $row['dormant'] + $row['escheat'] + $row['closed'] + $row['reactivated'];
+            $monthlyTransitions[] = $row;
+        }
+
+        // Yearly enrollments by status — last 5 years
+        $yearlyByStatus = [];
+        for ($i = 4; $i >= 0; $i--) {
+            $year = now()->subYears($i)->year;
+            $counts = (clone $base)
+                ->whereYear('created_at', $year)
+                ->selectRaw('status, COUNT(*) as count')
+                ->groupBy('status')
+                ->pluck('count', 'status')
+                ->toArray();
+
+            $row = [
+                'year' => (string) $year,
+                'year_key' => (string) $year,
+                'active' => (int) ($counts['active'] ?? 0),
+                'dormant' => (int) ($counts['dormant'] ?? 0),
+                'escheat' => (int) ($counts['escheat'] ?? 0),
+                'closed' => (int) ($counts['closed'] ?? 0),
+                'reactivated' => (int) ($counts['reactivated'] ?? 0),
+            ];
+            $row['total'] = $row['active'] + $row['dormant'] + $row['escheat'] + $row['closed'] + $row['reactivated'];
+            $yearlyByStatus[] = $row;
+        }
+
+        // Yearly status transitions — last 5 years
+        $yearlyTransitions = [];
+        for ($i = 4; $i >= 0; $i--) {
+            $year = now()->subYears($i)->year;
+            $logQ = CustomerStatusLog::query();
+            if ($branchId) {
+                $logQ->whereHas('customer', fn ($q) => $q->where('branch_id', $branchId));
+            }
+            $counts = $logQ
+                ->whereYear('created_at', $year)
+                ->selectRaw('status, COUNT(*) as count')
+                ->groupBy('status')
+                ->pluck('count', 'status')
+                ->toArray();
+
+            $row = [
+                'year' => (string) $year,
+                'year_key' => (string) $year,
+                'active' => (int) ($counts['active'] ?? 0),
+                'dormant' => (int) ($counts['dormant'] ?? 0),
+                'escheat' => (int) ($counts['escheat'] ?? 0),
+                'closed' => (int) ($counts['closed'] ?? 0),
+                'reactivated' => (int) ($counts['reactivated'] ?? 0),
+            ];
+            $row['total'] = $row['active'] + $row['dormant'] + $row['escheat'] + $row['closed'] + $row['reactivated'];
+            $yearlyTransitions[] = $row;
+        }
+
+        // Total documents
+        $docQuery = CustomerDocument::query();
+        if ($branchId) {
+            $docQuery->whereHas('customer', fn ($q) => $q->where('branch_id', $branchId));
+        }
+
+        // Recent uploads
+        $recentUploads = (clone $base)
+            ->with('branch')
+            ->latest()
+            ->limit(6)
+            ->get()
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'full_name' => $c->full_name,
+                'account_type' => $c->account_type,
+                'status' => $c->status,
+                'branch_name' => $c->branch?->branch_name,
+                'uploaded_at' => $c->created_at->diffForHumans(),
+            ]);
+
+        $totalCustomers = array_sum(array_values($statusCounts));
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'summary' => array_merge(
+                    [
+                        'total_customers' => $totalCustomers,
+                        'total_documents' => $docQuery->count(),
+                        'today_uploads' => (clone $base)->whereDate('created_at', today())->count(),
+                    ],
+                    $statusCounts
+                ),
+                'account_types' => $accountTypes,
+                'risk_levels' => $riskLevels,
+                'monthly_trend' => $monthly,
+                'monthly_by_status' => $monthlyByStatus,
+                'monthly_transitions' => $monthlyTransitions,
+                'yearly_by_status' => $yearlyByStatus,
+                'yearly_transitions' => $yearlyTransitions,
+                'recent_uploads' => $recentUploads,
+            ],
+        ]);
+    }
+
     /**
      * Get user's transactions
      */
@@ -39,16 +243,16 @@ class UserController extends Controller
                         'account_number' => '1234567890',
                         'status' => 'completed',
                         'created_at' => now()->subDays(1),
-                        'reference_number' => 'TXN-' . uniqid()
-                    ]
+                        'reference_number' => 'TXN-'.uniqid(),
+                    ],
                 ],
                 'user_role' => 'user',
-                'accessible_accounts' => []
+                'accessible_accounts' => [],
             ],
             'bsp_compliance' => [
                 'access_logged' => true,
-                'role_verified' => true
-            ]
+                'role_verified' => true,
+            ],
         ]);
     }
 
@@ -61,7 +265,7 @@ class UserController extends Controller
             'type' => 'required|in:deposit,withdrawal,transfer',
             'amount' => 'required|numeric|min:0.01',
             'account_number' => 'required|string',
-            'description' => 'nullable|string|max:255'
+            'description' => 'nullable|string|max:255',
         ]);
 
         $user = $request->user();
@@ -72,7 +276,7 @@ class UserController extends Controller
             ->withProperties([
                 'transaction_type' => $request->type,
                 'amount' => $request->amount,
-                'account_number' => $request->account_number
+                'account_number' => $request->account_number,
             ])
             ->log('User initiated transaction');
 
@@ -80,18 +284,18 @@ class UserController extends Controller
             'success' => true,
             'message' => 'Transaction created successfully',
             'data' => [
-                'transaction_id' => 'TXN-' . uniqid(),
+                'transaction_id' => 'TXN-'.uniqid(),
                 'status' => 'pending_approval',
                 'amount' => $request->amount,
                 'type' => $request->type,
                 'created_at' => now(),
-                'requires_approval' => true
+                'requires_approval' => true,
             ],
             'bsp_compliance' => [
                 'transaction_logged' => true,
                 'approval_required' => true,
-                'audit_trail_created' => true
-            ]
+                'audit_trail_created' => true,
+            ],
         ]);
     }
 
@@ -105,7 +309,7 @@ class UserController extends Controller
         $request->validate([
             'from_date' => 'nullable|date',
             'to_date' => 'nullable|date|after_or_equal:from_date',
-            'limit' => 'nullable|integer|min:1|max:100'
+            'limit' => 'nullable|integer|min:1|max:100',
         ]);
 
         activity()
@@ -120,17 +324,17 @@ class UserController extends Controller
                 'pagination' => [
                     'total' => 0,
                     'per_page' => $request->limit ?? 20,
-                    'current_page' => 1
+                    'current_page' => 1,
                 ],
                 'date_range' => [
                     'from' => $request->from_date ?? now()->subDays(30)->format('Y-m-d'),
-                    'to' => $request->to_date ?? now()->format('Y-m-d')
-                ]
+                    'to' => $request->to_date ?? now()->format('Y-m-d'),
+                ],
             ],
             'bsp_compliance' => [
                 'access_logged' => true,
-                'data_filtered_by_role' => true
-            ]
+                'data_filtered_by_role' => true,
+            ],
         ]);
     }
 
@@ -157,15 +361,15 @@ class UserController extends Controller
                         'status' => 'active',
                         'branch_code' => $user->branch_code,
                         'can_view_balance' => true,
-                        'can_generate_statement' => true
-                    ]
+                        'can_generate_statement' => true,
+                    ],
                 ],
-                'user_branch' => $user->branch_code
+                'user_branch' => $user->branch_code,
             ],
             'bsp_compliance' => [
                 'access_logged' => true,
-                'branch_filtered' => true
-            ]
+                'branch_filtered' => true,
+            ],
         ]);
     }
 
@@ -191,12 +395,12 @@ class UserController extends Controller
                 'ledger_balance' => 10000.00,
                 'currency' => 'PHP',
                 'last_transaction_date' => now()->subDays(1),
-                'account_status' => 'active'
+                'account_status' => 'active',
             ],
             'bsp_compliance' => [
                 'balance_inquiry_logged' => true,
-                'access_time_recorded' => true
-            ]
+                'access_time_recorded' => true,
+            ],
         ]);
     }
 
@@ -210,7 +414,7 @@ class UserController extends Controller
         $request->validate([
             'from_date' => 'nullable|date',
             'to_date' => 'nullable|date|after_or_equal:from_date',
-            'format' => 'nullable|in:pdf,excel,csv'
+            'format' => 'nullable|in:pdf,excel,csv',
         ]);
 
         activity()
@@ -219,7 +423,7 @@ class UserController extends Controller
                 'account_number' => $account,
                 'from_date' => $request->from_date,
                 'to_date' => $request->to_date,
-                'format' => $request->format ?? 'pdf'
+                'format' => $request->format ?? 'pdf',
             ])
             ->log('User generated account statement');
 
@@ -227,21 +431,21 @@ class UserController extends Controller
             'success' => true,
             'message' => 'Statement generated successfully',
             'data' => [
-                'statement_id' => 'STMT-' . uniqid(),
+                'statement_id' => 'STMT-'.uniqid(),
                 'account_number' => $account,
                 'period' => [
                     'from' => $request->from_date ?? now()->subDays(30)->format('Y-m-d'),
-                    'to' => $request->to_date ?? now()->format('Y-m-d')
+                    'to' => $request->to_date ?? now()->format('Y-m-d'),
                 ],
                 'format' => $request->format ?? 'pdf',
-                'download_url' => '/api/user/statements/download/STMT-' . uniqid(),
-                'expires_at' => now()->addHours(24)
+                'download_url' => '/api/user/statements/download/STMT-'.uniqid(),
+                'expires_at' => now()->addHours(24),
             ],
             'bsp_compliance' => [
                 'statement_generation_logged' => true,
                 'temporary_access_link' => true,
-                'audit_trail_created' => true
-            ]
+                'audit_trail_created' => true,
+            ],
         ]);
     }
 
@@ -269,21 +473,21 @@ class UserController extends Controller
                         'status' => 'active',
                         'branch_code' => $user->branch_code,
                         'can_edit' => true,
-                        'can_view_documents' => true
-                    ]
+                        'can_view_documents' => true,
+                    ],
                 ],
                 'user_permissions' => [
                     'can_view_customers' => true,
                     'can_edit_customers' => true,
                     'can_view_documents' => true,
                     'can_create_customers' => false,
-                    'can_verify_customers' => false
-                ]
+                    'can_verify_customers' => false,
+                ],
             ],
             'bsp_compliance' => [
                 'access_logged' => true,
-                'data_filtered_by_branch' => true
-            ]
+                'data_filtered_by_branch' => true,
+            ],
         ]);
     }
 
@@ -298,14 +502,14 @@ class UserController extends Controller
             'name' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:20',
             'address' => 'nullable|string|max:500',
-            'email' => 'nullable|email|max:255'
+            'email' => 'nullable|email|max:255',
         ]);
 
         activity()
             ->causedBy($user)
             ->withProperties([
                 'customer_id' => $customer,
-                'updated_fields' => array_keys($request->only(['name', 'phone', 'address', 'email']))
+                'updated_fields' => array_keys($request->only(['name', 'phone', 'address', 'email'])),
             ])
             ->log('User updated customer information');
 
@@ -316,13 +520,13 @@ class UserController extends Controller
                 'customer_id' => $customer,
                 'updated_at' => now(),
                 'updated_by' => $user->name,
-                'requires_verification' => true
+                'requires_verification' => true,
             ],
             'bsp_compliance' => [
                 'update_logged' => true,
                 'verification_required' => true,
-                'audit_trail_updated' => true
-            ]
+                'audit_trail_updated' => true,
+            ],
         ]);
     }
 
@@ -351,19 +555,19 @@ class UserController extends Controller
                         'status' => 'verified',
                         'uploaded_at' => now()->subDays(5),
                         'can_view' => true,
-                        'can_download' => false
-                    ]
+                        'can_download' => false,
+                    ],
                 ],
                 'user_permissions' => [
                     'can_view_documents' => true,
                     'can_upload_documents' => false,
-                    'can_verify_documents' => false
-                ]
+                    'can_verify_documents' => false,
+                ],
             ],
             'bsp_compliance' => [
                 'document_access_logged' => true,
-                'sensitive_data_protected' => true
-            ]
+                'sensitive_data_protected' => true,
+            ],
         ]);
     }
 
@@ -388,26 +592,26 @@ class UserController extends Controller
                         'name' => 'Transaction Summary',
                         'description' => 'Summary of daily transactions',
                         'can_generate' => true,
-                        'formats' => ['pdf', 'excel']
+                        'formats' => ['pdf', 'excel'],
                     ],
                     [
                         'type' => 'account_statement',
                         'name' => 'Account Statement',
                         'description' => 'Detailed account statement',
                         'can_generate' => true,
-                        'formats' => ['pdf']
-                    ]
+                        'formats' => ['pdf'],
+                    ],
                 ],
                 'user_permissions' => [
                     'can_view_reports' => true,
                     'can_generate_reports' => true,
-                    'can_export_reports' => false
-                ]
+                    'can_export_reports' => false,
+                ],
             ],
             'bsp_compliance' => [
                 'access_logged' => true,
-                'role_based_filtering' => true
-            ]
+                'role_based_filtering' => true,
+            ],
         ]);
     }
 
@@ -422,7 +626,7 @@ class UserController extends Controller
             'type' => 'required|in:transaction_summary,account_statement',
             'from_date' => 'required|date',
             'to_date' => 'required|date|after_or_equal:from_date',
-            'format' => 'nullable|in:pdf,excel,csv'
+            'format' => 'nullable|in:pdf,excel,csv',
         ]);
 
         activity()
@@ -431,9 +635,9 @@ class UserController extends Controller
                 'report_type' => $request->type,
                 'date_range' => [
                     'from' => $request->from_date,
-                    'to' => $request->to_date
+                    'to' => $request->to_date,
                 ],
-                'format' => $request->format ?? 'pdf'
+                'format' => $request->format ?? 'pdf',
             ])
             ->log('User generated report');
 
@@ -441,22 +645,22 @@ class UserController extends Controller
             'success' => true,
             'message' => 'Report generated successfully',
             'data' => [
-                'report_id' => 'RPT-' . uniqid(),
+                'report_id' => 'RPT-'.uniqid(),
                 'type' => $request->type,
                 'period' => [
                     'from' => $request->from_date,
-                    'to' => $request->to_date
+                    'to' => $request->to_date,
                 ],
                 'format' => $request->format ?? 'pdf',
-                'download_url' => '/api/user/reports/download/RPT-' . uniqid(),
+                'download_url' => '/api/user/reports/download/RPT-'.uniqid(),
                 'generated_at' => now(),
-                'expires_at' => now()->addHours(24)
+                'expires_at' => now()->addHours(24),
             ],
             'bsp_compliance' => [
                 'report_generation_logged' => true,
                 'temporary_download_link' => true,
-                'audit_trail_created' => true
-            ]
+                'audit_trail_created' => true,
+            ],
         ]);
     }
 }

@@ -4,7 +4,6 @@ import { ROLE_PRIORITY } from '../constants/roles';
 
 export const AuthContext = createContext(null);
 
-const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes (matches backend session_timeout)
 const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // refresh every 10 min (safe for short token lifetimes)
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
 
@@ -12,6 +11,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState([]);
+  const [directPermissions, setDirectPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -19,6 +19,7 @@ export const AuthProvider = ({ children }) => {
   const inactivityTimer = useRef(null);
   const refreshTimer = useRef(null);
   const lastActivity = useRef(Date.now());
+  const sessionTimeoutRef = useRef(30 * 60 * 1000); // default 30 min; updated from server after login
 
   // ── clear auth state ────────────────────────────────────────
   const clearAuth = useCallback(() => {
@@ -27,6 +28,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setRoles([]);
     setPermissions([]);
+    setDirectPermissions([]);
     setIsAuthenticated(false);
     clearTimeout(inactivityTimer.current);
     clearInterval(refreshTimer.current);
@@ -43,7 +45,7 @@ export const AuthProvider = ({ children }) => {
     inactivityTimer.current = setTimeout(() => {
       setSessionExpired(true);
       clearAuth();
-    }, INACTIVITY_TIMEOUT);
+    }, sessionTimeoutRef.current);
   }, [clearAuth]);
 
   // ── token refresh ───────────────────────────────────────────
@@ -102,9 +104,13 @@ export const AuthProvider = ({ children }) => {
       setUser(data.user);
       setRoles(data.roles || []);
       setPermissions(data.permissions || []);
+      setDirectPermissions(data.direct_permissions || []);
       setIsAuthenticated(true);
       setSessionExpired(false);
       localStorage.setItem('user', JSON.stringify(data.user));
+      if (data.session_timeout) {
+        sessionTimeoutRef.current = data.session_timeout * 60 * 1000;
+      }
     } catch {
       clearAuth();
     } finally {
@@ -146,10 +152,15 @@ export const AuthProvider = ({ children }) => {
   // ── login ───────────────────────────────────────────────────
   const login = async (credentials) => {
     const response = await api.post('/auth/login', credentials);
-    const { token, user: userData } = response.data.data;
+    const data = response.data.data;
 
-    localStorage.setItem('authToken', token);
-    localStorage.setItem('user', JSON.stringify(userData));
+    // 2FA step required — return early without setting auth state
+    if (data?.status === 'two_factor_required' || data?.status === 'setup_two_factor_required') {
+      return response.data;
+    }
+
+    localStorage.setItem('authToken', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
 
     await fetchUser();
     return response.data;
@@ -174,7 +185,9 @@ export const AuthProvider = ({ children }) => {
     return roles.includes(role);
   };
 
-  const hasPermission = (permission) => permissions.includes(permission);
+  const hasPermission = (permission) => {
+    return permissions.includes(permission);
+  };
 
   const getPrimaryRole = () => {
     for (const role of ROLE_PRIORITY) {
@@ -189,6 +202,7 @@ export const AuthProvider = ({ children }) => {
         user,
         roles,
         permissions,
+        directPermissions,
         loading,
         isAuthenticated,
         sessionExpired,

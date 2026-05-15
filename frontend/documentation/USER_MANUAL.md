@@ -1,7 +1,8 @@
-# SigCard System — User Manual
+# DIGICUR — User Manual
+### *Digital Customer Record System*
 
 **Rural Bank of Talisayan, Inc. (RBT Bank)**
-**BSP-Compliant Signature Card Management System**
+**BSP-Compliant Customer Record & Signature Card Management System**
 
 **Version:** 1.0
 **Date:** March 16, 2026
@@ -55,7 +56,7 @@
 
 ## 1. Introduction
 
-The **SigCard System** is the signature card management system of RBT Bank Inc. It is designed to digitize, organize, and secure the management of customer signature cards and supporting documents across all branches.
+The **DIGICUR (Digital Customer Record System)** is the signature card management system of RBT Bank Inc. It is designed to digitize, organize, and secure the management of customer signature cards and supporting documents across all branches.
 
 The system is built in compliance with **Bangko Sentral ng Pilipinas (BSP)** regulations, including:
 
@@ -81,7 +82,7 @@ The system is built in compliance with **Bangko Sentral ng Pilipinas (BSP)** reg
 
 ### 2.1 Logging In
 
-1. Open the SigCard System in your web browser.
+1. Open the DIGICUR (Digital Customer Record System) in your web browser.
 2. You will see the **Login** page.
 3. Enter your **Email Address** and **Password**.
 4. (Optional) Check **Remember Me** to stay signed in on this device.
@@ -941,7 +942,7 @@ A: Only users with the User or Admin role can delete customer records. A confirm
 A: Documents for customers with **Dormant** status may appear blurred as a security measure. The documents are still accessible — you can use the image viewer's zoom and pan controls to inspect them.
 
 **Q: Can I access the system from my mobile phone?**
-A: Yes, the SigCard System is responsive and works on mobile devices, tablets, and desktop computers. However, for the best experience with document uploads and image viewing, we recommend using a desktop or tablet.
+A: Yes, the DIGICUR (Digital Customer Record System) is responsive and works on mobile devices, tablets, and desktop computers. However, for the best experience with document uploads and image viewing, we recommend using a desktop or tablet.
 
 **Q: How do I know who changed a customer's information?**
 A: Go to **Audit Logs** and use the **Customer Records** tab. You can search for the specific customer and see the complete history of all changes, including who made each change and when.

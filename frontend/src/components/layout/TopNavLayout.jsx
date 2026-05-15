@@ -3,17 +3,14 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   MdDashboard,
   MdDescription,
-  MdVerifiedUser,
   MdPeople,
-  MdAssessment,
-  MdTrendingUp,
-  MdReceipt,
-  MdAccountBalance,
   MdAccountCircle,
   MdLogout,
   MdMenu,
   MdClose,
   MdTimeline,
+  MdBarChart,
+  MdUploadFile,
 } from "react-icons/md";
 import { ROLE_LABELS } from "../../constants/roles";
 import { useAuth } from "../../hooks/useAuth";
@@ -21,43 +18,50 @@ import logo from "../../assets/images/logos.png";
 import Footer from "./Footer";
 
 const NAV_ITEMS = {
-  user: [
-    { path: "/user", icon: MdDashboard, label: "Dashboard" },
-    { path: "/user/documents", icon: MdDescription, label: "Documents" },
-    { path: "/user/signatures", icon: MdVerifiedUser, label: "Signatures" },
-    { path: "/user/customers", icon: MdPeople, label: "Customers" },
-  ],
   manager: [
-    { path: "/manager/dashboard",  icon: MdDashboard,   label: "Dashboard"  },
-    { path: "/manager/customers",  icon: MdPeople,      label: "Customers"  },
-    { path: "/manager/documents",  icon: MdDescription, label: "Documents"  },
+    { path: "/manager/dashboard", icon: MdDashboard,   label: "Dashboard", permission: null },
+    { path: "/manager/customers", icon: MdPeople,      label: "Customers", permission: "view-customers" },
+    { path: "/manager/upload",    icon: MdUploadFile,  label: "Upload",    permission: "create-customers" },
+    { path: "/manager/documents", icon: MdDescription, label: "Documents", permission: "view-customer-documents" },
   ],
   cashier: [
-    { path: "/cashier/dashboard",  icon: MdDashboard,   label: "Dashboard"  },
-    { path: "/cashier/customers",  icon: MdPeople,      label: "Customers"  },
-    { path: "/cashier/documents",  icon: MdDescription, label: "Documents"  },
+    { path: "/cashier/dashboard", icon: MdDashboard,   label: "Dashboard", permission: null },
+    { path: "/cashier/customers", icon: MdPeople,      label: "Customers", permission: "view-customers" },
+    { path: "/cashier/documents", icon: MdDescription, label: "Documents", permission: "view-customer-documents" },
   ],
-  "compliance-audit": [
-    { path: "/compliance/dashboard",  icon: MdDashboard, label: "Dashboard"         },
-    { path: "/compliance/audit-logs", icon: MdTimeline,  label: "Audit Logs"        },
-    { path: "/compliance/customers",  icon: MdPeople,    label: "Customer Profiles" },
+  compliance: [
+    { path: "/compliance/dashboard",  icon: MdDashboard,   label: "Dashboard",         permission: null },
+    { path: "/compliance/audit-logs", icon: MdTimeline,    label: "Audit Logs",        permission: "view-audit-logs" },
+    { path: "/compliance/reports",    icon: MdBarChart,    label: "Reports",           permission: "view-compliance-reports" },
+    { path: "/compliance/customers",  icon: MdPeople,      label: "Customer Profiles", permission: "view-customers" },
+    { path: "/compliance/documents",  icon: MdDescription, label: "Documents",         permission: "view-customer-documents" },
+  ],
+  audit: [
+    { path: "/compliance/dashboard",  icon: MdDashboard,   label: "Dashboard",         permission: null },
+    { path: "/compliance/audit-logs", icon: MdTimeline,    label: "Audit Logs",        permission: "view-audit-logs" },
+    { path: "/compliance/reports",    icon: MdBarChart,    label: "Reports",           permission: "view-compliance-reports" },
+    { path: "/compliance/customers",  icon: MdPeople,      label: "Customer Profiles", permission: "view-customers" },
+    { path: "/compliance/documents",  icon: MdDescription, label: "Documents",         permission: "view-customer-documents" },
   ],
 };
 
 const TopNavLayout = ({ children, userRole }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems = NAV_ITEMS[userRole] || [];
+  const navItems = (NAV_ITEMS[userRole] || []).filter(
+    (item) => !item.permission || hasPermission(item.permission)
+  );
   const displayName = user?.full_name || user?.firstname || "User";
 
   const PROFILE_PATHS = {
-    manager:           "/manager/profile",
-    cashier:           "/cashier/profile",
-    "compliance-audit": "/compliance/profile",
+    manager:    "/manager/profile",
+    cashier:    "/cashier/profile",
+    compliance: "/compliance/profile",
+    audit:      "/compliance/profile",
   };
   const profilePath = PROFILE_PATHS[userRole] ?? "/profile";
   const displayRole = ROLE_LABELS[userRole] ?? (userRole
@@ -85,12 +89,12 @@ const TopNavLayout = ({ children, userRole }) => {
             <div className="flex items-center gap-2 flex-shrink-0">
               <img
                 src={logo}
-                alt="SigCard Logo"
+                alt="DIGICUR Logo"
                 className="h-8 w-8 sm:h-9 sm:w-9 object-contain"
               />
               <div className="flex flex-col leading-none">
                 <span className="text-white font-extrabold text-sm tracking-wide">
-                  SIGCARD SYSTEM
+                  DIGICUR
                 </span>
                 <span className="text-blue-300 font-semibold text-[10px] tracking-widest">
                   RBTBK

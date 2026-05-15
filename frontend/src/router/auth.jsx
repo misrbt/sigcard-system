@@ -17,7 +17,7 @@ const AuthRoutes = () => {
       <Route
         path="/register"
         element={
-          <AuthLayout title="Create Account" subtitle="Sign up for SigCard">
+          <AuthLayout title="Create Account" subtitle="Sign up for DIGICUR">
             {/* <Register /> */}
             <div>Register Page - Coming Soon</div>
           </AuthLayout>

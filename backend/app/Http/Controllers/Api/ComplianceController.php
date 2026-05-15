@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerDocument;
+use App\Models\CustomerStatusLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -94,6 +95,7 @@ class ComplianceController extends Controller
                     'dormant' => $statusCounts->get('dormant', 0),
                     'escheat' => $statusCounts->get('escheat', 0),
                     'closed' => $statusCounts->get('closed', 0),
+                    'reactivated' => $statusCounts->get('reactivated', 0),
                     'sigcards' => $sigcardCounts->get($branch->id, 0),
                     'documents' => $documentCounts->get($branch->id, 0),
                     'individual' => $branchAccountTypes->get('Regular', 0),
@@ -148,6 +150,7 @@ class ComplianceController extends Controller
                 'dormant' => $byStatus->get('dormant', 0),
                 'escheat' => $byStatus->get('escheat', 0),
                 'closed' => $byStatus->get('closed', 0),
+                'reactivated' => $byStatus->get('reactivated', 0),
             ],
             'by_status' => $byStatus,
             'by_account_type' => $byAccountType,
@@ -522,7 +525,7 @@ class ComplianceController extends Controller
      */
     public function exportAuditLogs(Request $request): JsonResponse
     {
-        $this->authorize('export audit logs');
+        $this->authorize('export-audit-logs');
 
         $request->validate([
             'date_from' => 'required|date',
@@ -695,7 +698,7 @@ class ComplianceController extends Controller
      */
     public function generateComplianceReport(Request $request): JsonResponse
     {
-        $this->authorize('generate compliance reports');
+        $this->authorize('generate-compliance-reports');
 
         $request->validate([
             'report_type' => 'required|in:bsp_compliance,aml_cft,kyc_review,transaction_monitoring,risk_assessment',
@@ -871,7 +874,7 @@ class ComplianceController extends Controller
      */
     public function createRiskAssessment(Request $request): JsonResponse
     {
-        $this->authorize('create risk assessments');
+        $this->authorize('create-risk-assessments');
 
         $request->validate([
             'assessment_type' => 'required|in:customer,transaction,operational,technology',
@@ -935,7 +938,7 @@ class ComplianceController extends Controller
      */
     public function updateRiskAssessment(Request $request, string $assessment): JsonResponse
     {
-        $this->authorize('update risk assessments');
+        $this->authorize('approve-risk-assessments');
 
         $request->validate([
             'risk_score' => 'nullable|integer|min:0|max:100',
@@ -1360,6 +1363,324 @@ class ComplianceController extends Controller
     // =============================================
 
     /**
+     * Summary report: overall stats, monthly trends, and per-branch breakdown.
+     * Used by the compliance/audit Reports page.
+     */
+    public function getSummaryReport(Request $request): JsonResponse
+    {
+        $this->authorize('view-compliance-reports');
+
+        try {
+            // ── Overall counts ───────────────────────────────────────────────
+            $overall = Customer::select('status', DB::raw('count(*) as count'))
+                ->groupBy('status')
+                ->pluck('count', 'status');
+
+            $totalAll = $overall->sum();
+
+            // ── This month's account openings (by date_opened) ───────────────
+            $thisMonthStart = now()->startOfMonth();
+            $thisMonthEnd = now()->endOfMonth();
+
+            $openedThisMonth = Customer::whereBetween('date_opened', [$thisMonthStart, $thisMonthEnd])
+                ->count();
+
+            // ── This month's status transitions (from status log) ────────────
+            $statusLogThisMonth = CustomerStatusLog::whereBetween('created_at', [$thisMonthStart, $thisMonthEnd])
+                ->select('status', DB::raw('count(*) as count'))
+                ->groupBy('status')
+                ->pluck('count', 'status');
+
+            // ── Monthly trends — last 12 months ─────────────────────────────
+            // Openings per month: based on date_opened
+            $openingsByMonth = Customer::select(
+                DB::raw('DATE_FORMAT(date_opened, "%Y-%m") as month'),
+                DB::raw('count(*) as count')
+            )
+                ->where('date_opened', '>=', now()->subMonths(11)->startOfMonth())
+                ->groupBy('month')
+                ->pluck('count', 'month');
+
+            // Status changes per month: dormant/closed/escheat events from log
+            $statusLogByMonth = CustomerStatusLog::select(
+                DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
+                'status',
+                DB::raw('count(*) as count')
+            )
+                ->where('created_at', '>=', now()->subMonths(11)->startOfMonth())
+                ->whereIn('status', ['dormant', 'closed', 'escheat', 'reactivated'])
+                ->groupBy('month', 'status')
+                ->get()
+                ->groupBy('month')
+                ->map(fn ($rows) => $rows->pluck('count', 'status'));
+
+            $monthlyTrends = collect();
+            for ($i = 11; $i >= 0; $i--) {
+                $date = now()->subMonths($i);
+                $key = $date->format('Y-m');
+                $logs = $statusLogByMonth->get($key, collect());
+
+                $monthlyTrends->push([
+                    'label' => $date->format('M Y'),
+                    'month' => $key,
+                    'opened' => (int) ($openingsByMonth->get($key) ?? 0),
+                    'dormant' => (int) ($logs->get('dormant') ?? 0),
+                    'closed' => (int) ($logs->get('closed') ?? 0),
+                    'escheat' => (int) ($logs->get('escheat') ?? 0),
+                    'reactivated' => (int) ($logs->get('reactivated') ?? 0),
+                ]);
+            }
+
+            // ── Yearly trends — last 5 years ────────────────────────────────
+            $startYear = now()->year - 4;
+
+            $openingsByYear = Customer::select(
+                DB::raw('YEAR(date_opened) as year'),
+                DB::raw('count(*) as count')
+            )
+                ->whereYear('date_opened', '>=', $startYear)
+                ->groupBy('year')
+                ->pluck('count', 'year');
+
+            $statusLogByYear = CustomerStatusLog::select(
+                DB::raw('YEAR(created_at) as year'),
+                'status',
+                DB::raw('count(*) as count')
+            )
+                ->whereYear('created_at', '>=', $startYear)
+                ->whereIn('status', ['dormant', 'closed', 'escheat', 'reactivated'])
+                ->groupBy('year', 'status')
+                ->get()
+                ->groupBy('year')
+                ->map(fn ($rows) => $rows->pluck('count', 'status'));
+
+            $yearlyTrends = collect();
+            for ($y = $startYear; $y <= now()->year; $y++) {
+                $logs = $statusLogByYear->get($y, collect());
+                $yearlyTrends->push([
+                    'label' => (string) $y,
+                    'year' => $y,
+                    'opened' => (int) ($openingsByYear->get($y) ?? 0),
+                    'dormant' => (int) ($logs->get('dormant') ?? 0),
+                    'closed' => (int) ($logs->get('closed') ?? 0),
+                    'escheat' => (int) ($logs->get('escheat') ?? 0),
+                    'reactivated' => (int) ($logs->get('reactivated') ?? 0),
+                ]);
+            }
+
+            // ── Branch breakdown (excluding Head Office) ─────────────────────
+            $branches = \App\Models\Branch::with('customers:id,branch_id,status,date_opened')
+                ->where('brak', '!=', 'HO')
+                ->orderBy('brcode')
+                ->get()
+                ->map(function (\App\Models\Branch $branch) use ($thisMonthStart, $thisMonthEnd) {
+                    $statusCounts = $branch->customers->countBy('status');
+                    $openedMonth = $branch->customers->filter(
+                        fn ($c) => $c->date_opened
+                            && $c->date_opened->between($thisMonthStart, $thisMonthEnd)
+                    )->count();
+
+                    $total = $branch->customers->count();
+                    $active = (int) $statusCounts->get('active', 0);
+
+                    return [
+                        'id' => $branch->id,
+                        'branch_name' => $branch->branch_name,
+                        'brak' => $branch->brak,
+                        'brcode' => $branch->brcode,
+                        'total' => $total,
+                        'active' => $active,
+                        'dormant' => (int) $statusCounts->get('dormant', 0),
+                        'closed' => (int) $statusCounts->get('closed', 0),
+                        'escheat' => (int) $statusCounts->get('escheat', 0),
+                        'reactivated' => (int) $statusCounts->get('reactivated', 0),
+                        'opened_this_month' => $openedMonth,
+                        'active_pct' => $total > 0 ? round($active / $total * 100, 1) : 0,
+                    ];
+                });
+
+            // ── Top uploaders (customers uploaded per user) ──────────────────
+            $topUploaders = Customer::select(
+                'uploaded_by',
+                DB::raw('count(*) as total'),
+                DB::raw('sum(case when status = "active" then 1 else 0 end) as active_count'),
+                DB::raw('sum(case when status = "dormant" then 1 else 0 end) as dormant_count'),
+                DB::raw('sum(case when status = "closed" then 1 else 0 end) as closed_count'),
+            )
+                ->with('uploader:id,firstname,lastname,branch_id')
+                ->whereNotNull('uploaded_by')
+                ->groupBy('uploaded_by')
+                ->orderByDesc('total')
+                ->limit(20)
+                ->get()
+                ->map(function ($row) {
+                    $uploader = $row->uploader;
+
+                    return [
+                        'user_id' => $row->uploaded_by,
+                        'name' => $uploader?->full_name ?? 'Unknown',
+                        'total' => (int) $row->total,
+                        'active' => (int) $row->active_count,
+                        'dormant' => (int) $row->dormant_count,
+                        'closed' => (int) $row->closed_count,
+                    ];
+                });
+
+            activity()
+                ->causedBy(auth()->user())
+                ->withProperties(['action' => 'viewed_summary_report'])
+                ->log('Compliance viewed summary report');
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'generated_at' => now()->toDateTimeString(),
+                    'period_label' => now()->format('F Y'),
+                    'overall' => [
+                        'total' => (int) $totalAll,
+                        'active' => (int) ($overall->get('active', 0)),
+                        'dormant' => (int) ($overall->get('dormant', 0)),
+                        'closed' => (int) ($overall->get('closed', 0)),
+                        'escheat' => (int) ($overall->get('escheat', 0)),
+                        'reactivated' => (int) ($overall->get('reactivated', 0)),
+                    ],
+                    'this_month' => [
+                        'label' => now()->format('F Y'),
+                        'opened' => $openedThisMonth,
+                        'became_dormant' => (int) ($statusLogThisMonth->get('dormant', 0)),
+                        'became_closed' => (int) ($statusLogThisMonth->get('closed', 0)),
+                        'became_escheat' => (int) ($statusLogThisMonth->get('escheat', 0)),
+                        'reactivated' => (int) ($statusLogThisMonth->get('reactivated', 0)),
+                    ],
+                    'monthly_trends' => $monthlyTrends,
+                    'yearly_trends' => $yearlyTrends,
+                    'branches' => $branches,
+                    'top_uploaders' => $topUploaders,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Compliance summary report error: '.$e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load summary report',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Branch KPI detail: status counts + 12-month trends for one branch.
+     */
+    public function getBranchDetail(\App\Models\Branch $branch): JsonResponse
+    {
+        $this->authorize('view-compliance-reports');
+
+        try {
+            $thisMonthStart = now()->startOfMonth();
+            $thisMonthEnd = now()->endOfMonth();
+
+            $statusCounts = Customer::where('branch_id', $branch->id)
+                ->select('status', DB::raw('count(*) as count'))
+                ->groupBy('status')
+                ->pluck('count', 'status');
+
+            $total = $statusCounts->sum();
+            $active = (int) $statusCounts->get('active', 0);
+
+            $openingsByMonth = Customer::where('branch_id', $branch->id)
+                ->select(
+                    DB::raw('DATE_FORMAT(date_opened, "%Y-%m") as month'),
+                    DB::raw('count(*) as count')
+                )
+                ->where('date_opened', '>=', now()->subMonths(11)->startOfMonth())
+                ->groupBy('month')
+                ->pluck('count', 'month');
+
+            $statusLogByMonth = CustomerStatusLog::whereHas(
+                'customer',
+                fn ($q) => $q->where('branch_id', $branch->id)
+            )
+                ->select(
+                    DB::raw('DATE_FORMAT(created_at, "%Y-%m") as month'),
+                    'status',
+                    DB::raw('count(*) as count')
+                )
+                ->where('created_at', '>=', now()->subMonths(11)->startOfMonth())
+                ->whereIn('status', ['dormant', 'closed', 'escheat', 'reactivated'])
+                ->groupBy('month', 'status')
+                ->get()
+                ->groupBy('month')
+                ->map(fn ($rows) => $rows->pluck('count', 'status'));
+
+            $monthlyTrends = collect();
+            for ($i = 11; $i >= 0; $i--) {
+                $date = now()->subMonths($i);
+                $key = $date->format('Y-m');
+                $logs = $statusLogByMonth->get($key, collect());
+                $monthlyTrends->push([
+                    'label' => $date->format('M Y'),
+                    'month' => $key,
+                    'opened' => (int) ($openingsByMonth->get($key) ?? 0),
+                    'dormant' => (int) ($logs->get('dormant') ?? 0),
+                    'closed' => (int) ($logs->get('closed') ?? 0),
+                    'escheat' => (int) ($logs->get('escheat') ?? 0),
+                    'reactivated' => (int) ($logs->get('reactivated') ?? 0),
+                ]);
+            }
+
+            $uploaders = Customer::where('branch_id', $branch->id)
+                ->whereNotNull('uploaded_by')
+                ->select('uploaded_by', DB::raw('count(*) as total'))
+                ->with('uploader:id,firstname,lastname')
+                ->groupBy('uploaded_by')
+                ->orderByDesc('total')
+                ->limit(10)
+                ->get()
+                ->map(fn ($r) => [
+                    'name' => $r->uploader?->full_name ?? 'Unknown',
+                    'total' => (int) $r->total,
+                ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'branch' => [
+                        'id' => $branch->id,
+                        'branch_name' => $branch->branch_name,
+                        'brak' => $branch->brak,
+                        'brcode' => $branch->brcode,
+                    ],
+                    'overall' => [
+                        'total' => (int) $total,
+                        'active' => $active,
+                        'dormant' => (int) $statusCounts->get('dormant', 0),
+                        'closed' => (int) $statusCounts->get('closed', 0),
+                        'escheat' => (int) $statusCounts->get('escheat', 0),
+                        'reactivated' => (int) $statusCounts->get('reactivated', 0),
+                        'active_pct' => $total > 0 ? round($active / $total * 100, 1) : 0,
+                        'opened_this_month' => Customer::where('branch_id', $branch->id)
+                            ->whereBetween('date_opened', [$thisMonthStart, $thisMonthEnd])
+                            ->count(),
+                    ],
+                    'monthly_trends' => $monthlyTrends,
+                    'top_uploaders' => $uploaders,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Compliance branch detail error: '.$e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load branch detail',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
      * Get compliance reports
      */
     public function getReports(Request $request): JsonResponse
@@ -1442,62 +1763,130 @@ class ComplianceController extends Controller
      */
     public function generateReport(Request $request): JsonResponse
     {
+        $this->authorize('view-compliance-reports');
+
         $request->validate([
-            'type' => 'required|in:bsp_compliance,aml_cft,suspicious_transactions,kyc_compliance,regulatory_summary',
-            'from_date' => 'required|date',
-            'to_date' => 'required|date|after_or_equal:from_date',
-            'format' => 'nullable|in:pdf,excel,csv',
-            'branch_codes' => 'nullable|array',
-            'include_sensitive_data' => 'boolean',
-            'regulatory_submission' => 'boolean',
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+            'branch_id' => 'nullable|integer|exists:branches,id',
         ]);
 
         try {
-            $compliance = auth()->user();
+            $dateFrom = $request->date('date_from')->startOfDay();
+            $dateTo = $request->date('date_to')->endOfDay();
 
-            $reportId = 'COMP-RPT-'.strtoupper($request->type).'-'.Str::random(8);
+            if ($request->filled('branch_id')) {
+                $branchModel = \App\Models\Branch::find($request->branch_id);
+                $branchLabel = $branchModel?->branch_name ?? 'Unknown Branch';
+            } else {
+                $branchLabel = 'All Branches (excl. Head Office)';
+            }
+
+            $mapCustomerRow = function (Customer $c, ?string $eventDate = null): array {
+                return [
+                    'account_no' => $c->account_no,
+                    'full_name' => $c->full_name,
+                    'account_type' => $c->account_type.($c->joint_sub_type ? " ({$c->joint_sub_type})" : ''),
+                    'risk_level' => $c->risk_level ?? '—',
+                    'status' => $c->status,
+                    'date_opened' => $c->date_opened?->format('Y-m-d'),
+                    'event_date' => $eventDate,
+                    'branch' => $c->branch?->branch_name ?? '—',
+                    'branch_brak' => $c->branch?->brak ?? '—',
+                    'uploaded_by' => $c->uploader?->full_name ?? '—',
+                ];
+            };
+
+            // ── Accounts Opened: date_opened in range ──────────────────────
+            $openedQuery = Customer::with(['branch:id,branch_name,brak', 'uploader:id,firstname,lastname'])
+                ->whereBetween('date_opened', [$dateFrom, $dateTo]);
+
+            if ($request->filled('branch_id')) {
+                $openedQuery->where('branch_id', $request->branch_id);
+            } else {
+                $openedQuery->whereHas('branch', fn ($q) => $q->where('brak', '!=', 'HO'));
+            }
+
+            $openedRows = $openedQuery->orderBy('date_opened')->get()
+                ->map(fn (Customer $c) => $mapCustomerRow($c, $c->date_opened?->format('Y-m-d')))
+                ->values();
+
+            // ── Status events from CustomerStatusLog ───────────────────────
+            $eventsByStatus = [];
+
+            foreach (['dormant', 'closed', 'reactivated', 'escheat'] as $eventStatus) {
+                $logQuery = CustomerStatusLog::with([
+                    'customer' => fn ($q) => $q->with(['branch:id,branch_name,brak', 'uploader:id,firstname,lastname']),
+                ])
+                    ->where('status', $eventStatus)
+                    ->whereBetween('created_at', [$dateFrom, $dateTo]);
+
+                if ($request->filled('branch_id')) {
+                    $logQuery->whereHas('customer', fn ($q) => $q->where('branch_id', $request->branch_id));
+                } else {
+                    $logQuery->whereHas('customer', fn ($q) => $q->whereHas('branch', fn ($bq) => $bq->where('brak', '!=', 'HO')));
+                }
+
+                $eventsByStatus[$eventStatus] = $logQuery->orderBy('created_at')->get()
+                    ->filter(fn ($log) => $log->customer !== null)
+                    ->map(fn ($log) => $mapCustomerRow($log->customer, $log->created_at->format('Y-m-d')))
+                    ->values();
+            }
+
+            $totalEvents = $openedRows->count()
+                + collect($eventsByStatus)->map(fn ($rows) => $rows->count())->sum();
+
+            $allRows = $openedRows->concat(collect($eventsByStatus)->flatten(1));
+            $byAccountType = $allRows->groupBy('account_type')->map->count();
+            $byRisk = $allRows->groupBy('risk_level')->map->count();
 
             activity()
-                ->causedBy($compliance)
+                ->causedBy(auth()->user())
                 ->withProperties([
-                    'action' => 'compliance_generated_specialized_report',
-                    'report_id' => $reportId,
-                    'report_type' => $request->type,
-                    'date_range' => [
-                        'from' => $request->from_date,
-                        'to' => $request->to_date,
-                    ],
-                    'format' => $request->format ?? 'pdf',
-                    'regulatory_submission' => $request->regulatory_submission ?? false,
+                    'action' => 'generate_customer_report',
+                    'date_from' => $dateFrom->toDateString(),
+                    'date_to' => $dateTo->toDateString(),
+                    'branch' => $branchLabel,
+                    'total_events' => $totalEvents,
                 ])
-                ->log('Compliance officer generated specialized report');
+                ->log('Generated customer report');
 
             return response()->json([
                 'success' => true,
-                'message' => 'Specialized compliance report generation initiated',
                 'data' => [
-                    'report_id' => $reportId,
-                    'type' => $request->type,
-                    'period' => [
-                        'from' => $request->from_date,
-                        'to' => $request->to_date,
+                    'meta' => [
+                        'date_from' => $dateFrom->format('M d, Y'),
+                        'date_to' => $dateTo->format('M d, Y'),
+                        'branch_label' => $branchLabel,
+                        'generated_at' => now()->format('M d, Y h:i A'),
+                        'total_events' => $totalEvents,
                     ],
-                    'format' => $request->format ?? 'pdf',
-                    'status' => 'generating',
-                    'estimated_completion' => now()->addMinutes(15),
-                    'download_url' => "/api/compliance/reports/download/{$reportId}",
-                    'expires_at' => now()->addDays(30),
-                    'regulatory_submission' => $request->regulatory_submission ?? false,
+                    'summary' => [
+                        'opened' => $openedRows->count(),
+                        'dormant' => $eventsByStatus['dormant']->count(),
+                        'closed' => $eventsByStatus['closed']->count(),
+                        'reactivated' => $eventsByStatus['reactivated']->count(),
+                        'escheat' => $eventsByStatus['escheat']->count(),
+                        'total_events' => $totalEvents,
+                        'by_account_type' => $byAccountType->toArray(),
+                        'by_risk_level' => $byRisk->toArray(),
+                    ],
+                    'customers_by_event' => [
+                        'opened' => $openedRows,
+                        'dormant' => $eventsByStatus['dormant'],
+                        'closed' => $eventsByStatus['closed'],
+                        'reactivated' => $eventsByStatus['reactivated'],
+                        'escheat' => $eventsByStatus['escheat'],
+                    ],
                 ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Compliance error generating specialized report: '.$e->getMessage());
+            Log::error('Error generating customer report: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate specialized report',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'message' => 'Failed to generate report.',
             ], 500);
         }
     }
@@ -1507,7 +1896,7 @@ class ComplianceController extends Controller
      */
     public function exportReport(Request $request): JsonResponse
     {
-        $this->authorize('export reports');
+        $this->authorize('export-reports');
 
         $request->validate([
             'report_id' => 'required|string',
@@ -1795,7 +2184,7 @@ class ComplianceController extends Controller
      */
     public function getSystemLogs(Request $request): JsonResponse
     {
-        $this->authorize('view system logs');
+        $this->authorize('view-system-logs');
 
         $request->validate([
             'level' => 'nullable|in:emergency,alert,critical,error,warning,notice,info,debug',
@@ -1877,7 +2266,7 @@ class ComplianceController extends Controller
      */
     public function getSecurityEvents(Request $request): JsonResponse
     {
-        $this->authorize('view security events');
+        $this->authorize('view-login-attempts');
 
         $request->validate([
             'date_from' => 'nullable|date',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -8,6 +8,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineChevronRight,
   HiOutlineChevronLeft,
+  HiOutlineChevronDown,
   HiOutlineRefresh,
   HiOutlineShieldCheck,
   HiOutlineCreditCard,
@@ -20,6 +21,9 @@ import {
   HiOutlineZoomOut,
   HiOutlineCalendar,
   HiOutlinePhotograph,
+  HiOutlineLockClosed,
+  HiOutlineTag,
+  HiOutlineInformationCircle,
 } from "react-icons/hi";
 import { MdFingerprint } from "react-icons/md";
 import Swal from "sweetalert2";
@@ -82,6 +86,16 @@ const initials = (customer) => {
   const f = customer?.firstname?.[0] ?? "";
   const l = customer?.lastname?.[0]  ?? "";
   return (f + l).toUpperCase() || "?";
+};
+
+// Format: "Lastname, Firstname Middlename" (middle name only if present)
+const formatDisplayName = (c) => {
+  const last  = (c.lastname  ?? "").trim();
+  const first = (c.firstname ?? "").trim();
+  const mid   = (c.middlename ?? "").trim();
+  if (!last && !first) return c.full_name ?? "—";
+  const firstMid = mid ? `${first} ${mid}` : first;
+  return last ? `${last}, ${firstMid}`.trim() : firstMid || "—";
 };
 
 // ── AccountsCell — collapsed summary, expandable on click ────────────────────
@@ -251,12 +265,139 @@ const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) =
   );
 };
 
+// ── Audit History ─────────────────────────────────────────────────────────────
+const HIST_STATUS_COLORS = {
+  active:      "bg-green-100 text-green-700",
+  dormant:     "bg-yellow-100 text-yellow-700",
+  closed:      "bg-red-100 text-red-700",
+  escheat:     "bg-orange-100 text-orange-700",
+  reactivated: "bg-teal-100 text-teal-700",
+};
+const HIST_FIELD_LABELS = {
+  firstname: "First Name", middlename: "Middle Name", lastname: "Last Name",
+  suffix: "Suffix", account_type: "Account Type", risk_level: "Risk Level",
+  status: "Status", account_no: "Account No.", date_opened: "Date Opened",
+  company_name: "Company Name", branch_id: "Branch",
+};
+
+const histEventConfig = (event, description) => {
+  const desc = (description ?? "").toLowerCase();
+  if (desc.includes("replaced"))                         return { label: "Document Replaced", dot: "bg-orange-500", textColor: "text-orange-700" };
+  if (desc.includes("deleted") && desc.includes("doc")) return { label: "Document Deleted",  dot: "bg-red-500",    textColor: "text-red-700"    };
+  if (desc.includes("uploaded"))                         return { label: "Document Uploaded", dot: "bg-purple-500", textColor: "text-purple-700" };
+  if (desc.includes("created") || event === "created")  return { label: "Account Created",   dot: "bg-green-500",  textColor: "text-green-700"  };
+  if (desc.includes("updated") || event === "updated")  return { label: "Info Updated",       dot: "bg-blue-500",   textColor: "text-blue-700"   };
+  if (desc.includes("deleted"))                          return { label: "Record Deleted",    dot: "bg-red-500",    textColor: "text-red-700"    };
+  return { label: description ?? event ?? "Event",               dot: "bg-slate-400",  textColor: "text-slate-600"  };
+};
+
+const HistValueBadge = ({ field, value }) => {
+  if (value === null || value === undefined || value === "")
+    return <span className="text-slate-400 italic text-[11px]">—</span>;
+  if (field === "status")
+    return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${HIST_STATUS_COLORS[value] ?? "bg-slate-100 text-slate-600"}`}>{value}</span>;
+  return <span className="text-[11px] text-slate-800 font-medium">{String(value)}</span>;
+};
+
+const CustomerHistorySection = ({ customerId }) => {
+  const [history, setHistory]   = useState([]);
+  const [hLoading, setHLoading] = useState(true);
+  const [expanded, setExpanded] = useState({});
+  const [collapsed, setCollapsed] = useState(true);
+
+  useEffect(() => {
+    api.get(`/customers/${customerId}/history`)
+      .then(({ data }) => setHistory(data.history ?? []))
+      .catch(() => setHistory([]))
+      .finally(() => setHLoading(false));
+  }, [customerId]);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center gap-2 px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors"
+      >
+        <HiOutlineDocumentText className="w-4 h-4 text-slate-400" />
+        <h2 className="text-sm font-bold text-slate-900">Audit History</h2>
+        {!hLoading && (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
+            {history.length} event{history.length !== 1 ? "s" : ""}
+          </span>
+        )}
+        <span className="ml-auto text-xs text-slate-400">{collapsed ? "Show" : "Hide"}</span>
+      </button>
+      {!collapsed && (
+        <div className="px-5 py-5">
+          {hLoading ? (
+            <div className="flex items-center gap-2 py-6 justify-center">
+              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-slate-400">Loading history…</span>
+            </div>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">No history recorded yet.</p>
+          ) : (
+            <ol className="relative border-l border-slate-200 space-y-5 ml-2">
+              {history.map((entry) => {
+                const cfg      = histEventConfig(entry.event, entry.description);
+                const isExp    = expanded[entry.id];
+                const diff     = entry.diff ?? {};
+                const meta     = entry.meta ?? {};
+                const changed  = Object.keys(diff).filter((k) => diff[k].old !== diff[k].new);
+                return (
+                  <li key={entry.id} className="ml-4">
+                    <div className={`absolute -left-[5px] w-2.5 h-2.5 rounded-full border-2 border-white ${cfg.dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-bold ${cfg.textColor}`}>{cfg.label}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {formatDate(entry.created_at)}
+                        {entry.causer && <span className="ml-1.5">· {entry.causer.firstname} {entry.causer.lastname}</span>}
+                      </p>
+                      {(changed.length > 0 || meta.file_name) && (
+                        <button
+                          onClick={() => setExpanded((prev) => ({ ...prev, [entry.id]: !prev[entry.id] }))}
+                          className="mt-1.5 text-[10px] font-semibold text-blue-500 hover:text-blue-700 transition-colors"
+                        >
+                          {isExp ? "Hide details" : "Show details"}
+                        </button>
+                      )}
+                      {isExp && (
+                        <div className="mt-2 space-y-2">
+                          {changed.map((k) => (
+                            <div key={k} className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="font-semibold text-slate-500">{HIST_FIELD_LABELS[k] ?? k}:</span>
+                              <HistValueBadge field={k} value={diff[k].old} />
+                              <span className="text-slate-300">→</span>
+                              <HistValueBadge field={k} value={diff[k].new} />
+                            </div>
+                          ))}
+                          {meta.file_name && (
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <span className="text-slate-400">File:</span>
+                              <span className="text-slate-600 font-mono">{meta.file_name ?? meta.file_path?.split("/").pop()}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Customer Detail View ──────────────────────────────────────────────────────
 const CustomerDetailView = ({ customerId: cid, onClose }) => {
   const [customer, setCustomer]   = useState(null);
   const [loading, setLoading]     = useState(true);
-  const [viewer, setViewer]       = useState(null); // { images, index }
+  const [viewer, setViewer]       = useState(null);
   const [activeAcctIdx, setActiveAcctIdx] = useState(1);
+  const [historyExpanded, setHistoryExpanded] = useState({});
 
   useEffect(() => {
     setLoading(true);
@@ -272,11 +413,30 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     const imgs = [];
     let startIdx = 0;
 
-    // When customer has multiple accounts (non-Joint), filter to active account tab
     const hasMultiAccounts = customer?.account_type !== "Joint" && (customer?.accounts?.length ?? 0) >= 1;
+    // Use status-aware docs for the carousel
+    const _statusLogs = customer.status_logs ?? [];
+    const _latestLogWithDocs = _statusLogs.find((log) => (log.documents ?? []).length > 0) ?? null;
+    const _statusDocs = (customer.documents ?? []).filter((d) => !!d.account_status);
+    const _legacyDocs = _statusDocs.filter((d) => !d.status_log_id);
+    const _legacyGroups = Object.values(
+      _legacyDocs.reduce((acc, doc) => {
+        const key = doc.account_status;
+        if (!acc[key]) acc[key] = { docs: [], latestDate: null };
+        acc[key].docs.push(doc);
+        if (!acc[key].latestDate || doc.created_at > acc[key].latestDate) acc[key].latestDate = doc.created_at;
+        return acc;
+      }, {})
+    ).sort((a, b) => (b.latestDate ?? "").localeCompare(a.latestDate ?? ""));
+    const _initialDocs = (customer.documents ?? []).filter((d) => !d.account_status);
+    const baseDocs = (_latestLogWithDocs
+      ? (_latestLogWithDocs.documents ?? [])
+      : _legacyGroups[0]?.docs ?? _initialDocs
+    ).filter((d) => d.is_current !== false);
+
     const viewDocs = hasMultiAccounts
-      ? customer.documents.filter((d) => d.person_index === activeAcctIdx)
-      : customer.documents;
+      ? baseDocs.filter((d) => d.person_index === activeAcctIdx)
+      : baseDocs;
 
     // Grouped: sigcard/nais/privacy per person
     const persons = [...new Set(
@@ -328,13 +488,45 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     );
   }
 
-  const sCfg     = statusStyle[customer.status] ?? "bg-slate-100 text-slate-500";
-  const docs     = customer.documents ?? [];
-  const holders  = customer.holders   ?? [];
-  const isJoint  = customer.account_type === "Joint";
-  const isDormant = customer.status === "dormant";
+  // ── Status-log-aware data computation ────────────────────────────────────────
+  const holders              = customer.holders ?? [];
+  const isJoint              = customer.account_type === "Joint";
+  const isCorporate          = customer.account_type === "Corporate";
+  const isSoleProprietorship = isCorporate && customer.corporate_sub_type === "Sole Proprietorship";
 
-  // Multi-account tabs (non-Joint only)
+  const statusLogs        = customer.status_logs ?? [];
+  const initialDocs       = (customer.documents ?? []).filter((d) => !d.account_status);
+  const statusDocs        = (customer.documents ?? []).filter((d) => !!d.account_status);
+  const latestLogWithDocs = statusLogs.find((log) => (log.documents ?? []).length > 0) ?? null;
+
+  const legacyGroups = Object.values(
+    statusDocs.filter((d) => !d.status_log_id).reduce((acc, doc) => {
+      const key = doc.account_status;
+      if (!acc[key]) acc[key] = { status: doc.account_status, docs: [], latestDate: null };
+      acc[key].docs.push(doc);
+      if (!acc[key].latestDate || doc.created_at > acc[key].latestDate) acc[key].latestDate = doc.created_at;
+      return acc;
+    }, {})
+  ).sort((a, b) => (b.latestDate ?? "").localeCompare(a.latestDate ?? ""));
+
+  const latestLegacyGroup = legacyGroups[0] ?? null;
+
+  const docs = (latestLogWithDocs
+    ? (latestLogWithDocs.documents ?? [])
+    : latestLegacyGroup ? latestLegacyGroup.docs : initialDocs
+  ).filter((d) => d.is_current !== false);
+
+  const initialStatus     = statusLogs.length > 0
+    ? (statusLogs[statusLogs.length - 1]?.previous_status ?? customer.status)
+    : customer.status;
+  const currentDocsStatus = latestLogWithDocs?.status ?? latestLegacyGroup?.status ?? null;
+
+  const historyLogs          = latestLogWithDocs
+    ? statusLogs.filter((log) => log.id !== latestLogWithDocs.id && (log.documents ?? []).length > 0)
+    : statusLogs.filter((log) => (log.documents ?? []).length > 0);
+  const historyLegacyGroups  = latestLogWithDocs ? legacyGroups : legacyGroups.slice(1);
+  const showInitialInHistory = (!!latestLogWithDocs || !!latestLegacyGroup) && initialDocs.length > 0;
+
   const allAccounts = !isJoint ? [
     { account_no: customer.account_no, risk_level: customer.risk_level, date_opened: customer.date_opened, status: customer.status, acctIndex: 1 },
     ...(customer.accounts ?? []).map((a, i) => ({
@@ -342,9 +534,53 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     })),
   ] : [];
   const showAccountTabs = allAccounts.length >= 2;
+
+  const latestLogForAcct = showAccountTabs
+    ? statusLogs.find(
+        (log) => (log.documents ?? []).length > 0 &&
+                 (log.documents ?? []).some((d) => d.person_index === activeAcctIdx)
+      ) ?? null
+    : latestLogWithDocs;
+
   const docsForSection = showAccountTabs
-    ? docs.filter((d) => d.person_index === activeAcctIdx)
+    ? (() => {
+        if (latestLogForAcct) {
+          return (latestLogForAcct.documents ?? [])
+            .filter((d) => d.is_current !== false && d.person_index === activeAcctIdx);
+        }
+        const legacyForAcct = legacyGroups.find((g) => g.docs.some((d) => d.person_index === activeAcctIdx));
+        if (legacyForAcct) return legacyForAcct.docs.filter((d) => d.person_index === activeAcctIdx);
+        return initialDocs.filter((d) => d.person_index === activeAcctIdx);
+      })()
     : docs;
+
+  const currentDocsStatusForAcct = showAccountTabs
+    ? latestLogForAcct?.status ?? (() => {
+        const legacyForAcct = legacyGroups.find((g) => g.docs.some((d) => d.person_index === activeAcctIdx));
+        return legacyForAcct?.status ?? null;
+      })()
+    : currentDocsStatus;
+
+  const historyLogsForAcct = showAccountTabs
+    ? historyLogs.filter((log) => (log.documents ?? []).some((d) => d.person_index === activeAcctIdx))
+    : historyLogs;
+  const historyLegacyGroupsForAcct = showAccountTabs
+    ? historyLegacyGroups
+        .map((g) => ({ ...g, docs: g.docs.filter((d) => d.person_index === activeAcctIdx) }))
+        .filter((g) => g.docs.length > 0)
+    : historyLegacyGroups;
+  const initialDocsForHistory = showAccountTabs
+    ? initialDocs.filter((d) => d.person_index === activeAcctIdx)
+    : initialDocs;
+  const showInitialForAcct = showAccountTabs
+    ? (!!latestLogWithDocs || !!latestLegacyGroup) && initialDocsForHistory.length > 0
+    : showInitialInHistory;
+  const activeAcctObj = showAccountTabs ? allAccounts.find((a) => a.acctIndex === activeAcctIdx) : null;
+
+  const activeAcctStatus = showAccountTabs
+    ? (allAccounts.find((a) => a.acctIndex === activeAcctIdx)?.status ?? customer.status)
+    : customer.status;
+  const isDormant = activeAcctStatus === "dormant";
 
   const allHolders = [
     { person_index: 1, firstname: customer.firstname, middlename: customer.middlename, lastname: customer.lastname, suffix: customer.suffix, risk_level: customer.risk_level },
@@ -362,8 +598,11 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
     : showAccountTabs
       ? [activeAcctIdx]
       : [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort();
-  const otherDocs  = docsForSection.filter((d) => d.document_type === "other");
+  const otherDocs = docsForSection.filter((d) => d.document_type === "other");
+  const totalDocs = docsForSection.length;
+  const sCfg     = statusStyle[customer.status] ?? "bg-slate-100 text-slate-500";
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
       {viewer && (
@@ -371,17 +610,20 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       )}
 
       <div className="flex flex-col h-full">
-        {/* Modal header */}
+        {/* Panel header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-bold text-slate-900">Customer Details</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-base font-bold text-slate-900 truncate">{customer.full_name}</h2>
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${sCfg}`}>
+              {customer.status}
+            </span>
             {isDormant && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300 flex-shrink-0">
                 Dormant
               </span>
             )}
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+          <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex-shrink-0 ml-3">
             <HiOutlineX className="w-5 h-5" />
           </button>
         </div>
@@ -389,48 +631,56 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
-          {/* Profile card */}
+          {/* ── Profile card ─────────────────────────────────────────────── */}
           <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-2xl p-5 text-white">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl shadow-lg flex-shrink-0">
-                {initials(customer)}
+            <div className="flex items-start gap-4 mb-4">
+              <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg flex-shrink-0">
+                {customer.photo ? (
+                  <img src={storageUrl(customer.photo)} alt="Customer" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
+                    {initials(customer)}
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-lg font-bold text-white">{customer.full_name}</h3>
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${sCfg}`}>
-                    {customer.status}
-                  </span>
-                </div>
-                {isJoint && holders.length > 0 && (
-                  <p className="text-xs text-white/40 mt-0.5 truncate">
-                    + {holders.map((h) => `${h.firstname} ${h.lastname}`).join(", ")}
+                <h3 className="text-lg font-bold text-white truncate">{customer.full_name}</h3>
+                {(isJoint || isCorporate) && holders.length > 0 && (
+                  <p className="text-xs text-white/50 mt-0.5 truncate">
+                    + {holders.map((h) => `${h.lastname} ${h.firstname}`).join(", ")}
                   </p>
                 )}
-                <p className="text-xs text-white/50 mt-0.5">{customerId(customer.id)}</p>
+                <p className="text-[10px] text-white/40 mt-0.5">{customerId(customer.id)}</p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-white/50">
+                  <span className="flex items-center gap-1">
+                    <HiOutlineCreditCard className="w-3.5 h-3.5" />
+                    {customer.account_type}
+                    {isSoleProprietorship ? " · Sole Proprietorship" : isJoint ? ` · ${allHolders.length} holders` : isCorporate ? ` · ${allHolders.length} signatories` : ""}
+                  </span>
+                  {!isJoint && (!isCorporate || isSoleProprietorship) && customer.risk_level && (
+                    <span className="flex items-center gap-1">
+                      <HiOutlineShieldCheck className="w-3.5 h-3.5" />
+                      {customer.risk_level}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <HiOutlineOfficeBuilding className="w-3.5 h-3.5" />
+                    {customer.branch?.branch_name ?? "—"}
+                  </span>
+                  {customer.account_no && (
+                    <span className="flex items-center gap-1">
+                      <HiOutlineDocumentText className="w-3.5 h-3.5" />
+                      {customer.account_no}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              {[
-                { icon: HiOutlineCreditCard,     label: "Account Type", value: `${customer.account_type}${isJoint ? ` · ${allHolders.length} holders` : ""}` },
-                ...(!isJoint ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level }] : []),
-                { icon: HiOutlineOfficeBuilding, label: "Branch",       value: customer.branch?.branch_name ?? "—" },
-                { icon: HiOutlineCalendar,       label: "Date Added",   value: formatDate(customer.created_at) },
-              ].map(({ icon: Icon, label, value }) => (
-                <div key={label} className="flex items-start gap-2">
-                  <Icon className="w-4 h-4 text-white/30 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-[10px] text-white/30 uppercase tracking-wider">{label}</p>
-                    <p className="text-white/80 font-medium text-xs">{value}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
 
-            {/* Joint holders list inside profile card */}
-            {isJoint && (
-              <div className="mt-4 pt-4 border-t border-white/10 space-y-2">
-                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Account Holders</p>
+            {/* Joint holders */}
+            {isJoint && allHolders.length > 1 && (
+              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Account Holders</p>
                 {allHolders.map((h) => (
                   <div key={h.person_index} className="flex items-center gap-2.5">
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-purple-600"}`}>
@@ -448,118 +698,475 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             )}
           </div>
 
-          {/* Account tabs — shown when customer has 2+ accounts (non-Joint) */}
+          {/* ── Customer Details card ─────────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100">
+              <HiOutlineInformationCircle className="w-4 h-4 text-slate-400" />
+              <h2 className="text-sm font-bold text-slate-900">Customer Details</h2>
+            </div>
+            <div className="px-5 py-4 grid grid-cols-2 gap-x-6 gap-y-4">
+              {[
+                { icon: HiOutlineUser,           label: "Full Name",    value: customer.full_name },
+                { icon: HiOutlineCreditCard,      label: "Account Type", value: customer.account_type },
+                ...(isJoint ? [{ icon: HiOutlineTag, label: "Joint Sub Type", value: customer.joint_sub_type ?? "—" }] : []),
+                ...(isCorporate && customer.corporate_sub_type ? [{ icon: HiOutlineTag, label: "Corp. Sub Type", value: customer.corporate_sub_type }] : []),
+                { icon: HiOutlineDocumentText,    label: "Account No.",  value: customer.account_no ?? "—" },
+                ...(!isJoint && (!isCorporate || isSoleProprietorship) ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level ?? "—" }] : []),
+                { icon: HiOutlineCalendar,        label: "Date Opened",  value: customer.date_opened ? formatDate(customer.date_opened) : "—" },
+                { icon: HiOutlineOfficeBuilding,  label: "Branch",       value: customer.branch?.branch_name ?? "—" },
+                { icon: HiOutlineCalendar,        label: "Date Added",   value: formatDate(customer.created_at) },
+              ].map(({ icon: Icon, label, value }) => (
+                <div key={label} className="flex items-start gap-2">
+                  <Icon className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
+                    <p className="text-xs font-semibold text-slate-800 truncate">{value}</p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Status field — multi-account shows per-account badges */}
+              <div className="flex items-start gap-2">
+                <HiOutlineShieldCheck className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>
+                  {showAccountTabs ? (
+                    <div className="space-y-1">
+                      {allAccounts.map((acct) => (
+                        <div key={acct.acctIndex} className="flex items-center gap-1.5">
+                          <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">{acct.acctIndex}</span>
+                          <span className="text-[10px] text-slate-500 font-mono truncate flex-1">{acct.account_no ?? "—"}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
+                      {customer.status ?? "—"}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Total docs */}
+              <div className="flex items-start gap-2">
+                <HiOutlineDocumentText className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Documents</p>
+                  <p className="text-xs font-semibold text-slate-800">{totalDocs} file{totalDocs !== 1 ? "s" : ""}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Account tabs — shown when customer has 2+ accounts (non-Joint) */}
           {showAccountTabs && (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Select Account</p>
-              <div className="flex gap-2 overflow-x-auto pb-0.5">
-                {allAccounts.map((acct) => (
-                  <button
-                    key={acct.acctIndex}
-                    onClick={() => setActiveAcctIdx(acct.acctIndex)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border-2 flex-shrink-0 ${
-                      activeAcctIdx === acct.acctIndex
-                        ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                        : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
-                    }`}
-                  >
-                    <HiOutlineCreditCard className="w-3.5 h-3.5" />
-                    <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
-                  </button>
-                ))}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Account</p>
+              </div>
+              <div className="flex gap-2 overflow-x-auto px-4 py-3 pb-3.5">
+                {allAccounts.map((acct) => {
+                  const isActive = activeAcctIdx === acct.acctIndex;
+                  return (
+                    <button
+                      key={acct.acctIndex}
+                      onClick={() => setActiveAcctIdx(acct.acctIndex)}
+                      className={`flex flex-col gap-1 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border-2 flex-shrink-0 text-left ${
+                        isActive
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <HiOutlineCreditCard className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>{acct.account_no ?? `Account ${acct.acctIndex}`}</span>
+                        {acct.acctIndex === 1 && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                            Primary
+                          </span>
+                        )}
+                      </div>
+                      <span className={`self-start px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                        isActive ? "bg-white/20 text-white" : (statusStyle[acct.status] ?? "bg-slate-100 text-slate-500")
+                      }`}>
+                        {acct.status ?? "—"}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* Document sections */}
-          {DOC_SECTIONS.map((sec) => {
-            const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
-            if (secDocs.length === 0) return (
-              <div key={sec.key}>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{sec.label}</p>
-                <div className="flex items-center gap-2 py-4 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
-                  <HiOutlinePhotograph className="w-5 h-5 text-slate-300" />
-                  <p className="text-sm text-slate-400">No documents uploaded</p>
-                </div>
-              </div>
-            );
-            return (
-              <div key={sec.key}>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">{sec.label}</p>
-                <div className="space-y-3">
-                  {(persons.length ? persons : [1]).map((p) => {
-                    const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
-                    const backDoc  = docsForSection.find((d) => d.document_type === sec.back  && d.person_index === p);
-                    if (!frontDoc && !backDoc) return null;
-                    return (
-                      <div key={p}>
-                        {isJoint && persons.length > 1 && (
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                            Person {p} — {holderName(p)}
-                          </p>
-                        )}
-                        <div className="grid grid-cols-2 gap-3">
-                          {[{ doc: frontDoc, type: sec.front, lbl: "Front" }, { doc: backDoc, type: sec.back, lbl: "Back" }].map(({ doc, type, lbl }) => (
-                            <div key={lbl}>
-                              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
-                              {doc ? (
-                                <button
-                                  onClick={() => openViewer(type, p)}
-                                  className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
-                                >
-                                  <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                    <div className="bg-white/90 rounded-full p-1.5 shadow">
-                                      <HiOutlineEye className="w-4 h-4 text-slate-700" />
-                                    </div>
+          {/* ── Documents section ─────────────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100">
+              <HiOutlineDocumentText className="w-4 h-4 text-slate-400" />
+              <h2 className="text-sm font-bold text-slate-900">Documents</h2>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+                {customer.status ?? "—"}
+              </span>
+              {currentDocsStatusForAcct && (
+                <span className="text-[10px] text-slate-400">Latest upload</span>
+              )}
+              {isDormant && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">
+                  Dormant — blurred
+                </span>
+              )}
+              <span className="ml-auto text-xs text-slate-400">{totalDocs} file{totalDocs !== 1 ? "s" : ""}</span>
+            </div>
+
+            <div className="px-5 py-5 space-y-6">
+              {DOC_SECTIONS.map((sec) => {
+                const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
+                return (
+                  <div key={sec.key}>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">{sec.label}</p>
+                    {secDocs.length === 0 ? (
+                      <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
+                        <HiOutlinePhotograph className="w-4 h-4 text-slate-300" />
+                        <p className="text-sm text-slate-400">No documents uploaded</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {(persons.length ? persons : [1]).map((p) => {
+                          const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
+                          const backDoc  = docsForSection.find((d) => d.document_type === sec.back  && d.person_index === p);
+                          if (!frontDoc && !backDoc) return null;
+                          return (
+                            <div key={p}>
+                              {isJoint && persons.length > 1 && (
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                  Person {p} — {holderName(p)}
+                                </p>
+                              )}
+                              <div className="grid grid-cols-2 gap-3">
+                                {[{ doc: frontDoc, type: sec.front, lbl: "Front" }, { doc: backDoc, type: sec.back, lbl: "Back" }].map(({ doc, type, lbl }) => (
+                                  <div key={lbl}>
+                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
+                                    {doc ? (
+                                      <button
+                                        onClick={() => openViewer(type, p)}
+                                        className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
+                                      >
+                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                          <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                            <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                          </div>
+                                        </div>
+                                      </button>
+                                    ) : (
+                                      <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
+                                        <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
+                                      </div>
+                                    )}
                                   </div>
-                                </button>
-                              ) : (
-                                <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
-                                  <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Other docs */}
+              <div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Other Documents</p>
+                {otherDocs.length > 0 ? (
+                  <div className="grid grid-cols-4 gap-2">
+                    {otherDocs.map((doc, i) => (
+                      <button key={doc.id}
+                        onClick={() => {
+                          const { images } = buildImages();
+                          const otherStart = images.findIndex((img) => img.src === storageUrl(doc.file_path));
+                          setViewer({ images, index: Math.max(otherStart, 0) });
+                        }}
+                        className="relative group aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
+                      >
+                        <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                          <div className="bg-white/90 rounded-full p-1.5 shadow">
+                            <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
+                    <HiOutlinePhotograph className="w-4 h-4 text-slate-300" />
+                    <p className="text-sm text-slate-400">No other documents</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Status Change History ─────────────────────────────────────── */}
+          {(historyLogsForAcct.length > 0 || historyLegacyGroupsForAcct.length > 0 || showInitialForAcct) && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100">
+                <HiOutlineCalendar className="w-4 h-4 text-slate-400" />
+                <h2 className="text-sm font-bold text-slate-900">Status Change History</h2>
+                {showAccountTabs && activeAcctObj && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-200">
+                    <HiOutlineCreditCard className="w-3 h-3" />
+                    {activeAcctObj.account_no ?? `Account ${activeAcctIdx}`}
+                  </span>
+                )}
+                <span className="ml-auto text-xs text-slate-400">
+                  {historyLogsForAcct.length + historyLegacyGroupsForAcct.length + (showInitialForAcct ? 1 : 0)} change{
+                    (historyLogsForAcct.length + historyLegacyGroupsForAcct.length + (showInitialForAcct ? 1 : 0)) !== 1 ? "s" : ""
+                  }
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-100">
+                {historyLogsForAcct.map((log) => {
+                  const logKey     = `log-${log.id}`;
+                  const isExpanded = historyExpanded[logKey] ?? false;
+                  const logDocs    = log.documents ?? [];
+                  const changer    = log.changed_by
+                    ? (log.changed_by.full_name || `${log.changed_by.lastname ?? ""} ${log.changed_by.firstname ?? ""}`.trim() || log.changed_by.username)
+                    : null;
+                  return (
+                    <div key={log.id}>
+                      <button
+                        onClick={() => setHistoryExpanded((prev) => ({ ...prev, [logKey]: !isExpanded }))}
+                        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[log.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                          {log.status}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          {log.previous_status && (
+                            <p className="text-[10px] text-slate-400 mb-0.5">
+                              <span className="font-semibold">{log.previous_status}</span> → <span className="font-semibold text-slate-700">{log.status}</span>
+                            </p>
+                          )}
+                          <p className="text-xs text-slate-500 truncate">
+                            {formatDate(log.created_at)}
+                            {changer && <span className="text-slate-400"> · {changer}</span>}
+                            {logDocs.length > 0 && <span className="ml-1.5 text-blue-500 font-semibold">· {logDocs.length} doc{logDocs.length !== 1 ? "s" : ""}</span>}
+                            {logDocs.length === 0 && <span className="ml-1.5 text-slate-300">· no documents</span>}
+                          </p>
+                        </div>
+                        <HiOutlineChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-5 pb-5 pt-1 border-t border-slate-100 bg-slate-50/40">
+                          {logDocs.length === 0 ? (
+                            <p className="text-xs text-slate-400 py-2">No documents were uploaded for this status change.</p>
+                          ) : (
+                            <>
+                              {DOC_SECTIONS.map((sec) => {
+                                const fDocs = logDocs.filter((d) => d.document_type === sec.front);
+                                const bDocs = logDocs.filter((d) => d.document_type === sec.back);
+                                if (!fDocs.length && !bDocs.length) return null;
+                                const personsInLog = [...new Set([...fDocs, ...bDocs].map((d) => d.person_index))].sort();
+                                return (
+                                  <div key={sec.key} className="mb-5">
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">{sec.label}</p>
+                                    {personsInLog.map((pi) => {
+                                      const fDoc = fDocs.find((d) => d.person_index === pi);
+                                      const bDoc = bDocs.find((d) => d.person_index === pi);
+                                      return (
+                                        <div key={pi} className="mb-3">
+                                          {personsInLog.length > 1 && <p className="text-[10px] text-slate-400 mb-1">{holderName(pi)}</p>}
+                                          <div className="grid grid-cols-2 gap-2">
+                                            {[{ doc: fDoc, side: "Front" }, { doc: bDoc, side: "Back" }].map(({ doc, side }) => (
+                                              <div key={side}>
+                                                <p className="text-[10px] text-slate-400 mb-1">{side}</p>
+                                                {doc ? (
+                                                  <button
+                                                    onClick={() => setViewer({ images: [{ src: storageUrl(doc.file_path), label: `${sec.label} ${side}` }], index: 0 })}
+                                                    className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-300 transition-all bg-white shadow-sm"
+                                                  >
+                                                    <img src={storageUrl(doc.file_path)} alt={`${sec.label} ${side}`} className="w-full h-full object-contain" />
+                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                                      <div className="bg-white/90 rounded-full p-1.5 shadow"><HiOutlineEye className="w-4 h-4 text-slate-700" /></div>
+                                                    </div>
+                                                  </button>
+                                                ) : (
+                                                  <div className="w-full aspect-[3/4] rounded-xl bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center">
+                                                    <span className="text-[10px] text-slate-300">—</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })}
+                              {logDocs.filter((d) => d.document_type === "other").length > 0 && (
+                                <div>
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Other Documents</p>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    {logDocs.filter((d) => d.document_type === "other").map((doc) => (
+                                      <button key={doc.id}
+                                        onClick={() => setViewer({ images: [{ src: storageUrl(doc.file_path), label: "Other Document" }], index: 0 })}
+                                        className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-300 transition-all bg-white shadow-sm"
+                                      >
+                                        <img src={storageUrl(doc.file_path)} alt="Other" className="w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                          <div className="bg-white/90 rounded-full p-1.5 shadow"><HiOutlineEye className="w-4 h-4 text-slate-700" /></div>
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
-                            </div>
-                          ))}
+                            </>
+                          )}
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Other documents */}
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Other Documents</p>
-            {otherDocs.length > 0 ? (
-              <div className="grid grid-cols-4 gap-2">
-                {otherDocs.map((doc, i) => (
-                  <button key={doc.id}
-                    onClick={() => {
-                      const { images } = buildImages();
-                      const otherStart = images.findIndex((img) => img.src === storageUrl(doc.file_path));
-                      setViewer({ images, index: Math.max(otherStart, 0) });
-                    }}
-                    className="relative group aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
-                  >
-                    <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <div className="bg-white/90 rounded-full p-1.5 shadow">
-                        <HiOutlineEye className="w-4 h-4 text-slate-700" />
-                      </div>
+                      )}
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
+
+                {historyLegacyGroupsForAcct.map((group) => {
+                  const legacyKey  = `legacy-${group.status}`;
+                  const isExpanded = historyExpanded[legacyKey] ?? false;
+                  return (
+                    <div key={legacyKey}>
+                      <button
+                        onClick={() => setHistoryExpanded((prev) => ({ ...prev, [legacyKey]: !isExpanded }))}
+                        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[group.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                          {group.status}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-500 truncate">
+                            {formatDate(group.latestDate)}
+                            <span className="ml-1.5 text-blue-500 font-semibold">· {group.docs.length} doc{group.docs.length !== 1 ? "s" : ""}</span>
+                          </p>
+                        </div>
+                        <HiOutlineChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-5 pb-5 pt-1 border-t border-slate-100 bg-slate-50/40">
+                          {DOC_SECTIONS.map((sec) => {
+                            const fDocs = group.docs.filter((d) => d.document_type === sec.front);
+                            const bDocs = group.docs.filter((d) => d.document_type === sec.back);
+                            if (!fDocs.length && !bDocs.length) return null;
+                            return (
+                              <div key={sec.key} className="mb-5">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">{sec.label}</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {[{ docs: fDocs, side: "Front" }, { docs: bDocs, side: "Back" }].map(({ docs: sd, side }) => (
+                                    <div key={side}>
+                                      <p className="text-[10px] text-slate-400 mb-1">{side}</p>
+                                      {sd.length > 0 ? sd.map((doc) => (
+                                        <button key={doc.id}
+                                          onClick={() => setViewer({ images: [{ src: storageUrl(doc.file_path), label: `${sec.label} ${side}` }], index: 0 })}
+                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-300 transition-all bg-white shadow-sm mb-1"
+                                        >
+                                          <img src={storageUrl(doc.file_path)} alt={`${sec.label} ${side}`} className="w-full h-full object-contain" />
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                            <div className="bg-white/90 rounded-full p-1.5 shadow"><HiOutlineEye className="w-4 h-4 text-slate-700" /></div>
+                                          </div>
+                                        </button>
+                                      )) : (
+                                        <div className="w-full aspect-[3/4] rounded-xl bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center">
+                                          <span className="text-[10px] text-slate-300">—</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {showInitialForAcct && (() => {
+                  const initKey    = "initial-upload";
+                  const isExpanded = historyExpanded[initKey] ?? false;
+                  const initDate   = initialDocsForHistory.reduce((latest, d) => (!latest || d.created_at > latest ? d.created_at : latest), null);
+                  return (
+                    <div key={initKey}>
+                      <button
+                        onClick={() => setHistoryExpanded((prev) => ({ ...prev, [initKey]: !isExpanded }))}
+                        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[initialStatus] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                          {initialStatus ?? "active"}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] text-slate-400 mb-0.5 font-semibold">Initial Upload</p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {formatDate(initDate)}
+                            <span className="ml-1.5 text-blue-500 font-semibold">· {initialDocsForHistory.length} doc{initialDocsForHistory.length !== 1 ? "s" : ""}</span>
+                          </p>
+                        </div>
+                        <HiOutlineChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-5 pb-5 pt-1 border-t border-slate-100 bg-slate-50/40">
+                          {DOC_SECTIONS.map((sec) => {
+                            const fDocs = initialDocsForHistory.filter((d) => d.document_type === sec.front);
+                            const bDocs = initialDocsForHistory.filter((d) => d.document_type === sec.back);
+                            if (!fDocs.length && !bDocs.length) return null;
+                            const piList = [...new Set([...fDocs, ...bDocs].map((d) => d.person_index))].sort();
+                            return (
+                              <div key={sec.key} className="mb-5">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">{sec.label}</p>
+                                {piList.map((pi) => {
+                                  const fDoc = fDocs.find((d) => d.person_index === pi);
+                                  const bDoc = bDocs.find((d) => d.person_index === pi);
+                                  return (
+                                    <div key={pi} className="mb-3">
+                                      {piList.length > 1 && <p className="text-[10px] text-slate-400 mb-1">{holderName(pi)}</p>}
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {[{ doc: fDoc, side: "Front" }, { doc: bDoc, side: "Back" }].map(({ doc, side }) => (
+                                          <div key={side}>
+                                            <p className="text-[10px] text-slate-400 mb-1">{side}</p>
+                                            {doc ? (
+                                              <button
+                                                onClick={() => setViewer({ images: [{ src: storageUrl(doc.file_path), label: `${sec.label} ${side}` }], index: 0 })}
+                                                className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-300 transition-all bg-white shadow-sm"
+                                              >
+                                                <img src={storageUrl(doc.file_path)} alt={`${sec.label} ${side}`} className="w-full h-full object-contain" />
+                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                                  <div className="bg-white/90 rounded-full p-1.5 shadow"><HiOutlineEye className="w-4 h-4 text-slate-700" /></div>
+                                                </div>
+                                              </button>
+                                            ) : (
+                                              <div className="w-full aspect-[3/4] rounded-xl bg-slate-100 border-2 border-dashed border-slate-200 flex items-center justify-center">
+                                                <span className="text-[10px] text-slate-300">—</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
-            ) : (
-              <div className="flex items-center gap-2 py-4 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
-                <HiOutlinePhotograph className="w-5 h-5 text-slate-300" />
-                <p className="text-sm text-slate-400">No other documents</p>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
         </div>
       </div>
@@ -990,7 +1597,16 @@ const STATUS_CONFIG = {
   closed:      { label: "Closed",      desc: "Account has been permanently closed.",        icon: "✕", ring: "ring-red-400",    bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500"    },
 };
 
-const EditStatusModal = ({ customer, onClose, onSaved }) => {
+const STATUS_DATE_LABELS = {
+  dormant:     "Date of Dormancy",
+  reactivated: "Date of Reactivation",
+  escheat:     "Date of Escheat",
+  closed:      "Date of Closure",
+};
+
+const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => {
+  const navigate = useNavigate();
+
   // Build all accounts: primary first, then additional
   const allAccounts = [
     { id: null, type: "primary", account_no: customer.account_no, status: customer.status, label: "Primary Account" },
@@ -1001,39 +1617,80 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
 
   const isMulti = allAccounts.length > 1;
 
-  // step: "select" (account picker, only for multi) | "pick" (status picker)
-  const [step, setStep]               = useState(isMulti ? "select" : "pick");
-  const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
-  const [status, setStatus]           = useState(isMulti ? null : (customer.status ?? "active"));
-  const [saving, setSaving]           = useState(false);
+  // step: "select" | "pick" | "upload_select"
+  const [step, setStep]                   = useState(isMulti ? "select" : "pick");
+  const [selectedAcctIdx, setSelectedAcctIdx] = useState(isMulti ? null : 0); // index into allAccounts
+  const [status, setStatus]               = useState(isMulti ? null : (customer.status ?? "active"));
+  const [saving, setSaving]               = useState(false);
+  const [newStatus, setNewStatus]         = useState(null);
+  const [statusLogId, setStatusLogId]     = useState(null);
+  const [statusDate, setStatusDate]       = useState("");
+  const [statusDateMode, setStatusDateMode] = useState("auto"); // "auto" | "manual"
+  const [uploadTypes, setUploadTypes]     = useState({ sigcard: false, nais: false, privacy: false, other: false });
 
-  const handleSelectAcct = (acct) => {
-    setSelectedAcct(acct);
+  // Derive selectedAcct from index so it stays valid across re-renders
+  const selectedAcct = selectedAcctIdx !== null ? allAccounts[selectedAcctIdx] : null;
+
+  const handleSelectAcct = (arrayIdx) => {
+    const acct = allAccounts[arrayIdx];
+    setSelectedAcctIdx(arrayIdx);
     setStatus(acct.status ?? "active");
+    setStatusDate("");
+    setStatusDateMode("auto");
     setStep("pick");
   };
 
   const isUnchanged = status === selectedAcct?.status;
+  const isEscheat   = selectedAcct?.status === "escheat";
   const selected    = STATUS_CONFIG[status];
 
+  const toggleUploadType = (key) =>
+    setUploadTypes((prev) => ({ ...prev, [key]: !prev[key] }));
+
   const handleSave = async () => {
+    if (status === "escheat") {
+      const confirm = await Swal.fire({
+        icon: "warning",
+        title: "Set Account to Escheat?",
+        html: `
+          <p style="margin-bottom:10px;color:#374151;font-size:14px;">
+            You are about to mark this account as <strong style="color:#ea580c;">Escheat</strong>.
+          </p>
+          <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;text-align:left;font-size:13px;color:#92400e;line-height:1.6;">
+            <strong>⚠ What happens after this update:</strong>
+            <ul style="margin-top:6px;padding-left:18px;">
+              <li>The account will be permanently locked.</li>
+              <li>The status <strong>cannot be changed</strong> back to any other status.</li>
+            </ul>
+          </div>
+          <p style="margin-top:12px;font-size:12px;color:#6b7280;">This action is irreversible. Make sure this is correct before proceeding.</p>
+        `,
+        showCancelButton: true,
+        confirmButtonText: "Yes, Set as Escheat",
+        cancelButtonText: "Cancel",
+        confirmButtonColor: "#ea580c",
+        cancelButtonColor: "#6b7280",
+        reverseButtons: true,
+      });
+      if (!confirm.isConfirmed) return;
+    }
+
     setSaving(true);
     try {
+      let res;
+      const resolvedDate = statusDateMode === "auto"
+        ? new Date().toISOString().split("T")[0]
+        : statusDate || null;
+      const payload = { status, status_date: resolvedDate };
       if (selectedAcct.type === "primary") {
-        await api.put(`/customers/${customer.id}`, { status });
+        res = await api.put(`/customers/${customer.id}`, payload);
       } else {
-        await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, { status });
+        res = await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, payload);
       }
-      await Swal.fire({
-        icon: "success",
-        title: "Status Updated",
-        text: "Account status has been saved.",
-        confirmButtonColor: "#2563eb",
-        timer: 2000,
-        timerProgressBar: true,
-      });
       onSaved();
-      onClose();
+      setNewStatus(status);
+      setStatusLogId(res.data?.status_log_id ?? null);
+      setStep("upload_select");
     } catch (err) {
       const msg = err?.response?.data?.message ?? "Something went wrong.";
       Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
@@ -1042,9 +1699,24 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
     }
   };
 
+  const handleGoToUpload = () => {
+    const chosen = Object.entries(uploadTypes).filter(([, v]) => v).map(([k]) => k);
+    onClose();
+    if (chosen.length > 0) {
+      const acctIndex = (selectedAcctIdx ?? 0) + 1; // 1-based: primary=1, first additional=2, …
+      const params = new URLSearchParams({ upload: chosen.join(","), newStatus, acct: acctIndex });
+      if (statusLogId) params.set("statusLogId", statusLogId);
+      const resolvedDateForNav = statusDateMode === "auto"
+        ? new Date().toISOString().split("T")[0]
+        : statusDate;
+      if (resolvedDateForNav) params.set("statusDate", resolvedDateForNav);
+      navigate(`${basePath}/customers/${customer.id}/view?${params.toString()}`);
+    }
+  };
+
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
@@ -1061,43 +1733,57 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
 
         {/* Step: Select which account */}
         {step === "select" && (
-          <div className="px-6 py-5 space-y-2">
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-2">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
               Which account's status would you like to change?
             </p>
-            {allAccounts.map((acct, i) => (
-              <button
-                key={acct.id ?? "primary"}
-                onClick={() => handleSelectAcct(acct)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
-              >
-                <span className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
-                  {i + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-bold text-slate-800">{acct.label}</span>
-                    {acct.type === "primary" && (
-                      <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Primary</span>
-                    )}
+            {allAccounts.map((acct, i) => {
+              const acctIsEscheat = acct.status === "escheat";
+              return (
+                <button
+                  key={acct.id ?? "primary"}
+                  onClick={acctIsEscheat ? undefined : () => handleSelectAcct(i)}
+                  disabled={acctIsEscheat}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 transition-all text-left group
+                    ${acctIsEscheat
+                      ? "border-orange-200 bg-orange-50 cursor-not-allowed opacity-80"
+                      : "border-slate-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer"
+                    }`}
+                >
+                  <span className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${acctIsEscheat ? "bg-orange-400" : "bg-blue-600"}`}>
+                    {i + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-slate-800">{acct.label}</span>
+                      {acct.type === "primary" && (
+                        <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Primary</span>
+                      )}
+                      {acctIsEscheat && (
+                        <span className="text-[10px] font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Locked</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
                   </div>
-                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
-                  {acct.status ?? "—"}
-                </span>
-                <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
-              </button>
-            ))}
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
+                    {acct.status ?? "—"}
+                  </span>
+                  {acctIsEscheat
+                    ? <HiOutlineLockClosed className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                    : <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
+                  }
+                </button>
+              );
+            })}
           </div>
         )}
 
         {/* Step: Pick new status */}
         {step === "pick" && (
           <>
-            {/* Back button for multi */}
+            {/* Back button / account label — fixed */}
             {isMulti && (
-              <div className="px-6 pt-4 pb-0">
+              <div className="px-6 pt-4 pb-2 flex-shrink-0">
                 <button
                   onClick={() => setStep("select")}
                   className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline"
@@ -1111,8 +1797,8 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
               </div>
             )}
 
-            {/* Current status indicator */}
-            <div className="px-6 pt-4 pb-1">
+            {/* Current status — fixed */}
+            <div className="px-6 pt-4 pb-1 flex-shrink-0">
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Current Status</p>
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_CONFIG[selectedAcct.status]?.dot ?? "bg-slate-400"}`} />
@@ -1120,48 +1806,118 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
               </div>
             </div>
 
-            {/* Status options */}
-            <div className="px-6 pt-4 pb-5 space-y-2">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Select New Status</p>
-              {STATUS_OPTIONS.map((s) => {
-                const cfg       = STATUS_CONFIG[s];
-                const isActive  = status === s;
-                const isCurrent = selectedAcct.status === s;
-                return (
-                  <button
-                    key={s}
-                    onClick={() => setStatus(s)}
-                    className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl border-2 transition-all text-left
-                      ${isActive
-                        ? `${cfg.bg} ${cfg.ring} ring-2 border-transparent shadow-sm`
-                        : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                      }`}
-                  >
-                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all
-                      ${isActive ? `${cfg.dot} border-transparent` : "border-slate-300 bg-white"}`}>
-                      {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-bold capitalize ${isActive ? cfg.text : "text-slate-700"}`}>{cfg.label}</span>
-                        {isCurrent && (
-                          <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">Current</span>
-                        )}
-                      </div>
-                      <p className={`text-[11px] mt-0.5 ${isActive ? cfg.text + "/70" : "text-slate-400"}`}>{cfg.desc}</p>
-                    </div>
-                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
-                  </button>
-                );
-              })}
+            {/* Status options — scrollable */}
+            <div className="flex-1 overflow-y-auto px-6 pt-3 pb-2 space-y-2">
+              {isEscheat ? (
+                <div className="flex items-start gap-3 px-4 py-4 rounded-2xl bg-orange-50 border-2 border-orange-200">
+                  <HiOutlineLockClosed className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-bold text-orange-700">Status Locked</p>
+                    <p className="text-xs text-orange-500 mt-1">
+                      This account has been marked <strong>Escheat</strong>. Escheat accounts are permanently locked and their status cannot be changed.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Select New Status</p>
+                  {STATUS_OPTIONS.map((s) => {
+                    const cfg       = STATUS_CONFIG[s];
+                    const isActive  = status === s;
+                    const isCurrent = selectedAcct.status === s;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => setStatus(s)}
+                        className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl border-2 transition-all text-left
+                          ${isActive
+                            ? `${cfg.bg} ${cfg.ring} ring-2 border-transparent shadow-sm`
+                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                          }`}
+                      >
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all
+                          ${isActive ? `${cfg.dot} border-transparent` : "border-slate-300 bg-white"}`}>
+                          {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-bold capitalize ${isActive ? cfg.text : "text-slate-700"}`}>{cfg.label}</span>
+                            {isCurrent && (
+                              <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">Current</span>
+                            )}
+                          </div>
+                          <p className={`text-[11px] mt-0.5 ${isActive ? cfg.text + "/70" : "text-slate-400"}`}>{cfg.desc}</p>
+                        </div>
+                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                      </button>
+                    );
+                  })}
+                </>
+              )}
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
+            {/* ── Status Date — always visible when not locked ── */}
+            {!isEscheat && (
+              <div className="px-6 py-3 border-t border-blue-100 bg-blue-50 flex-shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">
+                    {STATUS_DATE_LABELS[status] ?? "Effective Date"}
+                  </p>
+                  <span className="text-[10px] font-bold text-red-500 bg-white border border-red-200 px-2 py-0.5 rounded-full">Required</span>
+                </div>
+
+                {/* Auto / Manual toggle */}
+                <div className="flex gap-2 mb-2">
+                  {[
+                    { value: "auto",   label: "Auto (Today)" },
+                    { value: "manual", label: "Manual Input"  },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setStatusDateMode(value)}
+                      className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-xl border-2 transition-all
+                        ${statusDateMode === value
+                          ? "border-blue-500 bg-white text-blue-700 shadow-sm"
+                          : "border-blue-200 bg-blue-50 text-blue-400 hover:border-blue-400"
+                        }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Auto: read-only today */}
+                {statusDateMode === "auto" && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-blue-200 bg-white text-sm text-slate-700">
+                    <span className="text-blue-500 font-bold text-[10px] uppercase">Today</span>
+                    <span className="font-semibold">
+                      {new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}
+                    </span>
+                  </div>
+                )}
+
+                {/* Manual: date picker */}
+                {statusDateMode === "manual" && (
+                  <input
+                    type="date"
+                    value={statusDate}
+                    onChange={(e) => setStatusDate(e.target.value)}
+                    max={new Date().toISOString().split("T")[0]}
+                    className="w-full px-3 py-2 rounded-xl border-2 border-blue-300 focus:border-blue-500 focus:outline-none text-sm text-slate-800 bg-white transition-colors"
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Footer — fixed at bottom */}
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
               <p className="text-xs text-slate-400">
-                {isUnchanged
-                  ? "No changes made"
-                  : <span>Changing to <strong className={`capitalize ${selected?.text}`}>{status}</strong></span>
+                {isEscheat
+                  ? <span className="flex items-center gap-1 text-orange-500"><HiOutlineLockClosed className="w-3.5 h-3.5" /> Status locked — Escheat</span>
+                  : isUnchanged
+                    ? "No changes made"
+                    : <span>Changing to <strong className={`capitalize ${selected?.text}`}>{status}</strong></span>
                 }
               </p>
               <div className="flex items-center gap-2.5">
@@ -1169,7 +1925,12 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
                   className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
                   Cancel
                 </button>
-                <button onClick={handleSave} disabled={saving || isUnchanged}
+                <button
+                  onClick={handleSave}
+                  disabled={
+                    saving || isUnchanged || isEscheat ||
+                    (statusDateMode === "manual" && !statusDate)
+                  }
                   className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow transition-all disabled:opacity-50 disabled:shadow-none bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90">
                   {saving ? "Saving…" : "Confirm Update"}
                 </button>
@@ -1178,9 +1939,81 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
           </>
         )}
 
+        {/* Step: Upload document type selection */}
+        {step === "upload_select" && (
+          <>
+            <div className="flex-1 overflow-y-auto">
+            <div className="px-6 pt-5 pb-2">
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${statusStyle[newStatus] ?? "bg-slate-100 text-slate-600"}`}>
+                  {newStatus}
+                </span>
+                <span className="text-xs text-slate-500">status saved successfully</span>
+              </div>
+              <p className="text-sm font-bold text-slate-800 mt-2">Upload new documents?</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Select which documents to upload for this status change. They will be added to the customer&apos;s history.
+              </p>
+            </div>
+
+            <div className="px-6 py-4 space-y-2">
+              {(() => {
+                const resolvedDate = statusDateMode === "auto"
+                  ? new Date().toISOString().split("T")[0]
+                  : statusDate;
+                const escheatYear = (newStatus === "escheat" && resolvedDate)
+                  ? new Date(resolvedDate).getFullYear()
+                  : null;
+                const privacyNotRequired = newStatus === "escheat" && escheatYear !== null && escheatYear <= 2021;
+                return [
+                  { key: "sigcard", label: "Signature Card",  desc: "Front & Back" },
+                  { key: "nais",    label: "NAIS",            desc: "Front & Back" },
+                  ...(!privacyNotRequired ? [{ key: "privacy", label: "Data Privacy", desc: "Front & Back" }] : []),
+                  { key: "other",   label: "Other Documents", desc: "Any additional files" },
+                ];
+              })().map(({ key, label, desc }) => (
+                <button
+                  key={key}
+                  onClick={() => toggleUploadType(key)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 transition-all text-left
+                    ${uploadTypes[key]
+                      ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
+                      : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                >
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all
+                    ${uploadTypes[key] ? "bg-blue-600 border-blue-600" : "border-slate-300 bg-white"}`}>
+                    {uploadTypes[key] && (
+                      <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold ${uploadTypes[key] ? "text-blue-700" : "text-slate-700"}`}>{label}</p>
+                    <p className="text-[11px] text-slate-400">{desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            </div>{/* end flex-1 overflow-y-auto */}
+
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+              <button onClick={onClose}
+                className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">
+                Skip for now
+              </button>
+              <button onClick={handleGoToUpload}
+                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 transition-all">
+                {Object.values(uploadTypes).some(Boolean) ? "Go to Upload" : "Done"}
+              </button>
+            </div>
+          </>
+        )}
+
         {/* Footer for select step */}
         {step === "select" && (
-          <div className="flex justify-end px-6 py-4 border-t border-slate-100 bg-slate-50">
+          <div className="flex justify-end px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
             <button onClick={onClose}
               className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
               Cancel
@@ -1195,14 +2028,14 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
 
 
 // ── Main component ───────────────────────────────────────────────────────────
-const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = null }) => {
+const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = null, branchScoped = false }) => {
   const navigate = useNavigate();
-  const { hasRole, user } = useAuth();
-  const isReadOnly = hasRole("cashier") || hasRole("manager");
-  const isManager  = hasRole("manager");
-  const isCashier  = hasRole("cashier");
+  const [searchParams] = useSearchParams();
+  const { hasPermission, user } = useAuth();
+  const canEdit = hasPermission('edit-customers');
 
-  const [activeTab, setActiveTab]         = useState(onlyTab ?? defaultTab);
+  const initialTab = onlyTab ?? (searchParams.get("tab") ?? defaultTab);
+  const [activeTab, setActiveTab]         = useState(initialTab);
 
   // Table view
   const [customers, setCustomers]         = useState([]);
@@ -1212,7 +2045,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [accountTypeFilter, setAccountTypeFilter] = useState("all");
   const [riskLevelFilter, setRiskLevelFilter]     = useState("all");
   const [branchFilter, setBranchFilter]           = useState("all");
-  const [sortDir, setSortDir]             = useState("asc");
+  const [sortDir, setSortDir]             = useState(null); // null = latest first (backend order)
   const [page, setPage]                   = useState(1);
   const [totalPages, setTotalPages]       = useState(1);
   const [total, setTotal]                 = useState(0);
@@ -1236,7 +2069,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
 
   // ── Fetch branch + children for branch filter (manager & cashier) ─────────
   useEffect(() => {
-    if ((!isManager && !isCashier) || !user?.branch_id) return;
+    if (!branchScoped || !user?.branch_id) return;
     api.get("/branches").then(({ data }) => {
       const all = data.data ?? [];
       const children = all.filter((b) => b.parent_id === user.branch_id);
@@ -1247,7 +2080,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
         ...children,
       ]);
     }).catch(() => {});
-  }, [isManager, isCashier, user?.branch_id]);
+  }, [branchScoped, user?.branch_id]);
 
   // ── Fetch table data ───────────────────────────────────────────────────────
   const fetchCustomers = useCallback(async () => {
@@ -1258,14 +2091,16 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
       if (statusFilter !== "all")     params.status       = statusFilter;
       if (accountTypeFilter !== "all") params.account_type = accountTypeFilter;
       if (riskLevelFilter !== "all")  params.risk_level   = riskLevelFilter;
-      if ((isManager || isCashier) && branchFilter !== "all") params.branch_id = branchFilter;
+      if (branchScoped && branchFilter !== "all") params.branch_id = branchFilter;
 
       const { data } = await api.get("/customers", { params });
 
-      const items = [...(data.data ?? [])].sort((a, b) => {
-        const cmp = (a.full_name ?? "").localeCompare(b.full_name ?? "");
-        return sortDir === "asc" ? cmp : -cmp;
-      });
+      const items = sortDir
+        ? [...(data.data ?? [])].sort((a, b) => {
+            const cmp = (a.full_name ?? "").localeCompare(b.full_name ?? "");
+            return sortDir === "asc" ? cmp : -cmp;
+          })
+        : (data.data ?? []);
 
       setCustomers(items);
       setTotalPages(data.last_page ?? 1);
@@ -1275,7 +2110,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
     } finally {
       setLoading(false);
     }
-  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, isManager, isCashier]);
+  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
   useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter]);
@@ -1317,7 +2152,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   return (
     <div className="bg-gray-50 text-slate-900">
       {/* Edit Info Modals — hidden for cashier */}
-      {!isReadOnly && (
+      {canEdit && (
         <AnimatePresence>
           {editInfoCustomer && editInfoMode === "choice" && (
             <EditChoiceModal
@@ -1346,13 +2181,14 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
       )}
 
       {/* Edit Status Modal — hidden for cashier */}
-      {!isReadOnly && (
+      {canEdit && (
         <AnimatePresence>
           {editStatusCustomer && (
             <EditStatusModal
               customer={editStatusCustomer}
               onClose={() => setEditStatusCustomer(null)}
               onSaved={fetchCustomers}
+              basePath={basePath}
             />
           )}
         </AnimatePresence>
@@ -1452,7 +2288,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   </select>
 
                   {/* Branch — manager & cashier, only when they have child branches */}
-                  {(isManager || isCashier) && branchOptions.length > 0 && (
+                  {branchScoped && branchOptions.length > 0 && (
                     <select
                       value={branchFilter}
                       onChange={(e) => setBranchFilter(e.target.value)}
@@ -1466,10 +2302,10 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   )}
 
                   <button
-                    onClick={() => setSortDir((d) => d === "asc" ? "desc" : "asc")}
+                    onClick={() => setSortDir((d) => d === null ? "asc" : d === "asc" ? "desc" : null)}
                     className="px-5 py-3 text-sm font-semibold border-2 border-slate-200 rounded-xl text-slate-700 hover:border-blue-400 hover:bg-blue-50 transition-all"
                   >
-                    {sortDir === "asc" ? "↑ A–Z" : "↓ Z–A"}
+                    {sortDir === "asc" ? "↑ A–Z" : sortDir === "desc" ? "↓ Z–A" : "🕐 Latest"}
                   </button>
                   <button
                     onClick={fetchCustomers}
@@ -1532,10 +2368,10 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                 }
                               </div>
                               <div className="min-w-0">
-                                <span className="text-xs font-semibold text-slate-900 block truncate">{c.full_name ?? "—"}</span>
+                                <span className="text-xs font-semibold text-slate-900 block truncate">{formatDisplayName(c)}</span>
                                 {c.account_type === "Joint" && c.holders?.length > 0 && (
                                   <span className="text-[10px] text-slate-400 truncate block">
-                                    + {c.holders.map((h) => `${h.firstname} ${h.lastname}`).join(", ")}
+                                    + {c.holders.map((h) => `${h.lastname} ${h.firstname}`).join(", ")}
                                   </span>
                                 )}
                               </div>
@@ -1582,7 +2418,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                 <HiOutlineEye className="w-3.5 h-3.5" />
                                 View
                               </button>
-                              {!isReadOnly && (
+                              {canEdit && (
                                 <>
                                   <button
                                     onClick={() => { setEditInfoCustomer(c); setEditInfoMode("choice"); }}

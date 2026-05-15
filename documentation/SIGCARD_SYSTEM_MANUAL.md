@@ -1,4 +1,5 @@
-# SigCard System — User Manual
+# DIGICUR — User Manual
+### *Digital Customer Record System*
 
 **Rural Bank of Talisayan, Inc. (RBT Bank)**
 **Misamis Oriental, Philippines**
@@ -12,7 +13,7 @@
 ## Table of Contents
 
 - [1. System Overview](#1-system-overview)
-  - [1.1 What is SigCard?](#11-what-is-sigcard)
+  - [1.1 What is DIGICUR?](#11-what-is-digicur)
   - [1.2 Key Features](#12-key-features)
   - [1.3 User Roles](#13-user-roles)
   - [1.4 Branch Structure](#14-branch-structure)
@@ -88,9 +89,9 @@
 
 ## 1. System Overview
 
-### 1.1 What is SigCard?
+### 1.1 What is DIGICUR?
 
-SigCard is the Signature Card Management System used by RBT Bank Inc. (Rural Bank of Talisayan). It allows banking staff to digitally capture, store, and manage customer signature cards and related documents across all branches.
+DIGICUR (Digital Customer Record System) is the customer record and signature card management system used by RBT Bank Inc. (Rural Bank of Talisayan). It allows banking staff to digitally capture, store, and manage customer signature cards and related documents across all branches.
 
 The system was built to comply with **Bangko Sentral ng Pilipinas (BSP) Circular 951 and 982**, which require banks to maintain secure, auditable records of customer identity documents. By going digital, RBT Bank replaces fragile paper-based signature cards with a secure, searchable, and backed-up digital system.
 
@@ -109,7 +110,7 @@ The system was built to comply with **Bangko Sentral ng Pilipinas (BSP) Circular
 
 ### 1.3 User Roles
 
-SigCard has five user roles, each with specific responsibilities:
+DIGICUR has five user roles, each with specific responsibilities:
 
 | Role | Who Uses It | Primary Responsibilities |
 |------|-------------|------------------------|
@@ -146,8 +147,8 @@ RBT Bank operates across 11 locations. The system organizes these as follows:
 ### 2.1 Accessing the System
 
 1. Open a web browser (Google Chrome, Microsoft Edge, or Mozilla Firefox recommended).
-2. Navigate to the SigCard URL provided by your administrator.
-3. You will see the login page with the SigCard logo and login form.
+2. Navigate to the DIGICUR URL provided by your administrator.
+3. You will see the login page with the DIGICUR logo and login form.
 
 > **Tip:** Bookmark the URL for quick access. Make sure you have a stable internet connection.
 
@@ -155,7 +156,7 @@ RBT Bank operates across 11 locations. The system organizes these as follows:
 
 ```mermaid
 flowchart TD
-    A[Open SigCard Login Page] --> B[Enter Email Address]
+    A[Open DIGICUR Login Page] --> B[Enter Email Address]
     B --> C[Enter Password]
     C --> D[Click 'Sign In']
     D --> E{Credentials Valid?}
@@ -344,7 +345,7 @@ flowchart LR
 
 ### 4.1 Overview
 
-The Signature Card Upload is the core feature of SigCard. It allows Banking Officers to capture and store digital copies of a customer's signature card, NAIS form, data privacy consent, and other supporting documents.
+The Signature Card Upload is the core feature of DIGICUR. It allows Banking Officers to capture and store digital copies of a customer's signature card, NAIS form, data privacy consent, and other supporting documents.
 
 The process uses a **step-by-step wizard** that guides you through the entire upload.
 
@@ -626,11 +627,11 @@ This is available for Regular and Non-ITF Joint accounts, which support multiple
 
 ### 6.1 Admin Dashboard
 
-The Admin Dashboard provides a **system-wide overview** of SigCard:
+The Admin Dashboard provides a **system-wide overview** of DIGICUR:
 
 **Summary Cards (top row):**
 - **Total Customers** — Number of customer records across all branches
-- **SigCard Uploads** — Total signature cards uploaded
+- **Signature Card Uploads** — Total signature cards uploaded
 - **Total Documents** — Total count of all document types
 - **System Users** — Number of registered users
 
@@ -642,7 +643,7 @@ The Admin Dashboard provides a **system-wide overview** of SigCard:
 - **Status Distribution** — Pie chart of active/dormant/escheat/closed ratios
 - **Monthly Customer Uploads** — Line chart showing upload trends over the last 6 months
 - **Account Types** — Pie chart breaking down Regular, Joint, and Corporate accounts
-- **SigCard Uploads by Branch** — Bar chart comparing upload volumes across branches
+- **Signature Card Uploads by Branch** — Bar chart comparing upload volumes across branches
 - **Risk Level Distribution** — Horizontal bars showing Low, Medium, and High risk customer counts
 
 **Tables:**
@@ -683,13 +684,13 @@ The Compliance Dashboard provides a **system-wide audit view** with BSP complian
 
 **Header:** "Compliance & Audit Dashboard" with a shield icon and the tagline "BSP-compliant oversight, all branches."
 
-**Summary Cards:** Total Customers, SigCard Uploads, Total Documents, System Users (system-wide counts)
+**Summary Cards:** Total Customers, Signature Card Uploads, Total Documents, System Users (system-wide counts)
 
 **Charts (similar to Admin Dashboard):**
 - Customers by Branch (stacked bar chart)
 - Status Distribution (pie chart)
 - Monthly Customer Uploads (line chart)
-- SigCard Uploads by Branch (bar chart)
+- Signature Card Uploads by Branch (bar chart)
 - Account Types (pie chart)
 - Risk Level Distribution (bars)
 - Branch Summary (top 5 branches with quick stats)
@@ -884,7 +885,7 @@ flowchart TD
 
 ## 8. Security Features
 
-SigCard implements multiple layers of security as required by BSP Circular 951 and 982.
+DIGICUR implements multiple layers of security as required by BSP Circular 951 and 982.
 
 ### 8.1 Two-Factor Authentication (2FA)
 
@@ -965,7 +966,7 @@ flowchart TD
 
 ### 9.1 What Gets Logged
 
-SigCard uses **Spatie Activity Log** to record every meaningful action. The following events are captured:
+DIGICUR uses **Spatie Activity Log** to record every meaningful action. The following events are captured:
 
 | Category | Events Logged |
 |----------|--------------|
@@ -996,7 +997,7 @@ Both views provide the same data with filtering capabilities:
 
 ### 9.3 BSP Compliance Features
 
-| BSP Requirement | SigCard Implementation |
+| BSP Requirement | DIGICUR Implementation |
 |----------------|----------------------|
 | Multi-Factor Authentication (Circular 982) | Optional 2FA with authenticator apps |
 | Account Lockout Policy | Auto-lock after 5 failed attempts (configurable) |
@@ -1205,7 +1206,7 @@ flowchart LR
 | **RBAC** | Role-Based Access Control — a system where access is determined by user roles |
 | **Regular Account** | A standard individual bank account |
 | **Risk Level** | A classification (Low, Medium, High) indicating the level of risk associated with a customer |
-| **Sanctum** | Laravel Sanctum — the authentication system used by SigCard |
+| **Sanctum** | Laravel Sanctum — the authentication system used by DIGICUR |
 | **Session** | A period of activity between logging in and logging out |
 | **Sigcard** | Signature Card — a physical card containing a customer's specimen signature |
 | **Token** | A digital key that authenticates your session with the server |

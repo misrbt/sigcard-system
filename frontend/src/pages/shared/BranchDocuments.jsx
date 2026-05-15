@@ -476,6 +476,7 @@ const BranchDocuments = () => {
   const clearSelection  = ()  => { setSelected(null); setQuery(""); setResults([]); };
 
   return (
+    <div className="max-w-screen-xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-20">
     <div className="space-y-5">
 
       {/* Page header */}
@@ -598,6 +599,7 @@ const BranchDocuments = () => {
         )}
       </AnimatePresence>
 
+    </div>
     </div>
   );
 };

@@ -22,7 +22,7 @@ const NotFound = () => {
         >
           <img
             src={logo}
-            alt="Sigcard Logo"
+            alt="DIGICUR Logo"
             className="mx-auto h-24 w-auto object-contain drop-shadow-2xl"
           />
 
@@ -74,7 +74,7 @@ const NotFound = () => {
             <p className="text-xs uppercase tracking-[0.4em] text-white/60">
               RBT Bank Secure Network
             </p>
-            <p className="mt-2 text-sm text-white/70">Sigcard Access Portal</p>
+            <p className="mt-2 text-sm text-white/70">DIGICUR Access Portal</p>
           </motion.div>
         </motion.div>
       </div>

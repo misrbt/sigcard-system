@@ -13,6 +13,11 @@ export const adminService = {
   deactivateUser: (id) => api.post(`/admin/users/${id}/deactivate`),
   unlockUser: (id) => api.post(`/admin/users/${id}/unlock`),
   resetPassword: (id, data) => api.post(`/admin/users/${id}/reset-password`, data),
+  getUserLoginStatus: (id) => api.get(`/admin/users/${id}/login-status`),
+  revokeAllSessions: (id) => api.post(`/admin/users/${id}/revoke-all-sessions`),
+  revokeToken: (userId, tokenId) => api.delete(`/admin/users/${userId}/tokens/${tokenId}`),
+  clearForcePasswordChange: (id) => api.post(`/admin/users/${id}/clear-force-password-change`),
+  restoreLoginAccess: (id) => api.post(`/admin/users/${id}/restore-login-access`),
 
   // Roles
   getRoles: () => api.get('/admin/roles'),
@@ -23,6 +28,8 @@ export const adminService = {
   // Permissions
   getPermissions: () => api.get('/admin/permissions'),
   createPermission: (data) => api.post('/admin/permissions', data),
+  getUserPermissions: (userId) => api.get(`/admin/users/${userId}/permissions`),
+  syncUserPermissions: (userId, permissions) => api.put(`/admin/users/${userId}/permissions`, { permissions }),
 
   // Audit
   getAuditLogs: (params = {}) => api.get('/admin/audit-logs', { params }),

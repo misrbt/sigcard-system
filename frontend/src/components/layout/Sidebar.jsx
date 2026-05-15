@@ -8,26 +8,36 @@ import {
   MdPersonSearch,
   MdAccountTree,
   MdBusiness,
+  MdUploadFile,
+  MdBarChart,
+  MdDescription,
 } from "react-icons/md";
 import logo from "../../assets/images/logos.png";
+import { useAuth } from "../../hooks/useAuth";
 
 const Sidebar = ({ isOpen, userRole, onToggle }) => {
   const location = useLocation();
+  const { hasPermission } = useAuth();
 
   const menuItems = {
     admin: [
-      { path: "/admin/dashboard",  icon: MdDashboard,   label: "Dashboard"         },
-      { path: "/admin/users",      icon: MdPeople,      label: "Users"             },
-      { path: "/admin/roles",      icon: MdSecurity,    label: "Roles & Permissions"},
-      { path: "/admin/audit-logs", icon: MdHistory,     label: "Audit Logs"        },
-      { path: "/admin/customers",       icon: MdPersonSearch, label: "Customer Profiles" },
-      { path: "/admin/branches",        icon: MdBusiness,     label: "Branches"          },
-      { path: "/admin/data-management", icon: MdAccountTree,  label: "Data Management"   },
-      { path: "/admin/settings",        icon: MdSettings,     label: "Settings"          },
+      { path: "/admin/dashboard",       icon: MdDashboard,   label: "Dashboard",          permission: null },
+      { path: "/admin/users",           icon: MdPeople,      label: "Users",              permission: "view-users" },
+      { path: "/admin/roles",           icon: MdSecurity,    label: "Roles & Permissions", permission: "view-roles" },
+      { path: "/admin/audit-logs",      icon: MdHistory,     label: "Audit Logs",         permission: "view-audit-logs" },
+      { path: "/admin/customers",       icon: MdPersonSearch, label: "Customer Profiles", permission: "view-customers" },
+      { path: "/admin/upload",           icon: MdUploadFile,   label: "Upload Documents",   permission: "create-customers" },
+      { path: "/admin/documents",        icon: MdDescription,  label: "Documents",          permission: "view-customer-documents" },
+      { path: "/admin/reports",          icon: MdBarChart,     label: "Reports",            permission: "view-compliance-reports" },
+      { path: "/admin/branches",        icon: MdBusiness,    label: "Branches",           permission: "manage-branch-operations" },
+      { path: "/admin/data-management", icon: MdAccountTree, label: "Data Management",    permission: "backup-system" },
+      { path: "/admin/settings",        icon: MdSettings,    label: "Settings",           permission: "view-system-settings" },
     ],
   };
 
-  const currentMenu = menuItems[userRole] || [];
+  const currentMenu = (menuItems[userRole] || []).filter(
+    (item) => !item.permission || hasPermission(item.permission)
+  );
 
   const isActive = (path) => location.pathname === path;
 
@@ -47,15 +57,15 @@ const Sidebar = ({ isOpen, userRole, onToggle }) => {
                 <div className="flex items-center w-full gap-3 sm:gap-4">
                   <div className="relative flex-shrink-0">
                     <div className="p-1 transform hover:scale-105 transition-transform duration-300">
-                      <img src={logo} alt="Sigcard Logo" className="object-contain w-14 h-14 sm:w-20 sm:h-20" />
+                      <img src={logo} alt="DIGICUR Logo" className="object-contain w-14 h-14 sm:w-20 sm:h-20" />
                     </div>
                   </div>
                   <div className="flex flex-col flex-1 min-w-0">
                     <span className="text-2xl font-extrabold leading-none tracking-widest text-white sm:text-3xl drop-shadow-xl">
-                      SIGCARD
+                      DIGICUR
                     </span>
-                    <span className="text-[#1877F2] font-bold text-sm sm:text-base tracking-[0.25em] leading-tight mt-1">
-                      SYSTEM
+                    <span className="text-[#1877F2] font-bold text-[10px] sm:text-xs tracking-[0.2em] leading-tight mt-1">
+                      DIGITAL CUSTOMER RECORD
                     </span>
                     <div className="h-px bg-gradient-to-r from-[#1877F2]/70 via-white/20 to-transparent rounded-full mt-1.5"></div>
                   </div>
@@ -64,7 +74,7 @@ const Sidebar = ({ isOpen, userRole, onToggle }) => {
                 <div className="relative mx-auto group">
                   <div className="absolute inset-0 transition-all bg-[#1877F2]/20 rounded-xl blur-lg group-hover:blur-xl"></div>
                   <div className="relative p-2 transition-transform duration-300 transform border border-white/20 rounded-lg shadow-xl bg-white/10 group-hover:scale-110">
-                    <img src={logo} alt="Sigcard Logo" className="object-contain w-9 h-9 sm:h-11 sm:w-11" />
+                    <img src={logo} alt="DIGICUR Logo" className="object-contain w-9 h-9 sm:h-11 sm:w-11" />
                   </div>
                 </div>
               )}

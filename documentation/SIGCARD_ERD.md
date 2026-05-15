@@ -1,4 +1,5 @@
-# SigCard System — Entity Relationship Diagram (ERD)
+# DIGICUR — Entity Relationship Diagram (ERD)
+### *Digital Customer Record System*
 
 **Rural Bank of Talisayan, Inc. (RBT Bank)**
 **Version:** 1.0 | **Date:** March 2026

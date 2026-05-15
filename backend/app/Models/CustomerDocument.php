@@ -15,6 +15,9 @@ class CustomerDocument extends Model
         'customer_id',
         'document_type',
         'person_index',
+        'account_status',
+        'status_log_id',
+        'is_current',
         'file_path',
         'file_name',
         'file_size',
@@ -33,6 +36,7 @@ class CustomerDocument extends Model
         return [
             'person_index' => 'integer',
             'file_size' => 'integer',
+            'is_current' => 'boolean',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

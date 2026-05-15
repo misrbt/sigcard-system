@@ -31,8 +31,11 @@ class Customer extends Model
         'company_name',
         'account_type',
         'joint_sub_type',
+        'corporate_sub_type',
         'risk_level',
         'status',
+        'status_date',
+        'status_updated_at',
     ];
 
     protected function casts(): array
@@ -40,6 +43,8 @@ class Customer extends Model
         return [
             'date_opened' => 'date:Y-m-d',
             'date_updated' => 'date:Y-m-d',
+            'status_date' => 'date:Y-m-d',
+            'status_updated_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
@@ -54,7 +59,7 @@ class Customer extends Model
             ->useLogName('customer')
             ->logOnly([
                 'account_no', 'date_opened', 'firstname', 'middlename', 'lastname', 'suffix', 'company_name',
-                'account_type', 'joint_sub_type', 'risk_level', 'status', 'branch_id',
+                'account_type', 'joint_sub_type', 'corporate_sub_type', 'risk_level', 'status', 'branch_id',
             ])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs();
@@ -93,6 +98,11 @@ class Customer extends Model
     public function accounts(): HasMany
     {
         return $this->hasMany(CustomerAccount::class)->orderBy('created_at');
+    }
+
+    public function statusLogs(): HasMany
+    {
+        return $this->hasMany(CustomerStatusLog::class)->latest();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

@@ -9,30 +9,6 @@ import {
 } from "react-icons/hi";
 import api from "../../services/api";
 
-// ── Image compression ─────────────────────────────────────────────────────────
-const compressImage = (file, maxWidth = 1200, maxHeight = 1600, quality = 0.82) =>
-  new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { width, height } = img;
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
-        width  = Math.round(width  * ratio);
-        height = Math.round(height * ratio);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" })),
-        "image/jpeg", quality
-      );
-    };
-    img.src = url;
-  });
-
 // ── Constants ─────────────────────────────────────────────────────────────────
 const RISK_LEVELS = ["Low Risk", "Medium Risk", "High Risk"];
 
@@ -161,43 +137,25 @@ const AddAccountModal = ({ customer, isOpen, onClose, onSuccess }) => {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    setSubmitPhase("compressing");
+    setSubmitPhase("uploading");
+    setUploadProgress(0);
 
     try {
-      // Compress all images
-      const [sigFront, sigBack] = await Promise.all([
-        compressImage(sigcard.front),
-        compressImage(sigcard.back),
-      ]);
-
-      const naisFront = nais.front ? await compressImage(nais.front) : null;
-      const naisBack  = nais.back  ? await compressImage(nais.back)  : null;
-
-      const [privFront, privBack] = await Promise.all([
-        compressImage(privacy.front),
-        compressImage(privacy.back),
-      ]);
-
-      const compressedOthers = await Promise.all(otherDocs.map((f) => compressImage(f)));
-
-      setSubmitPhase("uploading");
-      setUploadProgress(0);
-
       const fd = new FormData();
       fd.append("risk_level",  riskLevel);
       fd.append("account_no",  accountNo.trim());
       fd.append("date_opened", dateOpened);
 
-      fd.append("sigcardPairs[0][front]", sigFront);
-      fd.append("sigcardPairs[0][back]",  sigBack);
+      fd.append("sigcardPairs[0][front]", sigcard.front);
+      fd.append("sigcardPairs[0][back]",  sigcard.back);
 
-      if (naisFront) fd.append("naisPairs[0][front]", naisFront);
-      if (naisBack)  fd.append("naisPairs[0][back]",  naisBack);
+      if (nais.front) fd.append("naisPairs[0][front]", nais.front);
+      if (nais.back)  fd.append("naisPairs[0][back]",  nais.back);
 
-      fd.append("privacyPairs[0][front]", privFront);
-      fd.append("privacyPairs[0][back]",  privBack);
+      fd.append("privacyPairs[0][front]", privacy.front);
+      fd.append("privacyPairs[0][back]",  privacy.back);
 
-      compressedOthers.forEach((f) => fd.append("otherDocs[]", f));
+      otherDocs.forEach((f) => fd.append("otherDocs[]", f));
 
       await api.post(`/customers/${customer.id}/add-account`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -455,9 +413,7 @@ const AddAccountModal = ({ customer, isOpen, onClose, onSuccess }) => {
               {isSubmitting && (
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                  {submitPhase === "compressing"
-                    ? "Compressing…"
-                    : `Uploading… ${uploadProgress}%`}
+                  {`Uploading… ${uploadProgress}%`}
                 </div>
               )}
 

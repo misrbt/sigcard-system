@@ -20,7 +20,7 @@ const Footer = () => {
                 </h3>
               </div>
               <span className="hidden text-gray-500 md:inline">|</span>
-              <div>&copy; {currentYear} Sigcard System. All rights reserved.</div>
+              <div>&copy; {currentYear} DIGICUR — Digital Customer Record System. All rights reserved.</div>
             </div>
 
             <div className="flex flex-col items-center justify-center gap-1 text-xs uppercase tracking-[0.4em] text-gray-400 md:flex-row md:gap-6">

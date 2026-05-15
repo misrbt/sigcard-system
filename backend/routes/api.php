@@ -24,6 +24,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register'])->middleware(['role:admin']);
     Route::post('/verify-2fa', [AuthController::class, 'verifyTwoFactor']);
+    Route::post('/setup-2fa', [AuthController::class, 'setupTwoFactor']);
 
     Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
@@ -31,6 +32,7 @@ Route::prefix('auth')->group(function () {
         Route::post('/refresh-token', [AuthController::class, 'refreshToken']);
         Route::post('/change-password', [AuthController::class, 'changePassword']);
         Route::post('/enable-2fa', [AuthController::class, 'enableTwoFactor']);
+        Route::post('/confirm-2fa', [AuthController::class, 'confirmTwoFactor']);
         Route::post('/disable-2fa', [AuthController::class, 'disableTwoFactor']);
         Route::get('/active-sessions', [AuthController::class, 'activeSessions']);
     });
@@ -62,6 +64,11 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::post('/users/{user}/deactivate', [AdminController::class, 'deactivateUser']);
         Route::post('/users/{user}/unlock', [AdminController::class, 'unlockUser']);
         Route::post('/users/{user}/reset-password', [AdminController::class, 'resetUserPassword']);
+        Route::get('/users/{user}/login-status', [AdminController::class, 'getUserLoginStatus']);
+        Route::post('/users/{user}/revoke-all-sessions', [AdminController::class, 'revokeAllSessions']);
+        Route::delete('/users/{user}/tokens/{tokenId}', [AdminController::class, 'revokeToken']);
+        Route::post('/users/{user}/clear-force-password-change', [AdminController::class, 'clearForcePasswordChange']);
+        Route::post('/users/{user}/restore-login-access', [AdminController::class, 'restoreLoginAccess']);
 
         Route::get('/roles', [AdminController::class, 'getAllRoles']);
         Route::post('/roles', [AdminController::class, 'createRole']);
@@ -69,6 +76,8 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::delete('/roles/{role}', [AdminController::class, 'deleteRole']);
         Route::post('/users/{user}/roles', [AdminController::class, 'assignRole']);
         Route::delete('/users/{user}/roles/{role}', [AdminController::class, 'removeRole']);
+        Route::get('/users/{user}/permissions', [AdminController::class, 'getUserPermissions']);
+        Route::put('/users/{user}/permissions', [AdminController::class, 'syncUserPermissions']);
 
         Route::get('/permissions', [AdminController::class, 'getAllPermissions']);
         Route::post('/permissions', [AdminController::class, 'createPermission']);
@@ -133,6 +142,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
 
     // User Routes (basic banking operations)
     Route::middleware(['role:user,manager,admin'])->prefix('user')->group(function () {
+        Route::get('/dashboard', [UserController::class, 'getDashboard']);
         Route::get('/transactions', [UserController::class, 'getTransactions']);
         Route::post('/transactions', [UserController::class, 'createTransaction']);
         Route::get('/transactions/history', [UserController::class, 'getTransactionHistory']);
@@ -151,10 +161,10 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
 
     // Thumbmark Search — all authenticated roles
     Route::post('/search/thumbmark', [ThumbmarkSearchController::class, 'search'])
-        ->middleware(['role:user,manager,admin,cashier,compliance-audit']);
+        ->middleware(['role:user,manager,admin,cashier,compliance,audit']);
 
-    // Customer read routes — compliance-audit sees all; others are branch-restricted in controller
-    Route::middleware(['role:user,manager,admin,cashier,compliance-audit'])->prefix('customers')->group(function () {
+    // Customer read routes — compliance/audit see all; others are branch-restricted in controller
+    Route::middleware(['role:user,manager,admin,cashier,compliance,audit'])->prefix('customers')->group(function () {
         Route::get('/', [CustomerController::class, 'index']);
         Route::get('/{customer}', [CustomerController::class, 'show']);
         Route::get('/{customer}/documents', [CustomerController::class, 'getDocuments']);
@@ -168,12 +178,13 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::delete('/{customer}', [CustomerController::class, 'destroy']);
         Route::delete('/{customer}/documents/{document}', [CustomerController::class, 'deleteDocument']);
         Route::post('/{customer}/replace-document', [CustomerController::class, 'replaceDocument']);
+        Route::post('/{customer}/upload-status-document', [CustomerController::class, 'uploadStatusDocument']);
         Route::post('/{customer}/add-account', [CustomerController::class, 'addAccount']);
         Route::put('/{customer}/accounts/{account}', [CustomerController::class, 'updateAccount']);
     });
 
-    // Compliance Audit Routes
-    Route::middleware(['role:compliance-audit,admin'])->prefix('compliance')->group(function () {
+    // Compliance & Audit Routes
+    Route::middleware(['role:compliance,audit,admin'])->prefix('compliance')->group(function () {
         Route::get('/dashboard', [ComplianceController::class, 'getDashboard']);
         Route::get('/audit-logs', [ComplianceController::class, 'getAuditLogs']);
         Route::get('/audit-logs/history/{subjectType}/{subjectId}', [ComplianceController::class, 'getSubjectHistory']);
@@ -191,6 +202,8 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/customers', [ComplianceController::class, 'getCustomers']);
 
         Route::get('/reports', [ComplianceController::class, 'getReports']);
+        Route::get('/reports/summary', [ComplianceController::class, 'getSummaryReport']);
+        Route::get('/reports/branch/{branch}', [ComplianceController::class, 'getBranchDetail']);
         Route::post('/reports/generate', [ComplianceController::class, 'generateReport']);
         Route::post('/reports/export', [ComplianceController::class, 'exportReport']);
         Route::get('/reports/financial', [ComplianceController::class, 'getFinancialReports']);

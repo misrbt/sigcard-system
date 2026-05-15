@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import Swal from "sweetalert2";
 import api from "../../services/api";
@@ -9,30 +9,6 @@ import {
   HiOutlinePhotograph,
   HiOutlineArrowLeft,
 } from "react-icons/hi";
-
-// ── Image compression ─────────────────────────────────────────────────────────
-const compressImage = (file, maxWidth = 1200, maxHeight = 1600, quality = 0.82) =>
-  new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { width, height } = img;
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
-        width  = Math.round(width  * ratio);
-        height = Math.round(height * ratio);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" })),
-        "image/jpeg", quality
-      );
-    };
-    img.src = url;
-  });
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const RISK_LEVELS = ["Low Risk", "Medium Risk", "High Risk"];
@@ -218,10 +194,9 @@ const OtherDocsDropZone = ({ onAdd }) => {
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
-const AddAccount = () => {
+const AddAccount = ({ basePath = "/user" }) => {
   const { id }     = useParams();
   const navigate   = useNavigate();
-  const location   = useLocation();
 
   const [customer,       setCustomer]       = useState(null);
   const [step,           setStep]           = useState(0);
@@ -238,11 +213,7 @@ const AddAccount = () => {
   const isJoint = customer?.account_type === "Joint";
   const activeSteps = isJoint ? jointSteps : steps;
 
-  // Determine back URL from current path prefix
-  const backUrl = useMemo(() => {
-    if (location.pathname.startsWith("/admin")) return `/admin/customers/${id}/view`;
-    return `/user/customers/${id}/view`;
-  }, [location.pathname, id]);
+  const backUrl = useMemo(() => `${basePath}/customers/${id}/view`, [basePath, id]);
 
   useEffect(() => {
     api.get(`/customers/${id}`).then((res) => setCustomer(res.data)).catch(() => {});
@@ -270,20 +241,8 @@ const AddAccount = () => {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     setUploadProgress(0);
-    setSubmitPhase("compressing");
+    setSubmitPhase("uploading");
     try {
-      const [cSigFront, cSigBack, cPrivFront, cPrivBack] = await Promise.all([
-        sigcardPair.front ? compressImage(sigcardPair.front) : Promise.resolve(null),
-        sigcardPair.back  ? compressImage(sigcardPair.back)  : Promise.resolve(null),
-        privacyPair.front ? compressImage(privacyPair.front) : Promise.resolve(null),
-        privacyPair.back  ? compressImage(privacyPair.back)  : Promise.resolve(null),
-      ]);
-      const [cNaisFront, cNaisBack] = await Promise.all([
-        naisPair.front ? compressImage(naisPair.front) : Promise.resolve(null),
-        naisPair.back  ? compressImage(naisPair.back)  : Promise.resolve(null),
-      ]);
-      const compressedOther = await Promise.all(otherDocs.map((f) => compressImage(f)));
-
       const fd = new FormData();
       if (isJoint) {
         fd.append("firstname",  holderInfo.firstname.trim());
@@ -302,15 +261,13 @@ const AddAccount = () => {
         if (accountInfo.dateUpdated) fd.append("date_updated", accountInfo.dateUpdated);
       }
 
-      if (cSigFront)  fd.append("sigcardPairs[0][front]", cSigFront);
-      if (cSigBack)   fd.append("sigcardPairs[0][back]",  cSigBack);
-      if (cNaisFront) fd.append("naisPairs[0][front]",    cNaisFront);
-      if (cNaisBack)  fd.append("naisPairs[0][back]",     cNaisBack);
-      if (cPrivFront) fd.append("privacyPairs[0][front]", cPrivFront);
-      if (cPrivBack)  fd.append("privacyPairs[0][back]",  cPrivBack);
-      compressedOther.forEach((f) => fd.append("otherDocs[]", f));
-
-      setSubmitPhase("uploading");
+      if (sigcardPair.front)  fd.append("sigcardPairs[0][front]", sigcardPair.front);
+      if (sigcardPair.back)   fd.append("sigcardPairs[0][back]",  sigcardPair.back);
+      if (naisPair.front)     fd.append("naisPairs[0][front]",    naisPair.front);
+      if (naisPair.back)      fd.append("naisPairs[0][back]",     naisPair.back);
+      if (privacyPair.front)  fd.append("privacyPairs[0][front]", privacyPair.front);
+      if (privacyPair.back)   fd.append("privacyPairs[0][back]",  privacyPair.back);
+      otherDocs.forEach((f) => fd.append("otherDocs[]", f));
       await api.post(`/customers/${id}/add-account`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (e) => { if (e.total) setUploadProgress(Math.round((e.loaded / e.total) * 100)); },
@@ -575,12 +532,12 @@ const AddAccount = () => {
                   {isSubmitting && (
                     <div className="w-56">
                       <div className="flex justify-between text-xs font-medium text-slate-500 mb-1">
-                        <span>{submitPhase === "compressing" ? "Compressing images…" : `Uploading… ${uploadProgress}%`}</span>
-                        {submitPhase === "uploading" && <span>{uploadProgress}%</span>}
+                        <span>{`Uploading… ${uploadProgress}%`}</span>
+                        <span>{uploadProgress}%</span>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
                         <div className="h-full rounded-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-300"
-                          style={{ width: submitPhase === "compressing" ? "15%" : `${uploadProgress}%` }} />
+                          style={{ width: `${uploadProgress}%` }} />
                       </div>
                     </div>
                   )}
@@ -592,7 +549,7 @@ const AddAccount = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                         </svg>
-                        {submitPhase === "compressing" ? "Compressing…" : "Uploading…"}
+                        Uploading…
                       </>
                     ) : (
                       <>

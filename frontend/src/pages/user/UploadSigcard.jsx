@@ -1,43 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import Swal from "sweetalert2";
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import {
-  HiOutlineCheckCircle,
-  HiOutlineUpload,
-  HiOutlinePhotograph,
   HiOutlineUser,
   HiOutlineUsers,
   HiOutlineOfficeBuilding,
   HiOutlineCreditCard,
   HiOutlinePlus,
   HiOutlineX,
+  HiOutlineCheckCircle,
+  HiOutlinePhotograph,
 } from "react-icons/hi";
-
-// ── Image compression ─────────────────────────────────────────────────────────
-const compressImage = (file, maxWidth = 1200, maxHeight = 1600, quality = 0.82) =>
-  new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { width, height } = img;
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
-        width  = Math.round(width  * ratio);
-        height = Math.round(height * ratio);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" })),
-        "image/jpeg", quality
-      );
-    };
-    img.src = url;
-  });
+import DocImageDropZone from "../../components/common/DocImageDropZone";
+import MultiFileDropZone from "../../components/common/MultiFileDropZone";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const RISK_LEVELS = ["Low Risk", "Medium Risk", "High Risk"];
@@ -67,6 +44,18 @@ const JOINT_SUB_TYPE_CONFIG = [
   { value: "Non-ITF", label: "Non-ITF",             description: "One customer with one or more accounts. Each account has its own documents.", icon: HiOutlineCreditCard, color: "indigo", ring: "ring-indigo-500", bg: "bg-indigo-50", border: "border-indigo-500", iconBg: "bg-indigo-500" },
 ];
 
+const CORPORATE_SUB_TYPE_CONFIG = [
+  { value: "Corporate",           label: "Corporate",           description: "Business or organization account with two or more authorized signatories.", icon: HiOutlineOfficeBuilding, color: "slate", ring: "ring-slate-500", bg: "bg-slate-50", border: "border-slate-500", iconBg: "bg-slate-600" },
+  { value: "Sole Proprietorship", label: "Sole Proprietorship", description: "Single-owner business account with only one authorized signatory.",         icon: HiOutlineUser,          color: "amber", ring: "ring-amber-500", bg: "bg-amber-50", border: "border-amber-500", iconBg: "bg-amber-600" },
+];
+
+const STATUS_DATE_LABELS = {
+  dormant:     "Date of Dormancy",
+  reactivated: "Date of Reactivation",
+  escheat:     "Date of Escheat",
+  closed:      "Date of Closure",
+};
+
 const PERSON_COLORS = ["bg-blue-600", "bg-purple-600", "bg-emerald-600", "bg-orange-500", "bg-rose-500"];
 
 const BASE_STEPS = [
@@ -80,19 +69,20 @@ const BASE_STEPS = [
 ];
 
 const stepDescriptions = {
-  accountType:  "Choose the account classification for this customer.",
-  jointSubType: "Choose the joint account classification.",
-  customerInfo: "Enter the customer's personal or company information and account holders.",
-  holders:      "Set the risk level and account details. You may also add additional accounts.",
-  sigcard:      "Upload front and back images of the signature card.",
-  nais:         "Upload NAIS document images — optional, you may skip.",
-  privacy:      "Upload the signed data privacy consent form.",
-  otherDocs:    "Upload any additional supporting documents — optional.",
+  accountType:      "Choose the account classification for this customer.",
+  jointSubType:     "Choose the joint account classification.",
+  corporateSubType: "Choose whether this is a standard corporate or sole proprietorship account.",
+  customerInfo:     "Enter the customer's personal or company information and account holders.",
+  holders:          "Set the risk level and account details. You may also add additional accounts.",
+  sigcard:          "Upload front and back images of the signature card.",
+  nais:             "Upload NAIS document images — optional, you may skip.",
+  privacy:          "Upload the signed data privacy consent form.",
+  otherDocs:        "Upload any additional supporting documents — optional.",
 };
 
 const emptyPair    = ()  => ({ front: null, back: null });
 const emptyPerson  = ()  => ({ firstName: "", middleName: "", lastName: "", suffix: "" });
-const emptyAccount = ()  => ({ accountNo: "", riskLevel: "", dateOpened: "", dateUpdated: "", status: "active" });
+const emptyAccount = ()  => ({ accountNo: "", riskLevel: "", dateOpened: "", dateUpdated: "", status: "active", statusDate: "" });
 
 const initialFiles = {
   sigcardPairs: [emptyPair()],
@@ -207,112 +197,7 @@ const AccountTypePill = ({ type, onReset }) => {
 };
 
 // ── Document upload sub-components ────────────────────────────────────────────
-const DropZone = ({ label, file, onSelect }) => {
-  const [isDragging, setIsDragging]   = useState(false);
-  const [orientation, setOrientation] = useState(null);
-
-  const handleFiles = (list) => { if (list?.length) { setOrientation(null); onSelect(list); } };
-  const handleLoad  = (e) => {
-    const { naturalWidth: w, naturalHeight: h } = e.target;
-    setOrientation(h >= w ? "portrait" : "landscape");
-  };
-
-  const sizeClass = file
-    ? orientation === "portrait" ? "aspect-[3/4]" : orientation === "landscape" ? "aspect-[4/3]" : "min-h-[420px]"
-    : "min-h-[420px]";
-
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-bold text-slate-700">{label}</h3>
-      <label
-        className={`group relative flex w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-300 ${sizeClass} ${
-          isDragging ? "border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100 scale-[1.02] shadow-lg"
-          : file      ? "border-green-400 bg-slate-100 shadow-md"
-          : "border-slate-300 bg-gradient-to-br from-slate-50 to-slate-100 hover:border-blue-400 hover:from-blue-50 hover:to-blue-100 hover:shadow-lg"
-        }`}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFiles(e.dataTransfer.files); }}
-      >
-        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-        {file ? (
-          <>
-            <img src={URL.createObjectURL(file)} alt={label} onLoad={handleLoad} className="object-contain w-full h-full" />
-            <div className="absolute inset-0 flex items-center justify-center transition-opacity opacity-0 bg-gradient-to-br from-black/70 to-black/50 group-hover:opacity-100">
-              <div className="text-center text-white">
-                <HiOutlinePhotograph className="w-10 h-10 mx-auto mb-3" />
-                <p className="text-base font-bold">Click to change</p>
-                <p className="mt-1 text-sm text-white/80">Drag & drop or select new file</p>
-              </div>
-            </div>
-            <div className="absolute p-2 rounded-full shadow-lg right-4 top-4 bg-gradient-to-br from-green-500 to-green-600">
-              <HiOutlineCheckCircle className="w-6 h-6 text-white" />
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-4 p-6 text-center">
-            <div className="p-5 rounded-full shadow-lg bg-gradient-to-br from-blue-500 to-blue-600">
-              <HiOutlineUpload className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <p className="text-base font-bold text-slate-800">{isDragging ? "Drop image here" : "Drag & drop your file"}</p>
-              <p className="mt-2 text-sm text-slate-600">or <span className="font-semibold text-blue-600">click to browse</span></p>
-              <p className="mt-2 text-xs text-slate-500">Supports: JPG, PNG (Max 10MB)</p>
-            </div>
-          </div>
-        )}
-      </label>
-    </div>
-  );
-};
-
-const DocThumb = ({ file, index, onRemove }) => {
-  const [orientation, setOrientation] = useState(null);
-  const aspectClass = orientation === "portrait" ? "aspect-[3/4]" : orientation === "landscape" ? "aspect-[4/3]" : "aspect-square";
-  return (
-    <div className={`group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm transition-all duration-300 ${aspectClass}`}>
-      <img src={URL.createObjectURL(file)} alt={file.name}
-        onLoad={(e) => { const {naturalWidth:w,naturalHeight:h}=e.target; setOrientation(h>=w?"portrait":"landscape"); }}
-        className="w-full h-full object-contain" />
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity p-3">
-        <p className="text-xs text-white font-semibold text-center line-clamp-2">{file.name}</p>
-        <button type="button" onClick={() => onRemove(index)}
-          className="mt-1 px-3 py-1 text-xs font-semibold rounded-lg bg-red-500 hover:bg-red-600 text-white transition-colors">Remove</button>
-      </div>
-      <div className="absolute top-2 left-2 w-6 h-6 flex items-center justify-center rounded-full bg-black/50 text-white text-xs font-bold">{index + 1}</div>
-    </div>
-  );
-};
-
-const OtherDocsDropZone = ({ onAdd }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const inputRef = useRef(null);
-  const handleFiles = (list) => { if (list?.length) onAdd(list); };
-  return (
-    <div
-      className={`group flex flex-col items-center justify-center gap-4 px-6 py-12 cursor-pointer border-2 border-dashed rounded-2xl transition-all ${
-        isDragging ? "border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100 scale-[1.01] shadow-lg"
-        : "border-slate-300 bg-gradient-to-br from-slate-50 to-slate-100 hover:border-blue-400 hover:from-blue-50 hover:to-blue-100 hover:shadow-lg"
-      }`}
-      onClick={() => inputRef.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-      onDragLeave={() => setIsDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFiles(e.dataTransfer.files); }}
-    >
-      <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-      <div className="p-5 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg pointer-events-none">
-        <HiOutlineUpload className="w-8 h-8 text-white" />
-      </div>
-      <div className="text-center pointer-events-none">
-        <p className="text-base font-bold text-slate-800">{isDragging ? "Drop files here" : "Drag & drop your files"}</p>
-        <p className="mt-1 text-sm text-slate-600">or <span className="font-semibold text-blue-600">click to browse</span></p>
-        <p className="mt-2 text-xs text-slate-500">Supports: JPG, PNG — multiple files allowed</p>
-      </div>
-    </div>
-  );
-};
-
-const PersonDocSection = ({ isMultiHolder, personIndex, totalPersons, minHolders, frontLabel, backLabel, frontFile, backFile, onFront, onBack, onRemove, sectionLabel }) => {
+const PersonDocSection = ({ isMultiHolder, personIndex, totalPersons, minHolders, frontLabel, backLabel, frontFile, backFile, onFront, onBack, onRemove, sectionLabel, frontShape = "auto", backShape = "auto" }) => {
   const canRemove = isMultiHolder && totalPersons > minHolders && personIndex >= minHolders;
   return (
     <div className="space-y-4">
@@ -329,14 +214,14 @@ const PersonDocSection = ({ isMultiHolder, personIndex, totalPersons, minHolders
         </div>
       )}
       <div className="grid gap-8 md:grid-cols-2">
-        <DropZone label={frontLabel} file={frontFile} onSelect={onFront} />
-        <DropZone label={backLabel}  file={backFile}  onSelect={onBack}  />
+        <DocImageDropZone label={frontLabel} file={frontFile} onChange={onFront} shape={frontShape} />
+        <DocImageDropZone label={backLabel}  file={backFile}  onChange={onBack}  shape={backShape}  />
       </div>
     </div>
   );
 };
 
-const JointDocStep = ({ isMultiHolder, minHolders, pairs, frontLabel, backLabel, onSetFile, onRemovePerson, sectionLabels }) => (
+const JointDocStep = ({ isMultiHolder, minHolders, pairs, frontLabel, backLabel, onSetFile, onRemovePerson, sectionLabels, frontShape = "auto", backShape = "auto" }) => (
   <div className="space-y-8">
     {pairs.map((pair, i) => (
       <PersonDocSection key={i} isMultiHolder={isMultiHolder} personIndex={i} totalPersons={pairs.length}
@@ -344,10 +229,25 @@ const JointDocStep = ({ isMultiHolder, minHolders, pairs, frontLabel, backLabel,
         frontFile={pair.front} backFile={pair.back}
         onFront={(f) => onSetFile(i, "front", f)} onBack={(f) => onSetFile(i, "back", f)}
         onRemove={() => onRemovePerson?.(i)}
-        sectionLabel={sectionLabels?.[i]} />
+        sectionLabel={sectionLabels?.[i]}
+        frontShape={frontShape} backShape={backShape} />
     ))}
   </div>
 );
+
+// ── Status Date Field ─────────────────────────────────────────────────────────
+const StatusDateField = ({ status, value, onChange }) => {
+  const label = STATUS_DATE_LABELS[status];
+  if (!label) return null;
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-xs font-semibold text-slate-600">
+        {label} <span className="text-red-500">*</span>
+      </label>
+      <input type="date" value={value} onChange={onChange} className={inputCls} />
+    </div>
+  );
+};
 
 // ── Main component ────────────────────────────────────────────────────────────
 const UploadSigcard = () => {
@@ -355,9 +255,9 @@ const UploadSigcard = () => {
 
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState({
-    accountType: "", jointSubType: "", firstName: "", middleName: "", lastName: "",
+    accountType: "", jointSubType: "", corporateSubType: "", firstName: "", middleName: "", lastName: "",
     suffix: "", companyName: "", riskLevel: "", accountNo: "", dateOpened: "",
-    dateUpdated: "", status: "active",
+    dateUpdated: "", status: "active", statusDate: "",
   });
   const [photoFile, setPhotoFile] = useState(null);
   const [files,              setFiles]              = useState(initialFiles);
@@ -368,39 +268,69 @@ const UploadSigcard = () => {
   const [corpSigBacks,         setCorpSigBacks]          = useState([null, null]);
   const [hasSecondJointFront,  setHasSecondJointFront]   = useState(false);
   const [secondJointFront,     setSecondJointFront]      = useState(null);
+  const [itfExtraRiskProfilings, setItfExtraRiskProfilings] = useState([]); // additional risk profiling backs for ITF
   const [isSubmitting,         setIsSubmitting]         = useState(false);
   const [uploadProgress,     setUploadProgress]     = useState(0);
   const [submitPhase,        setSubmitPhase]        = useState("idle");
 
-  const isJoint     = formData.accountType === "Joint";
-  const isRegular   = formData.accountType === "Regular";
-  const isCorporate = formData.accountType === "Corporate";
-  const isITF       = isJoint && formData.jointSubType === "ITF";
-  const isNonITF    = isJoint && formData.jointSubType === "Non-ITF";
+  const isJoint              = formData.accountType === "Joint";
+  const isCorporate          = formData.accountType === "Corporate";
+  const isITF                = isJoint && formData.jointSubType === "ITF";
+  const isNonITF             = isJoint && formData.jointSubType === "Non-ITF";
+  const isSoleProprietorship = isCorporate && formData.corporateSubType === "Sole Proprietorship";
+  const isEscheat            = formData.status === "escheat";
+  const escheatYear          = formData.statusDate ? new Date(formData.statusDate).getFullYear() : null;
+  const privacyNotRequired   = isEscheat && escheatYear !== null && escheatYear <= 2021;
 
-  // Dynamic steps: insert jointSubType step after accountType when Joint
+  // Dynamic steps: insert sub-type step after accountType when Joint or Corporate;
+  // skip privacy step entirely for pre-2022 escheat accounts
   const activeSteps = useMemo(() => {
+    let steps;
     if (isJoint) {
-      return [
-        BASE_STEPS[0], // accountType
-        { key: "jointSubType", title: "Joint Type" },
+      steps = [
+        BASE_STEPS[0],
+        { key: "jointSubType",     title: "Joint Type" },
         ...BASE_STEPS.slice(1),
       ];
+    } else if (isCorporate) {
+      steps = [
+        BASE_STEPS[0],
+        { key: "corporateSubType", title: "Corp. Type" },
+        ...BASE_STEPS.slice(1),
+      ];
+    } else {
+      steps = BASE_STEPS;
     }
-    return BASE_STEPS;
-  }, [isJoint]);
+    if (privacyNotRequired) {
+      steps = steps.filter((s) => s.key !== "privacy");
+    }
+    return steps;
+  }, [isJoint, isCorporate, privacyNotRequired]);
 
   // Guard step index when steps change
   useEffect(() => {
     if (step >= activeSteps.length) setStep(activeSteps.length - 1);
-  }, [activeSteps.length]);
+  }, [activeSteps.length, step]);
 
   // Reset jointSubType when account type changes away from Joint
   useEffect(() => {
-    if (!isJoint) {
-      setFormData((prev) => ({ ...prev, jointSubType: "" }));
-    }
+    if (!isJoint) setFormData((prev) => ({ ...prev, jointSubType: "" }));
   }, [isJoint]);
+
+  // Reset corporateSubType when account type changes away from Corporate
+  useEffect(() => {
+    if (!isCorporate) setFormData((prev) => ({ ...prev, corporateSubType: "" }));
+  }, [isCorporate]);
+
+  // Sync persons when corporateSubType changes
+  useEffect(() => {
+    if (!isCorporate) return;
+    if (isSoleProprietorship) {
+      setAdditionalPersons([]);
+    } else if (formData.corporateSubType === "Corporate") {
+      setAdditionalPersons((prev) => (prev.length >= 1 ? prev : [emptyPerson()]));
+    }
+  }, [formData.corporateSubType, isCorporate, isSoleProprietorship]);
 
   // Sync persons/accounts when jointSubType changes
   useEffect(() => {
@@ -409,19 +339,19 @@ const UploadSigcard = () => {
       setAdditionalAccounts([]);
       setItfFiles(initialItfFiles());
     } else if (isNonITF) {
-      setAdditionalPersons((prev) => (prev.length >= 1 ? prev : [emptyPerson()]));
+      setAdditionalPersons([]); // Non-ITF has one customer — no additional holders
       setAdditionalAccounts([]);
     }
     setHasSecondJointFront(false);
     setSecondJointFront(null);
-  }, [formData.jointSubType]);
+  }, [formData.jointSubType, isITF, isNonITF]);
 
   // Sync persons/accounts when account type changes
   useEffect(() => {
     if (!isJoint && !isCorporate) {
       setAdditionalPersons([]);
     }
-    if (isCorporate) {
+    if (isCorporate && !isSoleProprietorship) {
       setAdditionalPersons((prev) => (prev.length >= 1 ? prev : [emptyPerson()]));
     }
     setAdditionalAccounts([]);
@@ -432,16 +362,15 @@ const UploadSigcard = () => {
       privacyPairs: [prev.privacyPairs[0] ?? emptyPair()],
       otherDocs:    [prev.otherDocs?.[0]  ?? []],
     }));
-  }, [formData.accountType]);
+  }, [formData.accountType, isJoint, isCorporate, isSoleProprietorship]);
 
   // Sync doc pair count for non-ITF flows:
-  //   Non-ITF Joint: sigcardPairs → per-person (back only), nais/privacy/otherDocs → per-account
+  //   Non-ITF Joint: sigcardPairs → per-account (back only), nais/privacy/otherDocs → per-account
   //   Regular/Corporate: all per-account
   useEffect(() => {
     if (isITF) return; // ITF uses itfFiles, not files
-    const personCount = isNonITF ? additionalPersons.length + 1 : 1;
-    const sigcardCount = isNonITF ? personCount : additionalAccounts.length + 1;
     const acctCount    = additionalAccounts.length + 1;
+    const sigcardCount = acctCount; // Non-ITF risk profiling is per account, not per person
     setFiles((prev) => {
       const sync = (pairs, target) => {
         if (pairs.length === target) return pairs;
@@ -463,42 +392,46 @@ const UploadSigcard = () => {
         otherDocs:    syncOther(prev.otherDocs, acctCount),
       };
     });
-  }, [isITF, isNonITF, isCorporate, additionalPersons.length, additionalAccounts.length]);
+  }, [isITF, isNonITF, isCorporate, additionalAccounts.length]);
 
-  // Sync corporate sigcard arrays to person count
+  // Sync corporate sigcard arrays to person count (always N signatories + 1 extra for corporate)
   useEffect(() => {
     if (!isCorporate) return;
+    // Sole Proprietorship: 1 front + 1 back (uses normal sigcardPairs, not corp arrays)
+    if (isSoleProprietorship) {
+      setCorpSigFronts([null]);
+      setCorpSigBacks([null]);
+      return;
+    }
     const totalPersons = additionalPersons.length + 1;
+    const targetBacks = totalPersons + 1;
     setCorpSigBacks((prev) => {
-      if (prev.length === totalPersons) return prev;
-      if (prev.length < totalPersons) return [...prev, ...Array(totalPersons - prev.length).fill(null)];
-      return prev.slice(0, totalPersons);
+      if (prev.length === targetBacks) return prev;
+      if (prev.length < targetBacks) return [...prev, ...Array(targetBacks - prev.length).fill(null)];
+      return prev.slice(0, targetBacks);
     });
     if (totalPersons === 2) {
-      // 2 signatories → max 1 front
       setCorpSigFronts((prev) => [prev[0] ?? null]);
     } else if (totalPersons >= 3) {
-      // 3+ signatories → default to 2 fronts (user can add more via button)
       setCorpSigFronts((prev) => prev.length >= 2 ? prev : [...prev, ...Array(2 - prev.length).fill(null)]);
     }
-  }, [isCorporate, additionalPersons.length]);
+  }, [isCorporate, isSoleProprietorship, additionalPersons.length]);
 
   const setField  = (key, val) => setFormData((prev) => ({ ...prev, [key]: val }));
-  const handleInp = (e) => setField(e.target.name, e.target.value);
 
-  const setPairFile = (docKey, pairIndex, side, fileList) => {
+  const setPairFile = (docKey, pairIndex, side, file) => {
     setFiles((prev) => {
       const updated = [...prev[docKey]];
-      updated[pairIndex] = { ...updated[pairIndex], [side]: fileList[0] };
+      updated[pairIndex] = { ...updated[pairIndex], [side]: file };
       return { ...prev, [docKey]: updated };
     });
   };
 
   // ITF file helpers (shared front/back pairs)
-  const setItfPairSide = (docKey, pairIdx, side, fileList) => {
+  const setItfPairSide = (docKey, pairIdx, side, file) => {
     setItfFiles((prev) => {
       const updated = [...prev[docKey]];
-      updated[pairIdx] = { ...updated[pairIdx], [side]: fileList[0] };
+      updated[pairIdx] = { ...updated[pairIdx], [side]: file };
       return { ...prev, [docKey]: updated };
     });
   };
@@ -514,41 +447,50 @@ const UploadSigcard = () => {
   const isStepValid = useMemo(() => {
     const currentKey = activeSteps[step]?.key;
     switch (currentKey) {
-      case "accountType":  return !!formData.accountType;
-      case "jointSubType": return !!formData.jointSubType;
+      case "accountType":      return !!formData.accountType;
+      case "jointSubType":     return !!formData.jointSubType;
+      case "corporateSubType": return !!formData.corporateSubType;
       case "customerInfo":
-        if (isCorporate) return !!formData.companyName.trim() && !!formData.firstName.trim() && !!formData.lastName.trim() &&
-          additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
+        if (isSoleProprietorship)
+          return !!formData.companyName.trim() && !!formData.firstName.trim() && !!formData.lastName.trim();
+        if (isCorporate)
+          return !!formData.companyName.trim() && !!formData.firstName.trim() && !!formData.lastName.trim() &&
+            additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
         if (isITF) return !!formData.firstName.trim() && !!formData.lastName.trim() &&
           additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
-        if (isNonITF) return !!formData.firstName.trim() && !!formData.lastName.trim() &&
-          additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
+        if (isNonITF) return !!formData.firstName.trim() && !!formData.lastName.trim();
         return !!formData.firstName.trim() && !!formData.lastName.trim();
       case "holders":
         if (!formData.riskLevel || !formData.status) return false;
         if (!formData.accountNo.trim()) return false;
-        return additionalAccounts.every((a) => !!a.riskLevel && !!a.accountNo.trim() && !!a.status);
+        if (formData.status !== "active" && !formData.statusDate) return false;
+        return additionalAccounts.every((a) =>
+          !!a.riskLevel && !!a.accountNo.trim() && !!a.status &&
+          (a.status === "active" || !!a.statusDate)
+        );
       case "sigcard":
         if (isITF) return itfFiles.sigcard.every((p) => p.front || p.back);
         if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back);
+        if (isSoleProprietorship) return !!files.sigcardPairs[0]?.front && !!files.sigcardPairs[0]?.back;
         if (isCorporate) return corpSigFronts.every((f) => f !== null) && corpSigBacks.every((f) => f !== null);
         return files.sigcardPairs.every((p) => p.front && p.back);
       case "nais": return true;
       case "privacy":
+        if (privacyNotRequired) return true;
         if (isITF) return itfFiles.privacy.every((p) => p.front || p.back);
         if (isNonITF) return files.privacyPairs.every((p) => p.front || p.back);
         return files.privacyPairs.every((p) => p.front && p.back);
       case "otherDocs": return true;
       default: return false;
     }
-  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks]);
+  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF]);
 
   const handleNext = () => { if (isStepValid) setStep((s) => Math.min(s + 1, activeSteps.length - 1)); };
   const handlePrev = () => setStep((s) => Math.max(s - 1, 0));
 
   const resetAll = () => {
     setStep(0);
-    setFormData({ accountType:"", jointSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", riskLevel:"", accountNo:"", dateOpened:"", dateUpdated:"", status:"active" });
+    setFormData({ accountType:"", jointSubType:"", corporateSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", riskLevel:"", accountNo:"", dateOpened:"", dateUpdated:"", status:"active", statusDate:"" });
     setPhotoFile(null);
     setFiles(initialFiles);
     setItfFiles(initialItfFiles());
@@ -563,57 +505,9 @@ const UploadSigcard = () => {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     setUploadProgress(0);
-    setSubmitPhase("compressing");
+    setSubmitPhase("uploading");
     try {
-      // Compress files based on flow type
-      let compressedPairs = {};
-      let compressedOtherSections = [];
-      let compressedItf = null;
-      let compressedCorpFronts = [];
-      let compressedCorpBacks = [];
-      let compressedSecondJointFront = null;
-
-      if (hasSecondJointFront && secondJointFront && (isITF || isNonITF)) {
-        compressedSecondJointFront = await compressImage(secondJointFront);
-      }
-
-      if (isITF) {
-        // Compress ITF files (shared front/back pairs for all doc types)
-        const itfCompressed = {};
-        for (const docKey of ["sigcard", "nais", "privacy"]) {
-          itfCompressed[docKey] = await Promise.all(
-            itfFiles[docKey].map(async (pair) => ({
-              front: pair.front ? await compressImage(pair.front) : null,
-              back:  pair.back  ? await compressImage(pair.back)  : null,
-            }))
-          );
-        }
-        // Compress ITF other docs (single shared section)
-        const otherSection = itfFiles.otherDocs[0] ?? [];
-        compressedItf = {
-          ...itfCompressed,
-          otherDocs: [await Promise.all(otherSection.map((f) => compressImage(f)))],
-        };
-      } else {
-        // Compress non-ITF files (Regular, Non-ITF, Corporate)
-        if (isCorporate) {
-          compressedCorpFronts = await Promise.all(corpSigFronts.map((f) => f ? compressImage(f) : null));
-          compressedCorpBacks = await Promise.all(corpSigBacks.map((f) => f ? compressImage(f) : null));
-        }
-        const pairKeys = ["sigcardPairs", "naisPairs", "privacyPairs"];
-        await Promise.all(pairKeys.map(async (key) => {
-          compressedPairs[key] = await Promise.all(
-            files[key].map(async (pair) => ({
-              front: pair.front ? await compressImage(pair.front) : null,
-              back:  pair.back  ? await compressImage(pair.back)  : null,
-            }))
-          );
-        }));
-        compressedOtherSections = await Promise.all(
-          files.otherDocs.map((section) => Promise.all((section ?? []).map((f) => compressImage(f))))
-        );
-      }
-
+      // Files are sent raw; the backend's Image Intervention handles all resizing and optimisation.
       const fd = new FormData();
       if (isCorporate) {
         fd.append("company_name", formData.companyName);
@@ -631,12 +525,11 @@ const UploadSigcard = () => {
       if (photoFile)            fd.append("photo", photoFile);
       if (user?.branch?.id)     fd.append("branch_id", user.branch.id);
 
-      if (isJoint) {
-        fd.append("joint_sub_type", formData.jointSubType);
-      }
+      if (isJoint) fd.append("joint_sub_type", formData.jointSubType);
+      if (isCorporate && formData.corporateSubType) fd.append("corporate_sub_type", formData.corporateSubType);
+      if (formData.statusDate) fd.append("status_date", formData.statusDate);
 
       if (isITF) {
-        // ITF: send additional person
         additionalPersons.forEach((p, i) => {
           fd.append(`additionalPersons[${i}][firstname]`,  p.firstName);
           fd.append(`additionalPersons[${i}][middlename]`, p.middleName);
@@ -644,9 +537,8 @@ const UploadSigcard = () => {
           fd.append(`additionalPersons[${i}][suffix]`,     p.suffix);
         });
 
-        // ITF: shared front/back pairs for all doc types
         for (const [docKey, fdKey] of [["sigcard", "sigcardPairs"], ["nais", "naisPairs"], ["privacy", "privacyPairs"]]) {
-          compressedItf[docKey].forEach((pair, i) => {
+          itfFiles[docKey].forEach((pair, i) => {
             if (!pair.front && !pair.back) return;
             if (pair.front) fd.append(`${fdKey}[${i}][front]`, pair.front);
             if (pair.back)  fd.append(`${fdKey}[${i}][back]`, pair.back);
@@ -654,19 +546,23 @@ const UploadSigcard = () => {
           });
         }
 
-        // ITF other docs: single shared section → otherDocs[1][]
-        compressedItf.otherDocs[0].forEach((f) => fd.append(`otherDocs[1][]`, f));
+        (itfFiles.otherDocs[0] ?? []).forEach((f) => fd.append(`otherDocs[1][]`, f));
 
-        // Second joint sigcard front (optional)
-        if (compressedSecondJointFront) {
-          const nextIdx = compressedItf.sigcard.length;
-          fd.append(`sigcardPairs[${nextIdx}][front]`, compressedSecondJointFront);
+        if (hasSecondJointFront && secondJointFront) {
+          const nextIdx = itfFiles.sigcard.length;
+          fd.append(`sigcardPairs[${nextIdx}][front]`, secondJointFront);
           fd.append(`sigcardPairs[${nextIdx}][person_index]`, 2);
         }
+
+        // Extra risk profiling backs (ITF only)
+        itfExtraRiskProfilings.forEach((file, i) => {
+          if (!file) return;
+          const idx = itfFiles.sigcard.length + (hasSecondJointFront ? 1 : 0) + i;
+          fd.append(`sigcardPairs[${idx}][back]`, file);
+          fd.append(`sigcardPairs[${idx}][person_index]`, 1);
+        });
       } else {
-        // Non-ITF / Regular / Corporate
         if (isNonITF || isCorporate) {
-          // Non-ITF / Corporate has additional persons
           additionalPersons.forEach((p, i) => {
             fd.append(`additionalPersons[${i}][firstname]`,  p.firstName);
             fd.append(`additionalPersons[${i}][middlename]`, p.middleName);
@@ -678,60 +574,56 @@ const UploadSigcard = () => {
         additionalAccounts.forEach((a, i) => {
           fd.append(`additionalAccounts[${i}][account_no]`,  a.accountNo);
           fd.append(`additionalAccounts[${i}][risk_level]`,  a.riskLevel);
-          if (a.dateOpened) fd.append(`additionalAccounts[${i}][date_opened]`, a.dateOpened);
+          if (a.dateOpened)   fd.append(`additionalAccounts[${i}][date_opened]`,  a.dateOpened);
           fd.append(`additionalAccounts[${i}][status]`,      a.status || "active");
-          if (a.dateUpdated) fd.append(`additionalAccounts[${i}][date_updated]`, a.dateUpdated);
+          if (a.dateUpdated)  fd.append(`additionalAccounts[${i}][date_updated]`, a.dateUpdated);
+          if (a.statusDate)   fd.append(`additionalAccounts[${i}][status_date]`,  a.statusDate);
         });
 
-        if (isCorporate) {
-          // Corporate sigcard: each front gets a unique person_index (1, 2, …)
-          // so files don't overwrite each other on disk.
-          // Backs also get person_index per signatory (1, 2, …).
-          let pairIdx = 0;
-          compressedCorpFronts.forEach((f, i) => {
-            if (f) {
-              fd.append(`sigcardPairs[${pairIdx}][front]`, f);
-              fd.append(`sigcardPairs[${pairIdx}][person_index]`, i + 1);
-              pairIdx++;
-            }
-          });
-          compressedCorpBacks.forEach((f, i) => {
-            if (f) {
-              fd.append(`sigcardPairs[${pairIdx}][back]`, f);
-              fd.append(`sigcardPairs[${pairIdx}][person_index]`, i + 1);
-              pairIdx++;
-            }
-          });
-          // NAIS + Privacy still per-account
+        if (isSoleProprietorship) {
+          // Sole Prop: standard front+back pair from files.sigcardPairs
+          const pair = files.sigcardPairs[0];
+          if (pair?.front) { fd.append("sigcardPairs[0][front]", pair.front); fd.append("sigcardPairs[0][person_index]", 1); }
+          if (pair?.back)  { fd.append("sigcardPairs[1][back]",  pair.back);  fd.append("sigcardPairs[1][person_index]", 1); }
           for (const key of ["naisPairs", "privacyPairs"]) {
-            compressedPairs[key].forEach((pair, i) => {
+            if (key === "privacyPairs" && privacyNotRequired) continue;
+            files[key].forEach((p, i) => {
+              if (p.front) fd.append(`${key}[${i}][front]`, p.front);
+              if (p.back)  fd.append(`${key}[${i}][back]`,  p.back);
+            });
+          }
+          files.otherDocs.forEach((section, i) => section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f)));
+        } else if (isCorporate) {
+          let pairIdx = 0;
+          corpSigFronts.forEach((f, i) => {
+            if (f) { fd.append(`sigcardPairs[${pairIdx}][front]`, f); fd.append(`sigcardPairs[${pairIdx}][person_index]`, i + 1); pairIdx++; }
+          });
+          corpSigBacks.forEach((f, i) => {
+            if (f) { fd.append(`sigcardPairs[${pairIdx}][back]`, f); fd.append(`sigcardPairs[${pairIdx}][person_index]`, i + 1); pairIdx++; }
+          });
+          for (const key of ["naisPairs", "privacyPairs"]) {
+            if (key === "privacyPairs" && privacyNotRequired) continue;
+            files[key].forEach((pair, i) => {
               if (pair.front) fd.append(`${key}[${i}][front]`, pair.front);
               if (pair.back)  fd.append(`${key}[${i}][back]`, pair.back);
             });
           }
-          compressedOtherSections.forEach((section, i) => {
-            section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f));
-          });
+          files.otherDocs.forEach((section, i) => section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f)));
         } else {
-          const pairKeys = ["sigcardPairs", "naisPairs", "privacyPairs"];
-          for (const key of pairKeys) {
-            compressedPairs[key].forEach((pair, i) => {
+          for (const key of ["sigcardPairs", "naisPairs", "privacyPairs"]) {
+            if (key === "privacyPairs" && privacyNotRequired) continue;
+            files[key].forEach((pair, i) => {
               if (pair.front) fd.append(`${key}[${i}][front]`, pair.front);
               if (pair.back)  fd.append(`${key}[${i}][back]`,  pair.back);
             });
           }
-          // Second joint sigcard front (optional, Non-ITF only)
-          if (isNonITF && compressedSecondJointFront) {
-            const nextIdx = compressedPairs.sigcardPairs.length;
-            fd.append(`sigcardPairs[${nextIdx}][front]`, compressedSecondJointFront);
+          if (isNonITF && hasSecondJointFront && secondJointFront) {
+            fd.append(`sigcardPairs[${files.sigcardPairs.length}][front]`, secondJointFront);
           }
-          compressedOtherSections.forEach((section, i) => {
-            section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f));
-          });
+          files.otherDocs.forEach((section, i) => section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f)));
         }
       }
 
-      setSubmitPhase("uploading");
       await api.post("/customers", fd, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (e) => { if (e.total) setUploadProgress(Math.round((e.loaded / e.total) * 100)); },
@@ -820,6 +712,37 @@ const UploadSigcard = () => {
           </div>
         );
 
+      // ── STEP: Corporate Sub-Type ───────────────────────────────────────────
+      case "corporateSubType":
+        return (
+          <div className="space-y-6">
+            <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
+            <p className="text-sm text-slate-500">Select the corporate account classification.</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {CORPORATE_SUB_TYPE_CONFIG.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
+                const isSelected = formData.corporateSubType === value;
+                return (
+                  <motion.button key={value} type="button" whileTap={{ scale: 0.97 }}
+                    onClick={() => setField("corporateSubType", value)}
+                    className={`relative flex flex-col items-center gap-4 p-7 rounded-2xl border-2 text-center transition-all outline-none
+                      ${isSelected ? `${bg} ${border} ring-4 ${ring}/20 shadow-lg` : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md"}`}
+                  >
+                    {isSelected && <div className="absolute top-3 right-3"><HiOutlineCheckCircle className="w-5 h-5 text-green-500" /></div>}
+                    <div className={`p-4 rounded-2xl ${isSelected ? iconBg : "bg-slate-100"} transition-colors`}>
+                      <Icon className={`w-8 h-8 ${isSelected ? "text-white" : "text-slate-500"}`} />
+                    </div>
+                    <div>
+                      <p className={`text-base font-bold mb-1 ${isSelected ? "text-slate-900" : "text-slate-700"}`}>{label}</p>
+                      <p className="text-xs text-slate-400 leading-relaxed">{description}</p>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-center text-slate-400">Choose the corporate type, then click Next to continue</p>
+          </div>
+        );
+
       // ── STEP: Customer Info ──────────────────────────────────────────────
       case "customerInfo":
         return (
@@ -829,12 +752,12 @@ const UploadSigcard = () => {
             {isCorporate ? (
               <div className="space-y-5">
                 <div className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                  <div className="w-10 h-10 rounded-xl bg-slate-600 flex items-center justify-center text-white flex-shrink-0">
-                    <HiOutlineOfficeBuilding className="w-5 h-5" />
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0 ${isSoleProprietorship ? "bg-amber-600" : "bg-slate-600"}`}>
+                    {isSoleProprietorship ? <HiOutlineUser className="w-5 h-5" /> : <HiOutlineOfficeBuilding className="w-5 h-5" />}
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-800">Corporate Account</p>
-                    <p className="text-xs text-slate-400">Business or organization — minimum 2 signatories</p>
+                    <p className="text-sm font-bold text-slate-800">{isSoleProprietorship ? "Sole Proprietorship" : "Corporate Account"}</p>
+                    <p className="text-xs text-slate-400">{isSoleProprietorship ? "Single-owner business — one authorized signatory" : "Business or organization — minimum 2 signatories"}</p>
                   </div>
                 </div>
                 <div className="space-y-1.5">
@@ -859,7 +782,8 @@ const UploadSigcard = () => {
                   />
                 </div>
 
-                {/* Additional signatories */}
+                {/* Additional signatories — hidden for Sole Proprietorship */}
+                {!isSoleProprietorship && (<>
                 {additionalPersons.map((p, i) => (
                   <div key={i} className="rounded-2xl border-2 border-slate-200 bg-slate-50/30 p-5 space-y-4">
                     <div className="flex items-center justify-between">
@@ -883,12 +807,14 @@ const UploadSigcard = () => {
                     />
                   </div>
                 ))}
+                {/* Add Another Signatory — only for standard Corporate, not Sole Prop */}
                 <button type="button"
                   onClick={() => setAdditionalPersons((prev) => [...prev, emptyPerson()])}
                   className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-slate-600 border-2 border-dashed border-slate-300 rounded-2xl hover:border-slate-500 hover:bg-slate-50 transition-all">
                   <HiOutlinePlus className="w-4 h-4" />
                   Add Another Signatory
                 </button>
+                </>)}
                 {/* Photo — optional */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-semibold text-slate-600">
@@ -992,51 +918,18 @@ const UploadSigcard = () => {
               </div>
             ) : isNonITF ? (
               <div className="space-y-5">
-                {/* Person 1 — always shown */}
-                <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/20 p-5 space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">Person 1 — Primary</p>
-                      <p className="text-xs text-slate-400">Primary account holder</p>
-                    </div>
+                {/* Single customer — Non-ITF has one customer with multiple accounts */}
+                <div className="flex items-center gap-3 p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Account Holder</p>
+                    <p className="text-xs text-slate-400">Non-ITF — one customer, one or more accounts</p>
                   </div>
-                  <div className="border-t border-blue-100" />
-                  <NameGrid
-                    values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
-                    onChange={(key, val) => setField(key, val)}
-                  />
                 </div>
-                {/* Person 2+ */}
-                {additionalPersons.map((p, i) => (
-                  <div key={i} className="rounded-2xl border-2 border-purple-100 bg-purple-50/20 p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[i + 1] ?? "bg-slate-500"}`}>{i + 2}</div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-800">Person {i + 2}{i === 0 ? " — Secondary" : ""}</p>
-                          <p className="text-xs text-slate-400">Additional account holder</p>
-                        </div>
-                      </div>
-                      {additionalPersons.length > 1 && (
-                        <button type="button"
-                          onClick={() => setAdditionalPersons((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="text-xs font-medium text-red-500 hover:text-red-600">Remove</button>
-                      )}
-                    </div>
-                    <div className="border-t border-purple-100" />
-                    <NameGrid
-                      values={p}
-                      onChange={(key, val) => setAdditionalPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
-                    />
-                  </div>
-                ))}
-                <button type="button"
-                  onClick={() => setAdditionalPersons((prev) => [...prev, emptyPerson()])}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-2xl hover:border-purple-500 hover:bg-purple-50 transition-all">
-                  <HiOutlinePlus className="w-4 h-4" />
-                  Add Another Person
-                </button>
+                <NameGrid
+                  values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                  onChange={(key, val) => setField(key, val)}
+                />
                 {/* Photo — optional */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-semibold text-slate-600">
@@ -1134,7 +1027,8 @@ const UploadSigcard = () => {
 
               <div className="border-t border-blue-100" />
 
-              <StatusPicker value={formData.status} onChange={(v) => setField("status", v)} />
+              <StatusPicker value={formData.status} onChange={(v) => { setField("status", v); setField("statusDate", ""); }} />
+              <StatusDateField status={formData.status} value={formData.statusDate} onChange={(e) => setField("statusDate", e.target.value)} />
               <AccountInfoRow
                 accountNo={formData.accountNo} dateOpened={formData.dateOpened} dateUpdated={formData.dateUpdated}
                 onAccountNo={(e) => setField("accountNo", e.target.value)}
@@ -1172,7 +1066,12 @@ const UploadSigcard = () => {
 
                     <StatusPicker
                       value={a.status}
-                      onChange={(v) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, status: v } : x))}
+                      onChange={(v) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, status: v, statusDate: "" } : x))}
+                    />
+                    <StatusDateField
+                      status={a.status}
+                      value={a.statusDate ?? ""}
+                      onChange={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, statusDate: e.target.value } : x))}
                     />
                     <AccountInfoRow
                       accountNo={a.accountNo} dateOpened={a.dateOpened} dateUpdated={a.dateUpdated}
@@ -1214,8 +1113,8 @@ const UploadSigcard = () => {
                     <p className="text-xs font-medium text-slate-400">Sigcard {pairIdx + 1}</p>
                   )}
                   <div className="grid gap-6 md:grid-cols-2">
-                    <DropZone label="Sigcard Front" file={pair.front} onSelect={(f) => setItfPairSide("sigcard", pairIdx, "front", f)} />
-                    <DropZone label="Sigcard Back" file={pair.back} onSelect={(f) => setItfPairSide("sigcard", pairIdx, "back", f)} />
+                    <DocImageDropZone label="Sigcard Front" shape="landscape" file={pair.front} onChange={(f) => setItfPairSide("sigcard", pairIdx, "front", f)} />
+                    <DocImageDropZone label="Risk Profiling"                  file={pair.back}  onChange={(f) => setItfPairSide("sigcard", pairIdx, "back",  f)} />
                   </div>
                 </div>
               ))}
@@ -1243,30 +1142,59 @@ const UploadSigcard = () => {
                       <HiOutlineX className="w-3.5 h-3.5" /> Remove
                     </button>
                   </div>
-                  <DropZone
+                  <DocImageDropZone
                     label="Sigcard Front 2"
+                    shape="landscape"
                     file={secondJointFront}
-                    onSelect={(f) => setSecondJointFront(f[0])}
+                    onChange={(f) => setSecondJointFront(f)}
                   />
                 </div>
               )}
+
+              {/* Extra Risk Profiling entries */}
+              {itfExtraRiskProfilings.map((file, idx) => (
+                <div key={idx} className="space-y-2 rounded-2xl border-2 border-teal-200 bg-teal-50/50 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-teal-700">Risk Profiling {idx + 2}</p>
+                    <button type="button"
+                      onClick={() => setItfExtraRiskProfilings((prev) => prev.filter((_, i) => i !== idx))}
+                      className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                      <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                    </button>
+                  </div>
+                  <DocImageDropZone
+                    label="Risk Profiling"
+                    file={file}
+                    onChange={(f) => setItfExtraRiskProfilings((prev) => prev.map((x, i) => i === idx ? f : x))}
+                  />
+                </div>
+              ))}
+
+              {/* Add another risk profiling button */}
+              <button type="button"
+                onClick={() => setItfExtraRiskProfilings((prev) => [...prev, null])}
+                className="flex items-center justify-center gap-2 w-full px-4 py-3 text-xs font-semibold text-teal-600 border-2 border-dashed border-teal-300 rounded-xl hover:border-teal-500 hover:bg-teal-50 transition-all">
+                <HiOutlinePlus className="w-3.5 h-3.5" />
+                Add Another Risk Profiling
+              </button>
             </div>
           );
         }
 
-        // Non-ITF Joint: 1 shared sigcard front + 1 sigcard back per person
+        // Non-ITF Joint: 1 shared sigcard front + 1 risk profiling per account
         if (isNonITF) {
-          const personLabels = [
-            "Person 1 — Primary",
-            ...additionalPersons.map((_, i) => i === 0 ? "Person 2 — Secondary" : `Person ${i + 2}`),
+          const acctLabels = [
+            "Account 1 — Primary",
+            ...additionalAccounts.map((_, i) => `Account ${i + 2}`),
           ];
           return (
             <div className="space-y-8">
               {/* Sigcard Front — single shared, full-width */}
-              <DropZone
+              <DocImageDropZone
                 label="Sigcard Front (Shared)"
+                shape="landscape"
                 file={files.sigcardPairs[0]?.front}
-                onSelect={(f) => setPairFile("sigcardPairs", 0, "front", f)}
+                onChange={(f) => setPairFile("sigcardPairs", 0, "front", f)}
               />
 
               {/* Second sigcard front prompt */}
@@ -1287,19 +1215,20 @@ const UploadSigcard = () => {
                       <HiOutlineX className="w-3.5 h-3.5" /> Remove
                     </button>
                   </div>
-                  <DropZone
+                  <DocImageDropZone
                     label="Sigcard Front 2"
+                    shape="landscape"
                     file={secondJointFront}
-                    onSelect={(f) => setSecondJointFront(f[0])}
+                    onChange={(f) => setSecondJointFront(f)}
                   />
                 </div>
               )}
 
-              {/* Sigcard Back — one per person in 2-col grid */}
+              {/* Risk Profiling — one per account */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-slate-200" />
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Sigcard Back — per person</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Risk Profiling — per account</p>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
 
@@ -1310,16 +1239,36 @@ const UploadSigcard = () => {
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${PERSON_COLORS[i] ?? "bg-slate-400"}`}>
                           {i + 1}
                         </div>
-                        <p className="text-sm font-semibold text-slate-700">{personLabels[i]}</p>
+                        <p className="text-sm font-semibold text-slate-700">{acctLabels[i] ?? `Account ${i + 1}`}</p>
                       </div>
-                      <DropZone
-                        label="Sigcard Back"
+                      <DocImageDropZone
+                        label="Risk Profiling"
                         file={pair.back}
-                        onSelect={(f) => setPairFile("sigcardPairs", i, "back", f)}
+                        onChange={(f) => setPairFile("sigcardPairs", i, "back", f)}
                       />
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Sole Proprietorship: simple front + back (same as Regular)
+        if (isSoleProprietorship) {
+          return (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
+                <div className="w-7 h-7 rounded-lg bg-amber-600 flex items-center justify-center text-white flex-shrink-0">
+                  <HiOutlineUser className="w-4 h-4" />
+                </div>
+                <p className="text-xs text-amber-700 font-medium">Sole Proprietorship — upload one sigcard front and one risk profiling back.</p>
+              </div>
+              <div className="grid gap-6 md:grid-cols-2">
+                <DocImageDropZone label="Sigcard Front" shape="landscape" file={files.sigcardPairs[0]?.front}
+                  onChange={(f) => setPairFile("sigcardPairs", 0, "front", f)} />
+                <DocImageDropZone label="Risk Profiling" file={files.sigcardPairs[0]?.back}
+                  onChange={(f) => setPairFile("sigcardPairs", 0, "back", f)} />
               </div>
             </div>
           );
@@ -1331,6 +1280,7 @@ const UploadSigcard = () => {
           const personLabels = [
             `Signatory 1 — ${formData.firstName} ${formData.lastName}`.trim(),
             ...additionalPersons.map((p, i) => `Signatory ${i + 2} — ${p.firstName} ${p.lastName}`.trim()),
+            "Corporate",
           ];
           return (
             <div className="space-y-8">
@@ -1350,10 +1300,11 @@ const UploadSigcard = () => {
                     {corpSigFronts.length > 1 && (
                       <p className="text-xs font-medium text-slate-400">Sigcard Front {idx + 1}</p>
                     )}
-                    <DropZone
+                    <DocImageDropZone
                       label={corpSigFronts.length === 1 ? "Sigcard Front" : `Sigcard Front ${idx + 1}`}
+                      shape="landscape"
                       file={file}
-                      onSelect={(f) => setCorpSigFronts((prev) => prev.map((x, i) => i === idx ? f[0] : x))}
+                      onChange={(f) => setCorpSigFronts((prev) => prev.map((x, i) => i === idx ? f : x))}
                     />
                   </div>
                 ))}
@@ -1370,7 +1321,7 @@ const UploadSigcard = () => {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-slate-200" />
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Sigcard Back — per signatory</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Risk Profiling — per signatory</p>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
 
@@ -1383,10 +1334,10 @@ const UploadSigcard = () => {
                         </div>
                         <p className="text-sm font-semibold text-slate-700">{personLabels[i]}</p>
                       </div>
-                      <DropZone
-                        label="Sigcard Back"
+                      <DocImageDropZone
+                        label="Risk Profiling"
                         file={file}
-                        onSelect={(f) => setCorpSigBacks((prev) => prev.map((x, idx) => idx === i ? f[0] : x))}
+                        onChange={(f) => setCorpSigBacks((prev) => prev.map((x, idx) => idx === i ? f : x))}
                       />
                     </div>
                   ))}
@@ -1405,7 +1356,8 @@ const UploadSigcard = () => {
             ]
           : undefined;
         return <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.sigcardPairs}
-          frontLabel="Sigcard Front" backLabel="Sigcard Back"
+          frontLabel="Sigcard Front" backLabel="Risk Profiling"
+          frontShape="landscape"
           onSetFile={(i, s, f) => setPairFile("sigcardPairs", i, s, f)}
           sectionLabels={sectionLabels} />;
       }
@@ -1429,8 +1381,8 @@ const UploadSigcard = () => {
                     <p className="text-xs font-medium text-slate-400">NAIS {pairIdx + 1}</p>
                   )}
                   <div className="grid gap-6 md:grid-cols-2">
-                    <DropZone label="NAIS Front" file={pair.front} onSelect={(f) => setItfPairSide("nais", pairIdx, "front", f)} />
-                    <DropZone label="NAIS Back" file={pair.back} onSelect={(f) => setItfPairSide("nais", pairIdx, "back", f)} />
+                    <DocImageDropZone label="NAIS Front" file={pair.front} onChange={(f) => setItfPairSide("nais", pairIdx, "front", f)} />
+                    <DocImageDropZone label="NAIS Back"  file={pair.back}  onChange={(f) => setItfPairSide("nais", pairIdx, "back",  f)} />
                   </div>
                 </div>
               ))}
@@ -1475,8 +1427,8 @@ const UploadSigcard = () => {
                     <p className="text-xs font-medium text-slate-400">Data Privacy {pairIdx + 1}</p>
                   )}
                   <div className="grid gap-6 md:grid-cols-2">
-                    <DropZone label="Data Privacy Front" file={pair.front} onSelect={(f) => setItfPairSide("privacy", pairIdx, "front", f)} />
-                    <DropZone label="Data Privacy Back" file={pair.back} onSelect={(f) => setItfPairSide("privacy", pairIdx, "back", f)} />
+                    <DocImageDropZone label="Data Privacy Front" file={pair.front} onChange={(f) => setItfPairSide("privacy", pairIdx, "front", f)} />
+                    <DocImageDropZone label="Data Privacy Back"  file={pair.back}  onChange={(f) => setItfPairSide("privacy", pairIdx, "back",  f)} />
                   </div>
                 </div>
               ))}
@@ -1510,8 +1462,8 @@ const UploadSigcard = () => {
                     <p className="text-xs font-medium text-slate-400">Data Privacy {pairIdx + 1}</p>
                   )}
                   <div className="grid gap-6 md:grid-cols-2">
-                    <DropZone label="Data Privacy Front" file={pair.front} onSelect={(f) => setPairFile("privacyPairs", pairIdx, "front", f)} />
-                    <DropZone label="Data Privacy Back" file={pair.back} onSelect={(f) => setPairFile("privacyPairs", pairIdx, "back", f)} />
+                    <DocImageDropZone label="Data Privacy Front" file={pair.front} onChange={(f) => setPairFile("privacyPairs", pairIdx, "front", f)} />
+                    <DocImageDropZone label="Data Privacy Back"  file={pair.back}  onChange={(f) => setPairFile("privacyPairs", pairIdx, "back",  f)} />
                   </div>
                 </div>
               ))}
@@ -1541,44 +1493,21 @@ const UploadSigcard = () => {
       // ── Other Documents ───────────────────────────────────────────────
       case "otherDocs": {
         if (isITF) {
-          // ITF: single shared other docs section
-          const flatDocs = itfFiles.otherDocs[0] ?? [];
           return (
             <div className="space-y-5">
               <p className="text-xs text-slate-400">Upload any additional supporting documents for this joint ITF account.</p>
-              <OtherDocsDropZone onAdd={(list) => setItfFiles((prev) => {
-                const updated = [...prev.otherDocs];
-                updated[0] = [...(updated[0] ?? []), ...list];
-                return { ...prev, otherDocs: updated };
-              })} />
-              {flatDocs.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-slate-700">
-                      {flatDocs.length} file{flatDocs.length !== 1 ? "s" : ""} added
-                    </p>
-                    <button type="button" onClick={() => setItfFiles((prev) => {
-                      const updated = [...prev.otherDocs]; updated[0] = [];
-                      return { ...prev, otherDocs: updated };
-                    })} className="text-xs font-medium text-red-500 hover:text-red-600">Remove all</button>
-                  </div>
-                  <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 items-start">
-                    {flatDocs.map((file, idx) => (
-                      <DocThumb key={`${file.name}-${idx}`} file={file} index={idx}
-                        onRemove={(i) => setItfFiles((prev) => {
-                          const updated = [...prev.otherDocs];
-                          updated[0] = updated[0].filter((_, x) => x !== i);
-                          return { ...prev, otherDocs: updated };
-                        })} />
-                    ))}
-                  </div>
-                </div>
-              )}
+              <MultiFileDropZone
+                files={itfFiles.otherDocs[0] ?? []}
+                onChange={(newFiles) => setItfFiles((prev) => {
+                  const updated = [...prev.otherDocs];
+                  updated[0] = newFiles;
+                  return { ...prev, otherDocs: updated };
+                })}
+              />
             </div>
           );
         }
 
-        // Non-ITF / Regular / Corporate
         const showSections  = additionalAccounts.length > 0;
         const sectionLabels = showSections
           ? [
@@ -1599,73 +1528,30 @@ const UploadSigcard = () => {
                     <p className="text-sm font-semibold text-slate-700">{sectionLabels[si]}</p>
                     <div className="flex-1 h-px bg-slate-200" />
                   </div>
-                  <OtherDocsDropZone onAdd={(list) => setFiles((prev) => {
-                    const updated = [...prev.otherDocs];
-                    updated[si] = [...(updated[si] ?? []), ...list];
-                    return { ...prev, otherDocs: updated };
-                  })} />
-                  {sectionDocs.length > 0 && (
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-sm font-semibold text-slate-700">
-                          {sectionDocs.length} file{sectionDocs.length !== 1 ? "s" : ""} added
-                        </p>
-                        <button type="button" onClick={() => setFiles((prev) => {
-                          const updated = [...prev.otherDocs];
-                          updated[si] = [];
-                          return { ...prev, otherDocs: updated };
-                        })} className="text-xs font-medium text-red-500 hover:text-red-600">Remove all</button>
-                      </div>
-                      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 items-start">
-                        {sectionDocs.map((file, idx) => (
-                          <DocThumb key={`${file.name}-${idx}`} file={file} index={idx}
-                            onRemove={(i) => setFiles((prev) => {
-                              const updated = [...prev.otherDocs];
-                              updated[si] = updated[si].filter((_, x) => x !== i);
-                              return { ...prev, otherDocs: updated };
-                            })} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <MultiFileDropZone
+                    files={sectionDocs}
+                    onChange={(newFiles) => setFiles((prev) => {
+                      const updated = [...prev.otherDocs];
+                      updated[si] = newFiles;
+                      return { ...prev, otherDocs: updated };
+                    })}
+                  />
                 </div>
               ))}
             </div>
           );
         }
 
-        // Single account — flat view (otherDocs[0])
-        const flatDocs = files.otherDocs[0] ?? [];
         return (
           <div className="space-y-5">
-            <OtherDocsDropZone onAdd={(list) => setFiles((prev) => {
-              const updated = [...prev.otherDocs];
-              updated[0] = [...(updated[0] ?? []), ...list];
-              return { ...prev, otherDocs: updated };
-            })} />
-            {flatDocs.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold text-slate-700">
-                    {flatDocs.length} file{flatDocs.length !== 1 ? "s" : ""} added
-                  </p>
-                  <button type="button" onClick={() => setFiles((prev) => {
-                    const updated = [...prev.otherDocs]; updated[0] = [];
-                    return { ...prev, otherDocs: updated };
-                  })} className="text-xs font-medium text-red-500 hover:text-red-600">Remove all</button>
-                </div>
-                <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 items-start">
-                  {flatDocs.map((file, idx) => (
-                    <DocThumb key={`${file.name}-${idx}`} file={file} index={idx}
-                      onRemove={(i) => setFiles((prev) => {
-                        const updated = [...prev.otherDocs];
-                        updated[0] = updated[0].filter((_, x) => x !== i);
-                        return { ...prev, otherDocs: updated };
-                      })} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <MultiFileDropZone
+              files={files.otherDocs[0] ?? []}
+              onChange={(newFiles) => setFiles((prev) => {
+                const updated = [...prev.otherDocs];
+                updated[0] = newFiles;
+                return { ...prev, otherDocs: updated };
+              })}
+            />
           </div>
         );
       }
