@@ -737,7 +737,8 @@ const CustomerView = ({ basePath = '/user' }) => {
   const { id }      = useParams();
   const navigate    = useNavigate();
   const { hasPermission } = useAuth();
-  const canEdit = hasPermission('edit-customers');
+  const canEdit   = hasPermission('edit-customers');
+  const canCreate = hasPermission('create-customers');
 
   const [customer, setCustomer]   = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -1332,23 +1333,27 @@ const CustomerView = ({ basePath = '/user' }) => {
                 </div>
               </div>
 
-              {/* Edit Docs action — hidden for cashier (view-only role) */}
-              {canEdit && (
+              {/* Action buttons — shown only to roles with the matching permission */}
+              {(canEdit || canCreate) && (
                 <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => navigate(`${basePath}/customers/${customer.id}/edit`)}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-semibold transition-colors"
-                  >
-                    <HiOutlinePencilAlt className="w-4 h-4" />
-                    Edit Docs
-                  </button>
-                  <button
-                    onClick={() => navigate(`${basePath}/customers/${id}/add-account`)}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
-                  >
-                    <HiOutlinePlus className="w-4 h-4" />
-                    Add Account
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => navigate(`${basePath}/customers/${customer.id}/edit`)}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-semibold transition-colors"
+                    >
+                      <HiOutlinePencilAlt className="w-4 h-4" />
+                      Edit Docs
+                    </button>
+                  )}
+                  {canCreate && (
+                    <button
+                      onClick={() => navigate(`${basePath}/customers/${id}/add-account`)}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
+                    >
+                      <HiOutlinePlus className="w-4 h-4" />
+                      Add Account
+                    </button>
+                  )}
                 </div>
               )}
             </div>

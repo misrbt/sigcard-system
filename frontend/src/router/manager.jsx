@@ -8,6 +8,7 @@ import EditCustomerDocs from "../pages/user/EditCustomerDocs.jsx";
 import AddAccount from "../pages/user/AddAccount.jsx";
 import UploadSigcard from "../pages/user/UploadSigcard.jsx";
 import BranchDocuments from "../pages/shared/BranchDocuments.jsx";
+import StatusTracking from "../pages/user/StatusTracking.jsx";
 import Profile from "../pages/user/Profile.jsx";
 
 const withLayout = (element, permission = null) => (
@@ -25,6 +26,7 @@ const ManagerRoutes = () => {
       <Route path="/manager/customers/:id/edit"         element={withLayout(<EditCustomerDocs basePath="/manager" />, "edit-customers")} />
       <Route path="/manager/customers/:id/add-account"  element={withLayout(<AddAccount basePath="/manager" />, "create-customers")} />
       <Route path="/manager/upload"                     element={withLayout(<UploadSigcard />, "create-customers")} />
+      <Route path="/manager/status-tracking"             element={withLayout(<StatusTracking />, "view-customers")} />
       <Route path="/manager/documents"                  element={withLayout(<BranchDocuments />, "view-customer-documents")} />
       <Route path="/manager/profile"                    element={withLayout(<Profile />)} />
     </>

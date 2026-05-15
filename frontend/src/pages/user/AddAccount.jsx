@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { motion } from "framer-motion";
 import Swal from "sweetalert2";
 import api from "../../services/api";
 import {
@@ -208,7 +207,7 @@ const AddAccount = ({ basePath = "/user" }) => {
   const [otherDocs,      setOtherDocs]      = useState([]);
   const [isSubmitting,   setIsSubmitting]   = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [submitPhase,    setSubmitPhase]    = useState("idle");
+  const [,               setSubmitPhase]    = useState("idle");
 
   const isJoint = customer?.account_type === "Joint";
   const activeSteps = isJoint ? jointSteps : steps;
@@ -230,7 +229,7 @@ const AddAccount = ({ basePath = "/user" }) => {
       case "otherDocs":   return true;
       default:            return false;
     }
-  }, [step, activeSteps, accountInfo, holderInfo, sigcardPair, naisPair, privacyPair]);
+  }, [step, activeSteps, accountInfo, holderInfo, sigcardPair, privacyPair]);
 
   const handleNext = () => { if (isStepValid) setStep((s) => Math.min(s + 1, activeSteps.length - 1)); };
   const handlePrev = () => {

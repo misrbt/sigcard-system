@@ -14,6 +14,7 @@ import Profile from "../pages/user/Profile.jsx";
 import UploadSigcard from "../pages/user/UploadSigcard";
 import EditCustomerDocs from "../pages/user/EditCustomerDocs";
 import AddAccount from "../pages/user/AddAccount";
+import StatusTracking from "../pages/user/StatusTracking";
 import ComplianceReports from "../pages/compliance-audit/Reports";
 import ReportPreview from "../pages/compliance-audit/ReportPreview";
 import BranchDetail from "../pages/compliance-audit/BranchDetail";
@@ -88,6 +89,16 @@ const AdminRoutes = () => {
           <ProtectedRoute roles={["admin"]} permission="backup-system">
             <AppLayout userRole="admin">
               <DataManagement />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/status-tracking"
+        element={
+          <ProtectedRoute roles={["admin"]} permission="view-customers">
+            <AppLayout userRole="admin">
+              <StatusTracking />
             </AppLayout>
           </ProtectedRoute>
         }

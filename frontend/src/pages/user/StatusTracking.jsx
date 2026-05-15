@@ -46,6 +46,7 @@ const RISK_CFG = {
   "Medium Risk": { bg: "bg-amber-50",   text: "text-amber-700",   bar: "bg-amber-500"  },
   "High Risk":   { bg: "bg-red-50",     text: "text-red-700",     bar: "bg-red-500"    },
 };
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ── SVG Donut Chart ───────────────────────────────────────────────────────────
 const DonutChart = ({ segments, size = 200, strokeWidth = 36 }) => {
@@ -205,10 +206,10 @@ const StatusTracking = () => {
   const summary             = data?.summary             ?? null;
   const accountTypes        = data?.account_types       ?? {};
   const riskLevels          = data?.risk_levels         ?? {};
-  const monthlyByStatus     = data?.monthly_by_status   ?? [];
-  const monthlyTransitions  = data?.monthly_transitions ?? [];
-  const yearlyByStatus      = data?.yearly_by_status    ?? [];
-  const yearlyTransitions   = data?.yearly_transitions  ?? [];
+  const monthlyByStatus    = useMemo(() => data?.monthly_by_status   ?? [], [data]);
+  const monthlyTransitions = useMemo(() => data?.monthly_transitions ?? [], [data]);
+  const yearlyByStatus     = useMemo(() => data?.yearly_by_status    ?? [], [data]);
+  const yearlyTransitions  = useMemo(() => data?.yearly_transitions  ?? [], [data]);
   const total               = summary?.total_customers  ?? 0;
 
   // Available years from monthly data
@@ -222,8 +223,6 @@ const StatusTracking = () => {
   const maxYear = availableYears[availableYears.length - 1];
 
   // What to display in the chart
-  const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
   const displayData = useMemo(() => {
     if (periodMode === "yearly") {
       return monthlyView === "enrollments" ? yearlyByStatus : yearlyTransitions;
