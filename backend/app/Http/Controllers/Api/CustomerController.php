@@ -205,6 +205,17 @@ class CustomerController extends Controller
     {
         $this->authorize('view-customers');
 
+        activity()
+            ->causedBy(Auth::user())
+            ->performedOn($customer)
+            ->withProperties([
+                'action'       => 'customer_viewed',
+                'full_name'    => $customer->full_name,
+                'account_type' => $customer->account_type,
+                'branch_id'    => $customer->branch_id,
+            ])
+            ->log('Customer sigcard record viewed');
+
         return response()->json($customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']));
     }
 
@@ -419,6 +430,15 @@ class CustomerController extends Controller
     public function getDocuments(Customer $customer): JsonResponse
     {
         $this->authorize('view-customer-documents');
+
+        activity()
+            ->causedBy(Auth::user())
+            ->performedOn($customer)
+            ->withProperties([
+                'action'    => 'customer_documents_viewed',
+                'full_name' => $customer->full_name,
+            ])
+            ->log('Customer documents viewed');
 
         return response()->json($customer->documents()->orderBy('person_index')->get());
     }

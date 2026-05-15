@@ -11,10 +11,9 @@ import {
   FaUserPlus, FaUserEdit, FaUserTimes, FaKey, FaLock,
   FaUnlock, FaShieldAlt, FaDatabase, FaFileAlt,
   FaExclamationTriangle, FaCheckCircle, FaCog, FaArrowRight,
-  FaPlus, FaTrash, FaEdit, FaCalendarAlt,
+  FaPlus, FaTrash, FaEdit, FaCalendarAlt, FaBuilding,
 } from 'react-icons/fa';
 import { HiOutlineX, HiOutlineClock, HiOutlineCollection, HiOutlineChevronLeft, HiOutlinePhotograph } from 'react-icons/hi';
-import { adminService } from '../../services/adminService';
 import api from '../../services/api';
 import Pagination from '../../components/ui/Pagination';
 
@@ -45,17 +44,19 @@ const DOC_TYPE_LABELS = {
 };
 
 const STATUS_LABELS = {
-  active:  'Active',
-  dormant: 'Dormant',
-  escheat: 'Escheated',
-  closed:  'Closed',
+  active:      'Active',
+  dormant:     'Dormant',
+  escheat:     'Escheated',
+  closed:      'Closed',
+  reactivated: 'Reactivated',
 };
 
 const STATUS_COLORS = {
-  active:  'bg-emerald-100 text-emerald-700 border border-emerald-200',
-  dormant: 'bg-amber-100 text-amber-700 border border-amber-200',
-  escheat: 'bg-orange-100 text-orange-700 border border-orange-200',
-  closed:  'bg-red-100 text-red-700 border border-red-200',
+  active:      'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  dormant:     'bg-amber-100 text-amber-700 border border-amber-200',
+  escheat:     'bg-orange-100 text-orange-700 border border-orange-200',
+  closed:      'bg-red-100 text-red-700 border border-red-200',
+  reactivated: 'bg-teal-100 text-teal-700 border border-teal-200',
 };
 
 const FIELD_LABELS = {
@@ -145,12 +146,32 @@ const humanizeDescription = (description = '', properties = {}) => {
 
   if (d.includes('customer sigcard record created') || (d.includes('customer') && d.includes('creat')))
     return `A new customer signature card record was opened${who}.`;
+  if (d.includes('customer sigcard record viewed') || d.includes('customer_viewed'))
+    return `Customer profile was viewed${who}.`;
+  if (d.includes('customer documents viewed') || d.includes('customer_documents_viewed'))
+    return `Customer documents were opened and viewed${who}.`;
   if (d.includes('customer sigcard record updated') || (d.includes('customer') && d.includes('updat')))
     return `Customer record details were updated${who}.`;
   if (d.includes('customer sigcard record deleted') || (d.includes('customer') && d.includes('delet')))
     return `Customer record was permanently removed${who}.`;
   if (d.includes('document replaced'))
     return `A document was replaced${who}${dt}.`;
+  if (d.includes('status-change documents uploaded') || d.includes('status_document_uploaded'))
+    return `New documents were uploaded following a status change${who}.`;
+  if (d.includes('additional holder added') || d.includes('holder_added'))
+    return `An additional account holder was added to a joint account${who}.`;
+  if (d.includes('additional account added') || d.includes('account_added'))
+    return `A new account was added to a customer record${who}.`;
+  if (d.includes('customer account updated') || d.includes('account_updated'))
+    return `Account details were updated${who}.`;
+  if (d.includes('branch created') || d.includes('branch_created'))
+    return 'A new branch was added to the system.';
+  if (d.includes('branch updated') || d.includes('branch_updated'))
+    return 'Branch information was updated.';
+  if (d.includes('branch deleted') || d.includes('branch_deleted'))
+    return 'A branch was removed from the system.';
+  if (d.includes('branch hierarchy') || d.includes('branch_parent_updated'))
+    return 'Branch hierarchy (parent-child relationship) was updated.';
   if (d.includes('login') && (d.includes('success') || d.includes('authenticated')))
     return 'User successfully signed in to the system.';
   if (d.includes('login') && d.includes('fail'))
@@ -230,14 +251,24 @@ const resolveLogMeta = (description = '', event = '') => {
     return { icon: FaShieldAlt,       color: 'text-indigo-600',  bg: 'bg-indigo-50',   badge: 'bg-indigo-100 text-indigo-700 border border-indigo-200',      label: '2-Step Verify'   };
   if (d.includes('document replaced'))
     return { icon: FaEdit,            color: 'text-cyan-600',    bg: 'bg-cyan-50',     badge: 'bg-cyan-100 text-cyan-700 border border-cyan-200',            label: 'Doc Replaced'    };
+  if (d.includes('status-change documents') || d.includes('status_document'))
+    return { icon: FaFileAlt,         color: 'text-indigo-600',  bg: 'bg-indigo-50',   badge: 'bg-indigo-100 text-indigo-700 border border-indigo-200',      label: 'Status Docs'     };
   if (d.includes('document') || d.includes('sigcard') || d.includes('nais') || d.includes('privacy'))
     return { icon: FaFileAlt,         color: 'text-teal-600',    bg: 'bg-teal-50',     badge: 'bg-teal-100 text-teal-700 border border-teal-200',            label: 'Document'        };
+  if (d.includes('customer sigcard record viewed') || d.includes('customer_viewed') || d.includes('customer documents viewed'))
+    return { icon: FaIdCard,          color: 'text-gray-500',    bg: 'bg-gray-50',     badge: 'bg-gray-100 text-gray-600 border border-gray-200',            label: 'Record Viewed'   };
+  if (d.includes('holder_added') || d.includes('additional holder') || d.includes('account_added') || d.includes('additional account'))
+    return { icon: FaPlus,            color: 'text-blue-600',    bg: 'bg-blue-50',     badge: 'bg-blue-100 text-blue-700 border border-blue-200',            label: 'Account Added'   };
+  if (d.includes('account_updated') || d.includes('account updated'))
+    return { icon: FaEdit,            color: 'text-sky-600',     bg: 'bg-sky-50',      badge: 'bg-sky-100 text-sky-700 border border-sky-200',               label: 'Account Updated' };
   if ((d.includes('customer') || d.includes('sigcard record')) && (d.includes('creat') || event === 'created'))
     return { icon: FaIdCard,          color: 'text-blue-600',    bg: 'bg-blue-50',     badge: 'bg-blue-100 text-blue-700 border border-blue-200',            label: 'Customer Added'  };
   if ((d.includes('customer') || d.includes('sigcard record')) && (d.includes('updat') || event === 'updated'))
     return { icon: FaEdit,            color: 'text-sky-600',     bg: 'bg-sky-50',      badge: 'bg-sky-100 text-sky-700 border border-sky-200',               label: 'Customer Updated'};
   if ((d.includes('customer') || d.includes('sigcard record')) && (d.includes('delet') || event === 'deleted'))
     return { icon: FaTrash,           color: 'text-red-500',     bg: 'bg-red-50',      badge: 'bg-red-100 text-red-600 border border-red-200',               label: 'Customer Removed'};
+  if (d.includes('branch'))
+    return { icon: FaBuilding,        color: 'text-amber-600',   bg: 'bg-amber-50',    badge: 'bg-amber-100 text-amber-700 border border-amber-200',         label: 'Branch'          };
   if (d.includes('user') && d.includes('creat'))
     return { icon: FaUserPlus,        color: 'text-emerald-600', bg: 'bg-emerald-50',  badge: 'bg-emerald-100 text-emerald-700 border border-emerald-200',   label: 'Staff Added'     };
   if (d.includes('user') && d.includes('updat'))
@@ -1470,7 +1501,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
       {/* ── Category Tabs ──────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-1.5">
         <div className="flex gap-1 overflow-x-auto">
-          {CATEGORIES.map(({ key, label, icon: Icon, color }) => {
+          {CATEGORIES.map(({ key, label, icon: Icon }) => {
             const active = activeTab === key;
             return (
               <button
