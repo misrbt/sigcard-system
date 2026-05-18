@@ -63,16 +63,24 @@ const Login = () => {
 
   useEffect(() => {
     if (lockoutCountdown <= 0) return;
-    const timer = setInterval(() => {
+    const interval = setInterval(() => {
       setLockoutCountdown((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
+          clearInterval(interval);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
+    // Auto-dismiss the error banner once the lockout period expires.
+    const autoHide = setTimeout(() => {
+      setApiError({ message: "", type: "" });
+      setLockoutCountdown(0);
+    }, lockoutCountdown * 1000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(autoHide);
+    };
   }, [lockoutCountdown > 0]);
 
   // Redirect if already authenticated — skip if force password change is pending

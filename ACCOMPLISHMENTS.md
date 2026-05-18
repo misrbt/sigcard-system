@@ -5,6 +5,35 @@ RBT Bank Signature Card Management System. Updated automatically after each comp
 
 ---
 
+## May 18, 2026
+
+### Quick Unlock for Locked Accounts in User Management
+
+**What's new for staff:**
+- The **User Management** screen now shows an amber **"Unlock Now"** button directly in the Status column whenever a user's account is locked — no need to open any extra screen or look for a hidden icon.
+- Clicking **"Unlock Now"** immediately removes the lockout and resets the failed login counter. The user can log in again right away without waiting for the lockout timer to expire.
+- The **Locked** stat card at the top of the page (the yellow card) is now clickable. Clicking it instantly filters the table to show **only locked accounts**, making it fast to find who is locked even if there are many users.
+- **"Locked"** has been added to the Status filter dropdown as well, so it can be selected the normal way too.
+- The locked user count in the stat card now only counts accounts that are still actively locked — expired locks are no longer counted.
+
+**Why it matters:**
+If a staff member urgently needs to log in (e.g., during a BSP examination or an emergency) and their account got locked from too many failed attempts, the branch manager or admin can now unlock it in seconds from the User Management screen without waiting for the timer.
+
+---
+
+### Fixed Account Lockout Duration — Now Defaults to 30 Seconds, Countdown Disappears Automatically
+
+**What's new for staff:**
+- The **Account Lockout Duration** setting in Admin Settings now works correctly. Previously, setting it to "30 seconds" would actually lock the account for 30 minutes because of how the unit was stored — this has been fixed.
+- The default lockout duration is now **30 seconds** (instead of 30 minutes), making it easier to test and suitable for short test windows. Administrators can still change it to any number of seconds or minutes.
+- When a user gets locked out or hits too many login attempts, the login screen now shows a **live countdown** ("Please try again in 29 seconds… 28 seconds…") and the **red warning banner disappears automatically** once the countdown reaches zero — no need to refresh or close it manually.
+- The Settings page still shows the sec/min toggle for convenience. The system now stores the duration in seconds internally, so there is no longer any ambiguity between the number and its unit.
+
+**Why it matters:**
+Staff can now accurately test the lockout policy without waiting 30 minutes by mistake. The countdown on the login screen gives a clear, real-time signal of when the account will unlock — no guessing, no manual refresh.
+
+---
+
 ## May 15, 2026
 
 ### All Document and Photo Uploads Now Processed Exclusively by the Server

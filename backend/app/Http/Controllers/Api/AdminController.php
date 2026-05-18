@@ -197,7 +197,11 @@ class AdminController extends Controller
 
             // Apply filters
             if ($request->filled('status')) {
-                $query->where('status', $request->status);
+                if ($request->status === 'locked') {
+                    $query->whereNotNull('account_locked_at')->where('account_locked_at', '>', now());
+                } else {
+                    $query->where('status', $request->status);
+                }
             }
 
             if ($request->filled('branch_id')) {
@@ -239,7 +243,7 @@ class AdminController extends Controller
                     'total_active' => User::where('status', 'active')->count(),
                     'total_inactive' => User::where('status', 'inactive')->count(),
                     'total_suspended' => User::where('status', 'suspended')->count(),
-                    'total_locked' => User::whereNotNull('account_locked_at')->count(),
+                    'total_locked' => User::whereNotNull('account_locked_at')->where('account_locked_at', '>', now())->count(),
                 ],
             ]);
 
@@ -1287,6 +1291,10 @@ class AdminController extends Controller
         $this->authorize('view-system-settings');
 
         try {
+            // Duration is stored as raw seconds; derive the display unit for the UI.
+            $lockoutSec = (int) Cache::get('system_setting_account_lockout_duration', 30);
+            $lockoutInMinutes = $lockoutSec >= 60 && $lockoutSec % 60 === 0;
+
             $settings = [
                 'session_timeout' => (int) Cache::get('system_setting_session_timeout', config('session.lifetime', 120)),
                 'token_expiration' => (int) Cache::get('system_setting_token_expiration', config('sanctum.expiration', 30)),
@@ -1294,8 +1302,8 @@ class AdminController extends Controller
                 'password_expiry_enabled' => (bool) Cache::get('system_setting_password_expiry_enabled', false),
                 'password_expiry_days' => (int) Cache::get('system_setting_password_expiry_days', 90),
                 'max_login_attempts' => (int) Cache::get('system_setting_max_login_attempts', 5),
-                'account_lockout_duration' => (int) Cache::get('system_setting_account_lockout_duration', 30),
-                'account_lockout_duration_unit' => Cache::get('system_setting_account_lockout_duration_unit', 'minutes'),
+                'account_lockout_duration' => $lockoutInMinutes ? intdiv($lockoutSec, 60) : $lockoutSec,
+                'account_lockout_duration_unit' => $lockoutInMinutes ? 'minutes' : 'seconds',
                 'require_two_factor' => (bool) Cache::get('system_setting_require_two_factor', false),
                 'maintenance_mode' => (bool) Cache::get('system_setting_maintenance_mode', false),
                 'audit_log_retention_days' => (int) Cache::get('system_setting_audit_log_retention_days', 365),
@@ -2209,22 +2217,22 @@ class AdminController extends Controller
             ->orderByDesc('session_expires_at')
             ->get()
             ->map(fn (User $u) => [
-                'id'               => $u->id,
-                'full_name'        => $u->full_name,
-                'username'         => $u->username,
-                'email'            => $u->email,
-                'photo'            => $u->photo,
-                'role'             => $u->roles->first()?->name ?? 'none',
-                'branch_name'      => $u->branch?->branch_name ?? '—',
-                'last_login_at'    => $u->last_login_at?->toISOString(),
-                'last_login_ip'    => $u->last_login_ip,
+                'id' => $u->id,
+                'full_name' => $u->full_name,
+                'username' => $u->username,
+                'email' => $u->email,
+                'photo' => $u->photo,
+                'role' => $u->roles->first()?->name ?? 'none',
+                'branch_name' => $u->branch?->branch_name ?? '—',
+                'last_login_at' => $u->last_login_at?->toISOString(),
+                'last_login_ip' => $u->last_login_ip,
                 'session_expires_at' => $u->session_expires_at?->toISOString(),
             ]);
 
         return response()->json([
             'success' => true,
-            'data'    => $onlineUsers,
-            'count'   => $onlineUsers->count(),
+            'data' => $onlineUsers,
+            'count' => $onlineUsers->count(),
         ]);
     }
 }

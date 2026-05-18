@@ -26,7 +26,7 @@ class BSPAuthService
 {
     const MAX_LOGIN_ATTEMPTS = 5;
 
-    const LOCKOUT_DURATION = 30; // minutes
+    const LOCKOUT_DURATION = 30; // seconds
 
     const PASSWORD_EXPIRY_DAYS = 90;
 
@@ -52,10 +52,8 @@ class BSPAuthService
      */
     public static function getLockoutDurationSeconds(): int
     {
-        $value = (int) Cache::get('system_setting_account_lockout_duration', self::LOCKOUT_DURATION);
-        $unit = Cache::get('system_setting_account_lockout_duration_unit', 'minutes');
-
-        return $unit === 'seconds' ? $value : $value * 60;
+        // Duration is stored directly in seconds (no separate unit key).
+        return (int) Cache::get('system_setting_account_lockout_duration', self::LOCKOUT_DURATION);
     }
 
     /**
@@ -106,6 +104,23 @@ class BSPAuthService
         if (! Hash::check($credentials['password'], $user->password)) {
             $user->incrementFailedLoginAttempts();
             $this->logFailedAttempt($request, 'Invalid password', $user);
+
+            // If this wrong attempt just triggered a lockout, reset the rate-limiter
+            // with a fresh window so both timers start from the same moment and the
+            // countdown always shows the full lockout duration.
+            if ($user->isAccountLocked()) {
+                $lockoutSec = self::getLockoutDurationSeconds();
+                $maxAttempts = (int) Cache::get('system_setting_max_login_attempts', self::MAX_LOGIN_ATTEMPTS);
+                $key = $this->throttleKey($request);
+                RateLimiter::clear($key);
+                for ($i = 0; $i < $maxAttempts; $i++) {
+                    RateLimiter::hit($key, $lockoutSec);
+                }
+                throw ValidationException::withMessages([
+                    'account' => ["Account is temporarily locked. Please try again in {$lockoutSec} seconds."],
+                ]);
+            }
+
             throw ValidationException::withMessages([
                 'password' => ['Invalid credentials provided.'],
             ]);

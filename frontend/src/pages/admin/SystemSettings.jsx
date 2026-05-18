@@ -229,7 +229,16 @@ const SystemSettings = () => {
       setSaving(true);
       setError("");
       setSuccess("");
-      await adminService.updateSystemSettings(settings);
+      // Strip the display-only unit field; convert lockout duration to seconds before saving.
+      const { account_lockout_duration_unit, ...rest } = settings;
+      const payload = {
+        ...rest,
+        account_lockout_duration:
+          account_lockout_duration_unit === "minutes"
+            ? settings.account_lockout_duration * 60
+            : settings.account_lockout_duration,
+      };
+      await adminService.updateSystemSettings(payload);
       setOriginal({ ...settings });
       setSuccess("Settings saved successfully. Changes have been audit-logged.");
       setTimeout(() => setSuccess(""), 5000);

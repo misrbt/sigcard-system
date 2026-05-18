@@ -804,16 +804,27 @@ const UserManagement = () => {
       {/* ── Stats Bar ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { icon: MdPeople,       label: 'Total Users',    value: pagination.total,        color: 'text-blue-600',    bg: 'bg-blue-50'    },
-          { icon: MdCheckCircle,  label: 'Active',         value: meta.total_active,        color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { icon: MdBlock,        label: 'Inactive / Susp',value: (meta.total_inactive ?? 0) + (meta.total_suspended ?? 0), color: 'text-gray-500', bg: 'bg-gray-50' },
-          { icon: MdLock,         label: 'Locked',         value: meta.total_locked,        color: 'text-yellow-600',  bg: 'bg-yellow-50'  },
-        ].map(({ icon: Icon, label, value, color, bg }) => (
-          <div key={label} className={`flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-100 bg-white shadow-sm`}>
+          { icon: MdPeople,       label: 'Total Users',    value: pagination.total,        color: 'text-blue-600',    bg: 'bg-blue-50',    onClick: null },
+          { icon: MdCheckCircle,  label: 'Active',         value: meta.total_active,        color: 'text-emerald-600', bg: 'bg-emerald-50', onClick: null },
+          { icon: MdBlock,        label: 'Inactive / Susp',value: (meta.total_inactive ?? 0) + (meta.total_suspended ?? 0), color: 'text-gray-500', bg: 'bg-gray-50', onClick: null },
+          { icon: MdLock,         label: 'Locked',         value: meta.total_locked,        color: 'text-yellow-600',  bg: 'bg-yellow-50',  onClick: () => setFilters((p) => ({ ...p, status: filters.status === 'locked' ? '' : 'locked' })) },
+        ].map(({ icon: Icon, label, value, color, bg, onClick }) => (
+          <div
+            key={label}
+            onClick={onClick ?? undefined}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl border bg-white shadow-sm transition-colors ${
+              onClick
+                ? 'cursor-pointer hover:border-yellow-300 hover:bg-yellow-50/40 border-gray-100'
+                : 'border-gray-100'
+            } ${label === 'Locked' && filters.status === 'locked' ? 'border-yellow-400 bg-yellow-50/60 ring-1 ring-yellow-300' : ''}`}
+          >
             <div className={`p-2 rounded-xl ${bg}`}><Icon className={`w-5 h-5 ${color}`} /></div>
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</p>
               <p className="text-xl font-extrabold text-gray-800 leading-tight">{value ?? 0}</p>
+              {label === 'Locked' && (value ?? 0) > 0 && (
+                <p className="text-[9px] text-yellow-600 font-semibold mt-0.5">Click to filter</p>
+              )}
             </div>
           </div>
         ))}
@@ -908,7 +919,12 @@ const UserManagement = () => {
           </div>
         </div>
         <Select name="status" value={filters.status} onChange={handleFilterChange} placeholder="All Status"
-          options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'suspended', label: 'Suspended' }]} />
+          options={[
+            { value: 'active',    label: 'Active'    },
+            { value: 'inactive',  label: 'Inactive'  },
+            { value: 'suspended', label: 'Suspended' },
+            { value: 'locked',    label: '🔒 Locked'  },
+          ]} />
         <Select name="role" value={filters.role} onChange={handleFilterChange} placeholder="All Roles"
           options={roles.map((r) => ({ value: r.name, label: r.name }))} />
         <Select name="branch_id" value={filters.branch_id} onChange={handleFilterChange} placeholder="All Branches"
@@ -1008,10 +1024,20 @@ const UserManagement = () => {
                       <td className="px-4 py-3 text-sm text-gray-600">{user.branch?.branch_name || '—'}</td>
                       {/* Status */}
                       <td className="px-4 py-3">
-                        {isLocked
-                          ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">Locked</span>
-                          : <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_STYLE[user.status] ?? STATUS_STYLE.inactive}`}>{user.status}</span>
-                        }
+                        {isLocked ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700 w-fit">Locked</span>
+                            <button
+                              onClick={() => handleUnlock(user)}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white transition-colors w-fit shadow-sm"
+                            >
+                              <MdLockOpen className="w-3 h-3" />
+                              Unlock Now
+                            </button>
+                          </div>
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_STYLE[user.status] ?? STATUS_STYLE.inactive}`}>{user.status}</span>
+                        )}
                       </td>
                       {/* Joined */}
                       <td className="px-4 py-3">
