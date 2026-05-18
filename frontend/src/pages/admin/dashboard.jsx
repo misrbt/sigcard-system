@@ -20,7 +20,7 @@ const AdminDashboard = () => (
     customersPath="/admin/customers"
     customerViewPath={(id) => `/admin/customers/${id}/view`}
     title="Admin Dashboard"
-    subtitle="RBT Bank Inc. — Signature Card Management Overview"
+    subtitle="RBT Bank Inc. — Customer Record Management Overview"
     titleIcon={<FaShieldAlt className="text-blue-500" />}
     overviewTiles={OVERVIEW_TILES}
   />
