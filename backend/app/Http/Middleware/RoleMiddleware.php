@@ -18,19 +18,18 @@ class RoleMiddleware
      * Handle an incoming request.
      *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
-     * @param  string  ...$roles
      */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
         // Check if user is authenticated
-        if (!$request->user()) {
+        if (! $request->user()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthorized. Authentication required.',
                 'bsp_compliance' => [
                     'unauthorized_access_logged' => true,
-                    'authentication_required' => true
-                ]
+                    'authentication_required' => true,
+                ],
             ], 401);
         }
 
@@ -42,9 +41,9 @@ class RoleMiddleware
             activity()
                 ->causedBy($user)
                 ->withProperties([
-                    'ip' => $request->ip(),
+                    'ip' => $this->clientIp($request),
                     'user_agent' => $request->userAgent(),
-                    'attempted_action' => $request->path()
+                    'attempted_action' => $request->path(),
                 ])
                 ->log('Inactive user attempted access');
 
@@ -53,8 +52,8 @@ class RoleMiddleware
                 'message' => 'Account is not active. Contact administrator.',
                 'bsp_compliance' => [
                     'account_status_check' => true,
-                    'access_denied_logged' => true
-                ]
+                    'access_denied_logged' => true,
+                ],
             ], 403);
         }
 
@@ -63,9 +62,9 @@ class RoleMiddleware
             activity()
                 ->causedBy($user)
                 ->withProperties([
-                    'ip' => $request->ip(),
+                    'ip' => $this->clientIp($request),
                     'user_agent' => $request->userAgent(),
-                    'attempted_action' => $request->path()
+                    'attempted_action' => $request->path(),
                 ])
                 ->log('Locked user attempted access');
 
@@ -74,8 +73,8 @@ class RoleMiddleware
                 'message' => 'Account is temporarily locked. Try again later.',
                 'bsp_compliance' => [
                     'account_lockout_check' => true,
-                    'access_denied_logged' => true
-                ]
+                    'access_denied_logged' => true,
+                ],
             ], 423); // HTTP 423 Locked
         }
 
@@ -87,8 +86,8 @@ class RoleMiddleware
                 'action_required' => 'password_change',
                 'bsp_compliance' => [
                     'password_expiry_check' => true,
-                    'password_change_required' => true
-                ]
+                    'password_change_required' => true,
+                ],
             ], 403);
         }
 
@@ -99,8 +98,8 @@ class RoleMiddleware
                 'message' => 'Password change required before proceeding.',
                 'action_required' => 'password_change',
                 'bsp_compliance' => [
-                    'forced_password_change' => true
-                ]
+                    'forced_password_change' => true,
+                ],
             ], 403);
         }
 
@@ -111,13 +110,13 @@ class RoleMiddleware
                 'message' => 'Session has expired. Please login again.',
                 'action_required' => 'login',
                 'bsp_compliance' => [
-                    'session_timeout_enforced' => true
-                ]
+                    'session_timeout_enforced' => true,
+                ],
             ], 401);
         }
 
         // Check if user has any of the required roles
-        if (!empty($roles)) {
+        if (! empty($roles)) {
             $hasRole = false;
             foreach ($roles as $role) {
                 if ($user->hasRole($role)) {
@@ -126,16 +125,16 @@ class RoleMiddleware
                 }
             }
 
-            if (!$hasRole) {
+            if (! $hasRole) {
                 // Log unauthorized access attempt
                 activity()
                     ->causedBy($user)
                     ->withProperties([
-                        'ip' => $request->ip(),
+                        'ip' => $this->clientIp($request),
                         'user_agent' => $request->userAgent(),
                         'attempted_action' => $request->path(),
                         'required_roles' => $roles,
-                        'user_roles' => $user->roles->pluck('name')->toArray()
+                        'user_roles' => $user->roles->pluck('name')->toArray(),
                     ])
                     ->log('Unauthorized role access attempted');
 
@@ -147,8 +146,8 @@ class RoleMiddleware
                     'bsp_compliance' => [
                         'role_based_access_enforced' => true,
                         'unauthorized_access_logged' => true,
-                        'permission_check_failed' => true
-                    ]
+                        'permission_check_failed' => true,
+                    ],
                 ], 403);
             }
         }
@@ -157,13 +156,38 @@ class RoleMiddleware
         activity()
             ->causedBy($user)
             ->withProperties([
-                'ip' => $request->ip(),
+                'ip' => $this->clientIp($request),
                 'user_agent' => $request->userAgent(),
                 'action' => $request->path(),
-                'method' => $request->method()
+                'method' => $request->method(),
             ])
             ->log('API access granted');
 
         return $next($request);
+    }
+
+    private function clientIp(Request $request): string
+    {
+        $headers = [
+            'HTTP_CF_CONNECTING_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'HTTP_X_REAL_IP',
+            'HTTP_CLIENT_IP',
+        ];
+
+        foreach ($headers as $header) {
+            $value = $_SERVER[$header] ?? '';
+            if ($value === '') {
+                continue;
+            }
+
+            $candidate = trim(explode(',', $value)[0]);
+
+            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+                return $candidate;
+            }
+        }
+
+        return $request->ip();
     }
 }
