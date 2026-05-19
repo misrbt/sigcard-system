@@ -766,15 +766,16 @@ const CustomerView = ({ basePath = '/user' }) => {
   const privacyNotRequired = activeStatusParam === "escheat" && escheatYear !== null && escheatYear <= 2021;
 
   // Intercept the browser back button when a status change is pending (popstate works with BrowserRouter)
+  // Intercept the browser back button while a status change is pending.
+  // We capture the current URL so we can push back to it after the popstate fires.
   useEffect(() => {
     if (!isPendingUpload) return;
 
-    // Push an extra history entry so the first "back" press just triggers popstate
-    window.history.pushState(null, "", window.location.href);
+    const currentUrl = window.location.href;
 
     const handlePopState = () => {
-      // Re-push so the next press also triggers this handler if the user stays
-      window.history.pushState(null, "", window.location.href);
+      // The browser has already moved back — push this page's URL back to stay here
+      window.history.pushState(null, "", currentUrl);
       Swal.fire({
         icon: "warning",
         title: "Leave without uploading?",
@@ -787,9 +788,9 @@ const CustomerView = ({ basePath = '/user' }) => {
         reverseButtons: true,
       }).then((result) => {
         if (result.isConfirmed) {
-          // Remove extra history entries we pushed, then go back
+          // User chose to leave — remove guard and go back past the entry we re-pushed
           window.removeEventListener("popstate", handlePopState);
-          window.history.go(-2);
+          window.history.back();
         }
       });
     };
@@ -847,7 +848,9 @@ const CustomerView = ({ basePath = '/user' }) => {
   }, [customer]);
 
   const clearUploadPanel = () => {
-    setSearchParams({});
+    // replace:true overwrites the current history entry so pressing back
+    // after a successful upload goes to the previous page, not this URL with params
+    setSearchParams({}, { replace: true });
     setDocUploadFiles({});
     setOtherUploadFiles([]);
     setItfHasSecondFront(false);
@@ -1013,6 +1016,12 @@ const CustomerView = ({ basePath = '/user' }) => {
         otherUploadFiles.forEach((file) => fd.append(`otherDocs[${activeAcctIdx}][]`, file));
       }
 
+      // Capture display values before clearing URL params
+      const wasAtomicSave   = isPendingUpload;
+      const savedStatus     = activeStatusParam;
+      const savedStatusDate = activeStatusDate;
+      const savedDocTypes   = uploadsSelected;
+
       const { data: uploadData } = await api.post(`/customers/${id}/upload-status-document`, fd, { headers: { "Content-Type": "multipart/form-data" } });
 
       clearUploadPanel();
@@ -1021,14 +1030,35 @@ const CustomerView = ({ basePath = '/user' }) => {
       } else {
         await fetchCustomer();
       }
+
+      const docLabels = {
+        sigcard: "Signature Card",
+        nais:    "NAIS",
+        privacy: "Data Privacy",
+        other:   "Other Documents",
+      };
+      const docListHtml = savedDocTypes
+        .map((t) => `<li style="margin:2px 0">&#x2713; ${docLabels[t] ?? t}</li>`)
+        .join("");
+      const dateDisplay = savedStatusDate
+        ? new Date(savedStatusDate).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })
+        : "Today";
+
       Swal.fire({
         icon: "success",
-        title: isPendingUpload ? "Status Updated & Documents Saved" : "Documents Uploaded",
-        text: isPendingUpload
-          ? `Account status changed to "${activeStatusParam}" and documents saved successfully.`
-          : `Documents for status "${activeStatusParam}" have been saved successfully.`,
+        title: wasAtomicSave ? "Status Updated" : "Documents Uploaded",
+        html: wasAtomicSave
+          ? `<div style="text-align:left;font-size:13px;color:#374151;line-height:1.7">
+               <p style="margin-bottom:8px">Account status is now <strong style="text-transform:capitalize">${savedStatus}</strong> as of <strong>${dateDisplay}</strong>.</p>
+               <p style="font-size:12px;color:#6b7280;margin-bottom:4px">Documents uploaded:</p>
+               <ul style="padding-left:16px;font-size:12px;color:#2563eb">${docListHtml}</ul>
+             </div>`
+          : `<div style="text-align:left;font-size:13px;color:#374151;line-height:1.7">
+               <p style="margin-bottom:8px">Documents saved for <strong style="text-transform:capitalize">${savedStatus}</strong> status.</p>
+               <ul style="padding-left:16px;font-size:12px;color:#2563eb">${docListHtml}</ul>
+             </div>`,
         confirmButtonColor: "#2563eb",
-        timer: 3000,
+        timer: 4000,
         timerProgressBar: true,
       });
     } catch {
