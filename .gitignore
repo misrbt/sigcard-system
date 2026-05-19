@@ -74,3 +74,9 @@ ehthumbs.db
 *.tar.gz
 *.bak
 *.tmp
+
+# ── Database dumps (production server) ───────────────────────
+*.sql
+
+# ── Project Notes ────────────────────────────────────────────
+ACCOMPLISHMENTS.md
