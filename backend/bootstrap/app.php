@@ -16,6 +16,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->redirectGuestsTo(fn () => null);
 
+        // Trust the reverse proxy (Nginx) so $request->ip() returns the real client IP
+        // instead of 127.0.0.1. '*' is safe here because requests always come through
+        // a controlled Nginx proxy on the same server.
+        $middleware->trustProxies(at: '*');
+
         $middleware->appendToGroup('api', \App\Http\Middleware\ApiMaintenanceMode::class);
 
         $middleware->alias([
