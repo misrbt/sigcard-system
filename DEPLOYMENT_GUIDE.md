@@ -68,8 +68,8 @@ pip3 install opencv-python-headless>=4.8.0 Pillow>=9.0.0 \
 │       ├── backend/          # Laravel API
 │       ├── frontend/         # React SPA (dist/ served by Nginx)
 │       └── scripts/
-└── production/
-    └── sigcard-system/
+└── production/               # production server: /projects/
+    └── sigcard-system/       # full path: /projects/sigcard-system
         ├── backend/
         ├── frontend/
         └── scripts/
