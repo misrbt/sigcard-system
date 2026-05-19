@@ -1042,6 +1042,14 @@ class CustomerController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
+            Log::error('uploadStatusDocument failed', [
+                'customer_id' => $customer->id,
+                'account_status' => $accountStatus,
+                'status_log_id' => $statusLogId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'message' => 'Unable to upload status documents. Please try again.',
             ], 500);
