@@ -1,19 +1,38 @@
-name: Deploy to Production
+name: Deploy — Production
 
 on:
   push:
     branches: [main]
+  # Also allow manual trigger from GitHub website
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for this manual deploy'
+        required: true
+        default: 'Manual production deploy'
+
+# Never cancel an in-flight production deploy
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy Sigcard to Production
-    runs-on: ubuntu-latest
+    name: Deploy to Production Server
+    runs-on: self-hosted
+    # 'production' environment = requires approval in GitHub Settings → Environments
+    environment: production
+
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.PROD_SSH_HOST }}
-          username: ${{ secrets.PROD_SSH_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_SSH_PORT || 22 }}
-          script: bash /var/www/production/sigcard-system/scripts/deploy-production.sh
+      - name: Show deploy info
+        run: |
+          echo "Deploying branch: ${{ github.ref_name }}"
+          echo "Triggered by:     ${{ github.actor }}"
+          echo "Reason:           ${{ github.event.inputs.reason || 'push to main' }}"
+
+      - name: SSH into production and deploy
+        run: |
+          ssh -i ~/.ssh/id_ed25519_production \
+              -o BatchMode=yes \
+              ${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }} \
+              "bash /var/www/production/sigcard-system/scripts/deploy-production.sh"
