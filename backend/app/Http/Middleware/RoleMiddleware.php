@@ -41,7 +41,7 @@ class RoleMiddleware
             activity()
                 ->causedBy($user)
                 ->withProperties([
-                    'ip' => $this->clientIp($request),
+                    'ip' => $request->ip(),
                     'user_agent' => $request->userAgent(),
                     'attempted_action' => $request->path(),
                 ])
@@ -62,7 +62,7 @@ class RoleMiddleware
             activity()
                 ->causedBy($user)
                 ->withProperties([
-                    'ip' => $this->clientIp($request),
+                    'ip' => $request->ip(),
                     'user_agent' => $request->userAgent(),
                     'attempted_action' => $request->path(),
                 ])
@@ -130,7 +130,7 @@ class RoleMiddleware
                 activity()
                     ->causedBy($user)
                     ->withProperties([
-                        'ip' => $this->clientIp($request),
+                        'ip' => $request->ip(),
                         'user_agent' => $request->userAgent(),
                         'attempted_action' => $request->path(),
                         'required_roles' => $roles,
@@ -156,7 +156,7 @@ class RoleMiddleware
         activity()
             ->causedBy($user)
             ->withProperties([
-                'ip' => $this->clientIp($request),
+                'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'action' => $request->path(),
                 'method' => $request->method(),
@@ -166,28 +166,4 @@ class RoleMiddleware
         return $next($request);
     }
 
-    private function clientIp(Request $request): string
-    {
-        $headers = [
-            'HTTP_CF_CONNECTING_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_REAL_IP',
-            'HTTP_CLIENT_IP',
-        ];
-
-        foreach ($headers as $header) {
-            $value = $_SERVER[$header] ?? '';
-            if ($value === '') {
-                continue;
-            }
-
-            $candidate = trim(explode(',', $value)[0]);
-
-            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
-                return $candidate;
-            }
-        }
-
-        return $request->ip();
-    }
 }

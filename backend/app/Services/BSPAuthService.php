@@ -226,7 +226,7 @@ class BSPAuthService
         // Update login information
         $user->update([
             'last_login_at' => now(),
-            'last_login_ip' => $this->clientIp($request),
+            'last_login_ip' => $request->ip(),
             'last_login_user_agent' => $request->userAgent(),
             'session_id' => session()->getId(),
             'session_expires_at' => now()->addMinutes($tokenMinutes),
@@ -313,7 +313,7 @@ class BSPAuthService
     {
         $sessionData = [
             'token' => $token,
-            'ip' => $this->clientIp($request),
+            'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'created_at' => now()->toISOString(),
             'last_activity' => now()->toISOString(),
@@ -334,7 +334,7 @@ class BSPAuthService
         $riskFactors = [];
 
         // Check for unusual IP location
-        if ($user->last_login_ip && $user->last_login_ip !== $this->clientIp($request)) {
+        if ($user->last_login_ip && $user->last_login_ip !== $request->ip()) {
             $riskScore += 20;
             $riskFactors[] = 'Different IP address';
         }
@@ -507,7 +507,7 @@ class BSPAuthService
      */
     private function throttleKey(Request $request): string
     {
-        return 'login_attempts:'.$this->clientIp($request).':'.strtolower($request->input('email'));
+        return 'login_attempts:'.$request->ip().':'.strtolower($request->input('email'));
     }
 
     /**
@@ -518,7 +518,7 @@ class BSPAuthService
         $data = [
             'event' => 'failed_login',
             'reason' => $reason,
-            'ip' => $this->clientIp($request),
+            'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'email' => $request->input('email'),
             'timestamp' => now()->toISOString(),
@@ -536,7 +536,7 @@ class BSPAuthService
             ->withProperties([
                 'action' => 'failed_login',
                 'reason' => $reason,
-                'ip' => $this->clientIp($request),
+                'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'email' => $request->input('email'),
             ]);
@@ -557,7 +557,7 @@ class BSPAuthService
             'event' => 'successful_login',
             'user_id' => $user->id,
             'email' => $user->email,
-            'ip' => $this->clientIp($request),
+            'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'timestamp' => now()->toISOString(),
         ]);
@@ -575,7 +575,7 @@ class BSPAuthService
     {
         $data = array_merge([
             'event' => $event,
-            'ip' => $this->clientIp($request),
+            'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'timestamp' => now()->toISOString(),
         ], $additional);
@@ -592,7 +592,7 @@ class BSPAuthService
             ->withProperties(array_merge([
                 'action' => 'security_event',
                 'event' => $event,
-                'ip' => $this->clientIp($request),
+                'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ], $additional));
 
@@ -629,7 +629,7 @@ class BSPAuthService
             Log::info('User logout', [
                 'event' => 'logout',
                 'user_id' => $user->id,
-                'ip' => $this->clientIp($request),
+                'ip' => $request->ip(),
                 'timestamp' => now()->toISOString(),
             ]);
 
@@ -637,39 +637,6 @@ class BSPAuthService
                 ->causedBy($user)
                 ->log('User logged out');
         }
-    }
-
-    /**
-     * Resolve the real client IP regardless of proxy/server configuration.
-     *
-     * Reads trusted forwarding headers in priority order before falling back to
-     * the socket address returned by $request->ip(). Works with Nginx, Apache,
-     * Cloudflare, and direct PHP connections.
-     */
-    private function clientIp(Request $request): string
-    {
-        $headers = [
-            'HTTP_CF_CONNECTING_IP',   // Cloudflare
-            'HTTP_X_FORWARDED_FOR',    // Nginx / standard proxy
-            'HTTP_X_REAL_IP',          // Nginx alternate header
-            'HTTP_CLIENT_IP',          // Some load balancers
-        ];
-
-        foreach ($headers as $header) {
-            $value = $_SERVER[$header] ?? '';
-            if ($value === '') {
-                continue;
-            }
-
-            // X-Forwarded-For may be a comma-separated list; the first entry is the client
-            $candidate = trim(explode(',', $value)[0]);
-
-            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
-                return $candidate;
-            }
-        }
-
-        return $request->ip();
     }
 
     /**
