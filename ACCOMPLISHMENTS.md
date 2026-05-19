@@ -25,6 +25,20 @@ This prevents orphaned status changes — situations where a staff member accide
 
 ## May 18, 2026
 
+### Production Permission Fix — Compliance Staff and Encoder Access Restored
+
+**What's new for staff:**
+- The 7 compliance staff (Nancy Balingkit, Monique Jumoc, Ivy Mabale, Kristine Vacalares, Thesil Bailo, Emielyn Badic, Rhea Dagoldol) can now log in and reach the correct Compliance dashboard. Previously they were stuck on the wrong screen after logging in.
+- All compliance staff can now access audit logs, generate BSP compliance reports, view regulatory reports, and all other compliance functions — these were blocked before.
+- All encoders (User role) now have the correct permission to create new customer records. The old permission list on their role was carrying over outdated entries from a previous system version.
+- 25+ old unused permissions (e.g. "view-transactions", "approve-transfers", "generate-statements") that had no working screens were removed from the system — the permissions table is now clean and accurate.
+- The old "compliance-audit" role (a leftover from an earlier version) has been retired. All staff who had it are now under the proper "compliance" role, which correctly controls what they can see and do.
+
+**Why it matters:**
+The compliance team could not properly access the system after the latest update was applied — this fix restores their full access. Encoder staff also had incorrect permissions carried over from an older version of the system, which could have caused issues with future permission checks. The production database is now in sync with the current version of the software.
+
+---
+
 ### Quick Unlock for Locked Accounts in User Management
 
 **What's new for staff:**
