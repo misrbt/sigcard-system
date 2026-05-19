@@ -209,10 +209,10 @@ class CustomerController extends Controller
             ->causedBy(Auth::user())
             ->performedOn($customer)
             ->withProperties([
-                'action'       => 'customer_viewed',
-                'full_name'    => $customer->full_name,
+                'action' => 'customer_viewed',
+                'full_name' => $customer->full_name,
                 'account_type' => $customer->account_type,
-                'branch_id'    => $customer->branch_id,
+                'branch_id' => $customer->branch_id,
             ])
             ->log('Customer sigcard record viewed');
 
@@ -435,7 +435,7 @@ class CustomerController extends Controller
             ->causedBy(Auth::user())
             ->performedOn($customer)
             ->withProperties([
-                'action'    => 'customer_documents_viewed',
+                'action' => 'customer_documents_viewed',
                 'full_name' => $customer->full_name,
             ])
             ->log('Customer documents viewed');
@@ -941,16 +941,27 @@ class CustomerController extends Controller
         $this->authorize('edit-customers');
 
         $request->validate([
-            'account_status' => 'required|string|in:active,dormant,reactivated,escheat,closed',
+            'account_status' => 'nullable|string|in:active,dormant,reactivated,escheat,closed',
             'status_log_id' => 'nullable|integer|exists:customer_status_logs,id',
+            'pending_status' => 'nullable|string|in:active,dormant,reactivated,escheat,closed',
+            'pending_status_date' => 'nullable|date',
+            'pending_acct_id' => 'nullable|integer|exists:customer_accounts,id',
         ]);
 
-        $accountStatus = $request->input('account_status');
-        $statusLogId = $request->input('status_log_id');
+        $pendingStatus = $request->input('pending_status');
+        $pendingStatusDate = $request->input('pending_status_date');
+        $pendingAcctId = $request->input('pending_acct_id') ? (int) $request->input('pending_acct_id') : null;
 
-        // Auto-resolve the log if the frontend didn't pass one —
-        // find the most recent status log for this customer with a matching status.
-        if (! $statusLogId) {
+        // Resolve account_status: explicit value takes precedence, fall back to pending_status
+        $accountStatus = $request->input('account_status') ?? $pendingStatus;
+        $statusLogId = $request->input('status_log_id') ? (int) $request->input('status_log_id') : null;
+
+        if (! $accountStatus) {
+            return response()->json(['message' => 'account_status or pending_status is required.'], 422);
+        }
+
+        // Auto-resolve the log for legacy callers that pass account_status without a log id
+        if (! $statusLogId && ! $pendingStatus) {
             $statusLogId = \App\Models\CustomerStatusLog::where('customer_id', $customer->id)
                 ->where('status', $accountStatus)
                 ->latest()
@@ -959,6 +970,46 @@ class CustomerController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // Atomically apply the pending status change before uploading documents
+            if ($pendingStatus && ! $statusLogId) {
+                if ($pendingAcctId) {
+                    $account = $customer->accounts()->findOrFail($pendingAcctId);
+
+                    if ($account->status === 'escheat') {
+                        DB::rollBack();
+
+                        return response()->json(['message' => 'Escheat accounts cannot have their status changed.'], 422);
+                    }
+
+                    $previousStatus = $account->status;
+                    $account->update([
+                        'status' => $pendingStatus,
+                        'status_date' => $pendingStatusDate ?: null,
+                    ]);
+                } else {
+                    if ($customer->status === 'escheat') {
+                        DB::rollBack();
+
+                        return response()->json(['message' => 'Escheat accounts cannot have their status changed.'], 422);
+                    }
+
+                    $previousStatus = $customer->status;
+                    $customer->update([
+                        'status' => $pendingStatus,
+                        'status_date' => $pendingStatusDate ?: null,
+                        'status_updated_at' => now(),
+                    ]);
+                }
+
+                $statusLog = \App\Models\CustomerStatusLog::create([
+                    'customer_id' => $customer->id,
+                    'status' => $pendingStatus,
+                    'previous_status' => $previousStatus,
+                    'changed_by' => Auth::id(),
+                ]);
+                $statusLogId = $statusLog->id;
+            }
 
             $this->storePairs($customer, $request, 'sigcardPairs', 'sigcard_front', 'sigcard_back', $accountStatus, $statusLogId);
             $this->storePairs($customer, $request, 'naisPairs', 'nais_front', 'nais_back', $accountStatus, $statusLogId);

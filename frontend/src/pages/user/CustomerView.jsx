@@ -744,16 +744,59 @@ const CustomerView = ({ basePath = '/user' }) => {
   const [loading, setLoading]     = useState(true);
   const [viewer, setViewer]       = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const uploadParam      = searchParams.get("upload");
-  const newStatusParam   = searchParams.get("newStatus");
-  const statusLogIdParam = searchParams.get("statusLogId");
-  const acctParam        = searchParams.get("acct");
-  const statusDateParam  = searchParams.get("statusDate");
+  const uploadParam          = searchParams.get("upload");
+  const newStatusParam       = searchParams.get("newStatus");       // legacy: status already saved
+  const statusLogIdParam     = searchParams.get("statusLogId");     // legacy: existing log id
+  const acctParam            = searchParams.get("acct");
+  const statusDateParam      = searchParams.get("statusDate");      // legacy date
+  const pendingStatusParam   = searchParams.get("pendingStatus");   // new: status not yet saved
+  const pendingStatusDateParam = searchParams.get("pendingStatusDate");
+  const pendingAcctIdParam   = searchParams.get("pendingAcctId");
 
-  const escheatYear = (newStatusParam === "escheat" && statusDateParam)
-    ? new Date(statusDateParam).getFullYear()
+  // True when the status change hasn't been saved yet — upload commits everything atomically
+  const isPendingUpload = !!(pendingStatusParam && uploadParam);
+
+  // Unified display values (pending takes precedence over legacy saved)
+  const activeStatusParam   = pendingStatusParam ?? newStatusParam;
+  const activeStatusDate    = pendingStatusDateParam ?? statusDateParam;
+
+  const escheatYear = (activeStatusParam === "escheat" && activeStatusDate)
+    ? new Date(activeStatusDate).getFullYear()
     : null;
-  const privacyNotRequired = newStatusParam === "escheat" && escheatYear !== null && escheatYear <= 2021;
+  const privacyNotRequired = activeStatusParam === "escheat" && escheatYear !== null && escheatYear <= 2021;
+
+  // Intercept the browser back button when a status change is pending (popstate works with BrowserRouter)
+  useEffect(() => {
+    if (!isPendingUpload) return;
+
+    // Push an extra history entry so the first "back" press just triggers popstate
+    window.history.pushState(null, "", window.location.href);
+
+    const handlePopState = () => {
+      // Re-push so the next press also triggers this handler if the user stays
+      window.history.pushState(null, "", window.location.href);
+      Swal.fire({
+        icon: "warning",
+        title: "Leave without uploading?",
+        html: `<p style="font-size:14px;color:#374151;">The account status change to <strong style="text-transform:capitalize">${pendingStatusParam}</strong> will <strong>not be saved</strong> if you leave now.</p><p style="margin-top:8px;font-size:12px;color:#6b7280;">Stay on this page to finish uploading the supporting documents.</p>`,
+        showCancelButton: true,
+        confirmButtonText: "Leave anyway",
+        cancelButtonText: "Stay & upload",
+        confirmButtonColor: "#dc2626",
+        cancelButtonColor: "#2563eb",
+        reverseButtons: true,
+      }).then((result) => {
+        if (result.isConfirmed) {
+          // Remove extra history entries we pushed, then go back
+          window.removeEventListener("popstate", handlePopState);
+          window.history.go(-2);
+        }
+      });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [isPendingUpload, pendingStatusParam]);
 
   const [activeAcctIdx, setActiveAcctIdx] = useState(1);
 
@@ -803,7 +846,7 @@ const CustomerView = ({ basePath = '/user' }) => {
     setActiveAcctIdx((prev) => (prev > acctCount ? 1 : prev));
   }, [customer]);
 
-  const resetUploadPanel = () => {
+  const clearUploadPanel = () => {
     setSearchParams({});
     setDocUploadFiles({});
     setOtherUploadFiles([]);
@@ -815,8 +858,26 @@ const CustomerView = ({ basePath = '/user' }) => {
     setPerPersonCorpBacks({});
   };
 
+  const resetUploadPanel = async () => {
+    if (isPendingUpload) {
+      const result = await Swal.fire({
+        icon: "warning",
+        title: "Cancel status change?",
+        html: `<p style="font-size:14px;color:#374151;">If you cancel now, the account status will <strong>not</strong> be updated to <strong class="capitalize">${pendingStatusParam}</strong>.</p>`,
+        showCancelButton: true,
+        confirmButtonText: "Yes, cancel it",
+        cancelButtonText: "Keep uploading",
+        confirmButtonColor: "#dc2626",
+        cancelButtonColor: "#2563eb",
+        reverseButtons: true,
+      });
+      if (!result.isConfirmed) return;
+    }
+    clearUploadPanel();
+  };
+
   const handleUploadForStatus = async () => {
-    if (!newStatusParam || !customer) return;
+    if (!activeStatusParam || !customer) return;
 
     const uploadsSelected = (uploadParam ?? "").split(",").filter(Boolean);
     const acctType  = customer.account_type;
@@ -839,8 +900,16 @@ const CustomerView = ({ basePath = '/user' }) => {
     setDocUploadBusy(true);
     try {
       const fd = new FormData();
-      fd.append("account_status", newStatusParam);
-      if (statusLogIdParam) fd.append("status_log_id", statusLogIdParam);
+      if (isPendingUpload) {
+        // Status not yet saved — backend will atomically update status + upload docs
+        fd.append("pending_status", pendingStatusParam);
+        if (pendingStatusDateParam) fd.append("pending_status_date", pendingStatusDateParam);
+        if (pendingAcctIdParam) fd.append("pending_acct_id", pendingAcctIdParam);
+      } else {
+        // Legacy path: status was already saved before navigating here
+        fd.append("account_status", newStatusParam);
+        if (statusLogIdParam) fd.append("status_log_id", statusLogIdParam);
+      }
 
       if (isNonItfUpload) {
         // Sigcard: shared front at person 1 + per-holder backs
@@ -946,7 +1015,7 @@ const CustomerView = ({ basePath = '/user' }) => {
 
       const { data: uploadData } = await api.post(`/customers/${id}/upload-status-document`, fd, { headers: { "Content-Type": "multipart/form-data" } });
 
-      resetUploadPanel();
+      clearUploadPanel();
       if (uploadData?.customer) {
         setCustomer(uploadData.customer);
       } else {
@@ -954,8 +1023,10 @@ const CustomerView = ({ basePath = '/user' }) => {
       }
       Swal.fire({
         icon: "success",
-        title: "Documents Uploaded",
-        text: `Documents for status "${newStatusParam}" have been saved successfully.`,
+        title: isPendingUpload ? "Status Updated & Documents Saved" : "Documents Uploaded",
+        text: isPendingUpload
+          ? `Account status changed to "${activeStatusParam}" and documents saved successfully.`
+          : `Documents for status "${activeStatusParam}" have been saved successfully.`,
         confirmButtonColor: "#2563eb",
         timer: 3000,
         timerProgressBar: true,
@@ -1714,8 +1785,8 @@ const CustomerView = ({ basePath = '/user' }) => {
                 </span>
               )}
               {uploadParam && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-300 animate-pulse">
-                  Upload pending
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border animate-pulse ${isPendingUpload ? "bg-amber-100 text-amber-700 border-amber-300" : "bg-blue-100 text-blue-700 border-blue-300"}`}>
+                  {isPendingUpload ? "Status pending upload" : "Upload pending"}
                 </span>
               )}
               <span className="ml-auto text-xs text-slate-400">
@@ -1765,7 +1836,7 @@ const CustomerView = ({ basePath = '/user' }) => {
 
             <div className="px-5 py-5 space-y-6">
               {/* Upload panel for status-change document uploads */}
-              {uploadParam && newStatusParam && canEdit && (() => {
+              {uploadParam && activeStatusParam && canEdit && (() => {
                 const uploadsSelected = uploadParam.split(",").filter(Boolean);
 
                 const stagedCount = [
@@ -1779,13 +1850,16 @@ const CustomerView = ({ basePath = '/user' }) => {
                 ].filter(Boolean).length;
 
                 return (
-                  <div className="rounded-2xl border-2 border-blue-400 overflow-hidden">
+                  <div className={`rounded-2xl border-2 overflow-hidden ${isPendingUpload ? "border-amber-400" : "border-blue-400"}`}>
                     {/* Header */}
-                    <div className="flex items-center gap-3 px-4 py-3 bg-blue-600">
+                    <div className={`flex items-center gap-3 px-4 py-3 ${isPendingUpload ? "bg-amber-500" : "bg-blue-600"}`}>
                       <HiOutlinePhotograph className="w-4 h-4 text-white flex-shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-white">
-                          Upload documents — <span className="capitalize">{newStatusParam}</span>
+                          {isPendingUpload
+                            ? <>Confirm status change — <span className="capitalize">{activeStatusParam}</span></>
+                            : <>Upload documents — <span className="capitalize">{activeStatusParam}</span></>
+                          }
                         </p>
                         {showAccountTabs && activeAcctObj && (
                           <p className="text-xs text-white/70 mt-0.5">
@@ -1798,6 +1872,19 @@ const CustomerView = ({ basePath = '/user' }) => {
                         <HiOutlineX className="w-4 h-4" />
                       </button>
                     </div>
+
+                    {/* Pending-status warning banner */}
+                    {isPendingUpload && (
+                      <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-200">
+                        <HiOutlineInformationCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs font-semibold text-amber-700 leading-relaxed">
+                          The account status has <strong>not been saved yet.</strong>{" "}
+                          Upload the documents below to confirm the change to{" "}
+                          <span className="capitalize font-bold">{activeStatusParam}</span>.
+                          Closing this panel will cancel the status change.
+                        </p>
+                      </div>
+                    )}
 
                     {/* Body */}
                     <div className="px-4 py-4 bg-blue-50 space-y-5">
@@ -2039,18 +2126,29 @@ const CustomerView = ({ basePath = '/user' }) => {
                       })}
 
                       {/* Footer */}
-                      <div className="flex items-center justify-between gap-3 pt-2 border-t border-blue-200">
+                      <div className={`flex items-center justify-between gap-3 pt-2 border-t ${isPendingUpload ? "border-amber-200" : "border-blue-200"}`}>
                         <p className="text-[10px] text-slate-400">
                           {stagedCount} file{stagedCount !== 1 ? "s" : ""} ready
                         </p>
-                        <button onClick={resetUploadPanel}
-                          className="text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors">
-                          Skip
-                        </button>
+                        {isPendingUpload ? (
+                          <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">
+                            Upload to confirm status
+                          </span>
+                        ) : (
+                          <button onClick={resetUploadPanel}
+                            className="text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors flex-shrink-0">
+                            Skip
+                          </button>
+                        )}
                         <button onClick={handleUploadForStatus}
                           disabled={docUploadBusy || stagedCount === 0}
-                          className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 transition-colors">
-                          {docUploadBusy ? "Uploading…" : "Upload Documents"}
+                          className={`px-4 py-2 text-xs font-bold text-white rounded-xl disabled:opacity-50 transition-colors ${isPendingUpload ? "bg-amber-500 hover:bg-amber-600" : "bg-blue-600 hover:bg-blue-700"}`}>
+                          {docUploadBusy
+                            ? "Saving…"
+                            : isPendingUpload
+                              ? "Upload & Save Status"
+                              : "Upload Documents"
+                          }
                         </button>
                       </div>
                     </div>

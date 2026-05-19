@@ -5,6 +5,24 @@ RBT Bank Signature Card Management System. Updated automatically after each comp
 
 ---
 
+## May 19, 2026
+
+### Safer Status Change — Status Now Saved Only When Documents Are Uploaded
+
+**What's new for staff:**
+- When changing an account status (e.g., to Dormant or Closed), the status is **no longer saved the moment you click "Confirm Update"**
+- Instead, the status only takes effect the moment you successfully upload the supporting documents — no document upload, no status change
+- If you accidentally click the back button or try to leave the page before uploading, the system will warn you: "Leave without uploading? The status change will not be saved."
+- Pressing the X button on the upload panel also shows a warning before cancelling the status change
+- A yellow banner is shown on the upload screen to remind staff that the status change is still pending
+- The "Proceed to Upload" button is disabled until at least one document type is selected
+- A "Save without documents" option is still available at the bottom of the document selection screen, with a clear warning — for cases where no documents are needed
+
+**Why it matters:**
+This prevents orphaned status changes — situations where a staff member accidentally navigated away before uploading, leaving the account with an updated status but no supporting documents attached. BSP guidelines require documentation for every status change.
+
+---
+
 ## May 18, 2026
 
 ### Quick Unlock for Locked Accounts in User Management

@@ -1622,8 +1622,6 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
   const [selectedAcctIdx, setSelectedAcctIdx] = useState(isMulti ? null : 0); // index into allAccounts
   const [status, setStatus]               = useState(isMulti ? null : (customer.status ?? "active"));
   const [saving, setSaving]               = useState(false);
-  const [newStatus, setNewStatus]         = useState(null);
-  const [statusLogId, setStatusLogId]     = useState(null);
   const [statusDate, setStatusDate]       = useState("");
   const [statusDateMode, setStatusDateMode] = useState("auto"); // "auto" | "manual"
   const [uploadTypes, setUploadTypes]     = useState({ sigcard: false, nais: false, privacy: false, other: false });
@@ -1647,6 +1645,11 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
   const toggleUploadType = (key) =>
     setUploadTypes((prev) => ({ ...prev, [key]: !prev[key] }));
 
+  const resolvedStatusDate = statusDateMode === "auto"
+    ? new Date().toISOString().split("T")[0]
+    : statusDate || null;
+
+  // Confirm status selection and proceed to document type picker — no API call yet
   const handleSave = async () => {
     if (status === "escheat") {
       const confirm = await Swal.fire({
@@ -1674,43 +1677,54 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
       });
       if (!confirm.isConfirmed) return;
     }
+    setStep("upload_select");
+  };
+
+  // Navigate to CustomerView with all intent carried as URL params (status saved on upload)
+  const handleGoToUpload = () => {
+    const chosen = Object.entries(uploadTypes).filter(([, v]) => v).map(([k]) => k);
+    onClose();
+    if (chosen.length > 0) {
+      const acctIndex = (selectedAcctIdx ?? 0) + 1;
+      const params = new URLSearchParams({ upload: chosen.join(","), pendingStatus: status, acct: acctIndex });
+      if (resolvedStatusDate) params.set("pendingStatusDate", resolvedStatusDate);
+      if (selectedAcct?.type === "additional" && selectedAcct?.id) {
+        params.set("pendingAcctId", selectedAcct.id);
+      }
+      navigate(`${basePath}/customers/${customer.id}/view?${params.toString()}`);
+    }
+  };
+
+  // Fallback: save status without uploading documents (requires explicit confirmation)
+  const handleSaveWithoutDocs = async () => {
+    const confirm = await Swal.fire({
+      icon: "warning",
+      title: "Save without documents?",
+      html: `<p style="font-size:14px;color:#374151;">The account status will be changed to <strong class="capitalize">${status}</strong> but <strong>no supporting documents will be uploaded</strong>.</p><p style="margin-top:8px;font-size:12px;color:#6b7280;">BSP guidelines recommend uploading documents for every status change.</p>`,
+      showCancelButton: true,
+      confirmButtonText: "Save without documents",
+      cancelButtonText: "Go back",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      reverseButtons: true,
+    });
+    if (!confirm.isConfirmed) return;
 
     setSaving(true);
     try {
-      let res;
-      const resolvedDate = statusDateMode === "auto"
-        ? new Date().toISOString().split("T")[0]
-        : statusDate || null;
-      const payload = { status, status_date: resolvedDate };
+      const payload = { status, status_date: resolvedStatusDate };
       if (selectedAcct.type === "primary") {
-        res = await api.put(`/customers/${customer.id}`, payload);
+        await api.put(`/customers/${customer.id}`, payload);
       } else {
-        res = await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, payload);
+        await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, payload);
       }
       onSaved();
-      setNewStatus(status);
-      setStatusLogId(res.data?.status_log_id ?? null);
-      setStep("upload_select");
+      onClose();
     } catch (err) {
       const msg = err?.response?.data?.message ?? "Something went wrong.";
       Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleGoToUpload = () => {
-    const chosen = Object.entries(uploadTypes).filter(([, v]) => v).map(([k]) => k);
-    onClose();
-    if (chosen.length > 0) {
-      const acctIndex = (selectedAcctIdx ?? 0) + 1; // 1-based: primary=1, first additional=2, …
-      const params = new URLSearchParams({ upload: chosen.join(","), newStatus, acct: acctIndex });
-      if (statusLogId) params.set("statusLogId", statusLogId);
-      const resolvedDateForNav = statusDateMode === "auto"
-        ? new Date().toISOString().split("T")[0]
-        : statusDate;
-      if (resolvedDateForNav) params.set("statusDate", resolvedDateForNav);
-      navigate(`${basePath}/customers/${customer.id}/view?${params.toString()}`);
     }
   };
 
@@ -1916,8 +1930,8 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                 {isEscheat
                   ? <span className="flex items-center gap-1 text-orange-500"><HiOutlineLockClosed className="w-3.5 h-3.5" /> Status locked — Escheat</span>
                   : isUnchanged
-                    ? "No changes made"
-                    : <span>Changing to <strong className={`capitalize ${selected?.text}`}>{status}</strong></span>
+                    ? "No changes"
+                    : <span>Will change to <strong className={`capitalize ${selected?.text}`}>{status}</strong></span>
                 }
               </p>
               <div className="flex items-center gap-2.5">
@@ -1927,12 +1941,9 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                 </button>
                 <button
                   onClick={handleSave}
-                  disabled={
-                    saving || isUnchanged || isEscheat ||
-                    (statusDateMode === "manual" && !statusDate)
-                  }
+                  disabled={isUnchanged || isEscheat || (statusDateMode === "manual" && !statusDate)}
                   className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow transition-all disabled:opacity-50 disabled:shadow-none bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90">
-                  {saving ? "Saving…" : "Confirm Update"}
+                  Next: Choose Documents
                 </button>
               </div>
             </div>
@@ -1944,15 +1955,20 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
           <>
             <div className="flex-1 overflow-y-auto">
             <div className="px-6 pt-5 pb-2">
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${statusStyle[newStatus] ?? "bg-slate-100 text-slate-600"}`}>
-                  {newStatus}
+              {/* Pending-status indicator */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 mb-3">
+                <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 animate-pulse" />
+                <span className="text-xs font-semibold text-amber-700">
+                  Status will change to{" "}
+                  <span className={`inline-flex px-1.5 py-0.5 rounded-full font-bold capitalize text-[10px] ml-0.5 ${statusStyle[status] ?? "bg-slate-100 text-slate-600"}`}>
+                    {status}
+                  </span>{" "}
+                  — only confirmed when you upload
                 </span>
-                <span className="text-xs text-slate-500">status saved successfully</span>
               </div>
-              <p className="text-sm font-bold text-slate-800 mt-2">Upload new documents?</p>
+              <p className="text-sm font-bold text-slate-800">Select documents to upload</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Select which documents to upload for this status change. They will be added to the customer&apos;s history.
+                Choose which documents to attach to this status change. The status is saved the moment you upload.
               </p>
             </div>
 
@@ -1961,10 +1977,10 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                 const resolvedDate = statusDateMode === "auto"
                   ? new Date().toISOString().split("T")[0]
                   : statusDate;
-                const escheatYear = (newStatus === "escheat" && resolvedDate)
+                const escheatYear = (status === "escheat" && resolvedDate)
                   ? new Date(resolvedDate).getFullYear()
                   : null;
-                const privacyNotRequired = newStatus === "escheat" && escheatYear !== null && escheatYear <= 2021;
+                const privacyNotRequired = status === "escheat" && escheatYear !== null && escheatYear <= 2021;
                 return [
                   { key: "sigcard", label: "Signature Card",  desc: "Front & Back" },
                   { key: "nais",    label: "NAIS",            desc: "Front & Back" },
@@ -1999,13 +2015,17 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
             </div>{/* end flex-1 overflow-y-auto */}
 
             <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-              <button onClick={onClose}
-                className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">
-                Skip for now
+              <button
+                onClick={handleSaveWithoutDocs}
+                disabled={saving}
+                className="text-xs font-semibold text-slate-400 hover:text-red-600 transition-colors disabled:opacity-50">
+                {saving ? "Saving…" : "Save without documents"}
               </button>
-              <button onClick={handleGoToUpload}
-                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 transition-all">
-                {Object.values(uploadTypes).some(Boolean) ? "Go to Upload" : "Done"}
+              <button
+                onClick={handleGoToUpload}
+                disabled={!Object.values(uploadTypes).some(Boolean)}
+                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 disabled:opacity-40 disabled:shadow-none transition-all">
+                Proceed to Upload
               </button>
             </div>
           </>
