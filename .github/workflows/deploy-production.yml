@@ -30,9 +30,5 @@ jobs:
           echo "Triggered by:     ${{ github.actor }}"
           echo "Reason:           ${{ github.event.inputs.reason || 'push to main' }}"
 
-      - name: SSH into production and deploy
-        run: |
-          ssh -i ~/.ssh/id_ed25519_production \
-              -o BatchMode=yes \
-              ${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }} \
-              "bash /home/rbtwebsrvr/projects/sigcard-system/scripts/deploy-production.sh"
+      - name: Run deploy script
+        run: bash /home/rbtwebsrvr/projects/sigcard-system/scripts/deploy-production.sh
