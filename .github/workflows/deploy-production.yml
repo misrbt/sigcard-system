@@ -35,4 +35,4 @@ jobs:
           ssh -i ~/.ssh/id_ed25519_production \
               -o BatchMode=yes \
               ${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }} \
-              "bash /var/www/production/sigcard-system/scripts/deploy-production.sh"
+              "bash /home/rbtwebsrvr/projects/sigcard-system/scripts/deploy-production.sh"
