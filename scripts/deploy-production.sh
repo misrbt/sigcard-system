@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PROJECT_DIR="/var/www/production/sigcard-system"
+PROJECT_DIR="/home/rbtwebsrvr/projects/sigcard-system"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 
@@ -28,8 +28,8 @@ echo "[5/6] Building frontend..."
 npm ci --prefix "$FRONTEND_DIR"
 npm run build --prefix "$FRONTEND_DIR"
 
-echo "[6/6] Restarting services..."
-pm2 restart laravel-backend laravel-reverb
+echo "[6/6] Restarting backend service..."
+sudo -n systemctl restart sigcard-backend
 
 echo ""
 echo "✓ Production deploy complete!"
