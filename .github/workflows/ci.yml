@@ -1,4 +1,4 @@
-name: CI
+name: CI — Test & Lint
 
 on:
   push:
@@ -8,28 +8,32 @@ on:
 
 jobs:
   backend-tests:
-    name: Backend Tests
-    runs-on: [self-hosted, staging]
+    name: Backend — Tests
+    runs-on: self-hosted
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install backend dependencies
+      - name: Install PHP dependencies
         working-directory: backend
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
-      - name: Copy .env for testing
+      - name: Set up test environment
         working-directory: backend
         run: |
           cp .env.example .env.testing 2>/dev/null || cp .env .env.testing
+          sed -i 's/^DB_DATABASE=.*/DB_DATABASE=digicur_testing/' .env.testing
+          sed -i 's/^APP_ENV=.*/APP_ENV=testing/' .env.testing
           php artisan key:generate --env=testing
 
       - name: Run backend tests
         working-directory: backend
         run: php artisan test --env=testing
 
-  frontend-lint:
-    name: Frontend Lint
-    runs-on: [self-hosted, staging]
+  frontend-checks:
+    name: Frontend — Lint & Build
+    runs-on: self-hosted
+
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +41,39 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run ESLint
+      - name: Lint
         working-directory: frontend
         run: npm run lint
+
+      - name: Build (verify Vite compiles cleanly)
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: http://localhost/api
+          VITE_NODE_ENV: testing
+        run: npm run build
+
+  merge-to-staging:
+    name: Merge develop → staging
+    runs-on: self-hosted
+    needs: [backend-tests, frontend-checks]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge develop into staging
+        run: |
+          git checkout staging
+          git merge origin/develop --no-edit
+          git push origin staging
