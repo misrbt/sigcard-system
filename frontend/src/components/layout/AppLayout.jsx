@@ -4,74 +4,72 @@ import Sidebar from './Sidebar';
 import Footer from './Footer';
 
 const AppLayout = ({ children, userRole }) => {
-  // Sidebar should be closed on mobile by default, open on desktop
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // Mobile overlay — closed by default, never persisted
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Set initial sidebar state based on screen size
+  // Desktop collapse — persisted in localStorage, default expanded
+  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebar-collapsed') === 'true'; }
+    catch { return false; }
+  });
+
+  // Close mobile overlay when viewport grows past lg breakpoint
   useEffect(() => {
-    const handleResize = () => {
-      const isDesktop = window.innerWidth >= 1024;
-      setIsSidebarOpen(isDesktop);
-    };
-
-    // Set initial state
-    handleResize();
-
-    // Listen for window resize with debounce
-    let timeoutId;
-    const debouncedResize = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(handleResize, 100);
-    };
-
-    window.addEventListener('resize', debouncedResize);
-    return () => {
-      window.removeEventListener('resize', debouncedResize);
-      clearTimeout(timeoutId);
-    };
+    const onResize = () => { if (window.innerWidth >= 1024) setIsMobileOpen(false); };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
+  const toggleMobile = () => setIsMobileOpen(p => !p);
+
+  const toggleDesktopCollapse = () => {
+    setIsDesktopCollapsed(p => {
+      const next = !p;
+      try { localStorage.setItem('sidebar-collapsed', String(next)); } catch { /* noop */ }
+      return next;
+    });
+  };
+
+  // Hamburger: mobile → overlay toggle; desktop → collapse toggle
+  const handleHeaderToggle = () => {
+    if (window.innerWidth < 1024) toggleMobile();
+    else toggleDesktopCollapse();
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sidebar */}
+
       <Sidebar
-        isOpen={isSidebarOpen}
+        isMobileOpen={isMobileOpen}
+        isDesktopCollapsed={isDesktopCollapsed}
+        onMobileClose={toggleMobile}
+        onDesktopToggle={toggleDesktopCollapse}
         userRole={userRole}
-        onToggle={toggleSidebar}
       />
 
-      {/* Main Content */}
-      <div className={`transition-all duration-300 ${isSidebarOpen ? 'lg:ml-80' : 'lg:ml-20'}`}>
-        {/* Header */}
-        <Header
-          onSidebarToggle={toggleSidebar}
-          isSidebarOpen={isSidebarOpen}
-          userRole={userRole}
-        />
+      {/* Main area — no margin on mobile (sidebar is overlay), left margin on desktop */}
+      <div className={`
+        transition-[margin-left] duration-300 ease-in-out
+        ${isDesktopCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[260px]'}
+      `}>
+        <Header onSidebarToggle={handleHeaderToggle} userRole={userRole} />
 
-        {/* Main Content Area */}
         <main className="min-h-screen p-3 sm:p-4 md:p-6 pb-20 sm:pb-24 md:pb-32">
-          <div className="max-w-7xl mx-auto w-full">
-            {children}
-          </div>
+          <div className="max-w-7xl mx-auto w-full">{children}</div>
         </main>
 
-        {/* Fixed Footer */}
         <Footer />
       </div>
 
-      {/* Mobile Sidebar Overlay - Only show on mobile when sidebar is open */}
-      {isSidebarOpen && (
+      {/* Mobile backdrop */}
+      {isMobileOpen && (
         <div
-          className="fixed inset-0 bg-black/20 z-40 lg:hidden transition-opacity duration-300"
-          onClick={toggleSidebar}
-          aria-label="Close sidebar overlay"
+          className="fixed inset-0 bg-black/40 backdrop-blur-[1px] z-40 lg:hidden"
+          onClick={toggleMobile}
+          aria-label="Close sidebar"
         />
       )}
+
     </div>
   );
 };
