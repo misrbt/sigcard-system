@@ -10,26 +10,27 @@ echo " SIGCARD-SYSTEM — Production Deploy"
 echo "======================================"
 
 echo "[1/6] Pulling latest code from main..."
-git -C "$PROJECT_DIR" pull origin main
+/usr/bin/git -C "$PROJECT_DIR" pull origin main
 
 echo "[2/6] Installing backend dependencies..."
-composer install --no-dev --optimize-autoloader --no-interaction --working-dir="$BACKEND_DIR"
+/usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir="$BACKEND_DIR"
 
 echo "[3/6] Running database migrations..."
-php "$BACKEND_DIR/artisan" migrate --force
+/usr/bin/php "$BACKEND_DIR/artisan" migrate --force
 
 echo "[4/6] Caching config, routes, views..."
-php "$BACKEND_DIR/artisan" config:cache
-php "$BACKEND_DIR/artisan" route:cache
-php "$BACKEND_DIR/artisan" view:cache
-php "$BACKEND_DIR/artisan" optimize
+/usr/bin/php "$BACKEND_DIR/artisan" config:cache
+/usr/bin/php "$BACKEND_DIR/artisan" route:cache
+/usr/bin/php "$BACKEND_DIR/artisan" view:cache
+/usr/bin/php "$BACKEND_DIR/artisan" optimize
 
 echo "[5/6] Building frontend..."
-npm ci --prefix "$FRONTEND_DIR"
-npm run build --prefix "$FRONTEND_DIR"
+/usr/bin/npm ci --prefix "$FRONTEND_DIR"
+/usr/bin/npm run build --prefix "$FRONTEND_DIR"
 
-echo "[6/6] Restarting backend service..."
-sudo -n systemctl restart sigcard-backend
+echo "[6/6] Restarting backend and queue services..."
+sudo -n /usr/bin/systemctl restart sigcard-backend
+sudo -n /usr/bin/systemctl restart sigcard-queue
 
 echo ""
 echo "✓ Production deploy complete!"
