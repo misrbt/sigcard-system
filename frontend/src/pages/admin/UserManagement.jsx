@@ -509,6 +509,7 @@ const UserManagement = () => {
   const [roles, setRoles]     = useState([]);
   const [branches, setBranches] = useState([]);
 
+  const [activeTab, setActiveTab]       = useState('users');
   const [onlineUsers, setOnlineUsers]   = useState([]);
   const [onlineLoading, setOnlineLoading] = useState(true);
 
@@ -832,78 +833,104 @@ const UserManagement = () => {
         ))}
       </div>
 
-      {/* ── Online Users Panel ── */}
+      {/* ── Tabs ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-            </span>
-            <span className="text-sm font-bold text-gray-800">Currently Online</span>
-            <span className="ml-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
-              {onlineUsers.length}
-            </span>
-          </div>
+        <div className="flex border-b border-gray-100">
           <button
-            onClick={fetchOnlineUsers}
-            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Refresh"
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'users'
+                ? 'border-[#1877F2] text-[#1877F2]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
           >
-            <MdRefresh className="w-4 h-4" />
+            <MdPeople className="w-4 h-4" />
+            All Users
+          </button>
+          <button
+            onClick={() => setActiveTab('online')}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'online'
+                ? 'border-[#1877F2] text-[#1877F2]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Online Now
+            {onlineUsers.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold leading-none">
+                {onlineUsers.length}
+              </span>
+            )}
           </button>
         </div>
 
-        {onlineLoading ? (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-gray-400">
-            <span className="w-4 h-4 border-2 border-gray-200 border-t-emerald-400 rounded-full animate-spin" />
-            Checking who is online…
-          </div>
-        ) : onlineUsers.length === 0 ? (
-          <div className="flex items-center gap-2 px-4 py-3 text-sm text-gray-400">
-            <MdWifi className="w-4 h-4" />
-            No staff members are currently active in the system.
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {onlineUsers.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors">
-                {/* Avatar */}
-                <div className="relative flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-[#05173a] flex items-center justify-center text-white text-xs font-bold">
-                    {u.full_name?.charAt(0).toUpperCase() ?? '?'}
-                  </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white" />
-                </div>
+        {/* ── Online Now Tab ── */}
+        {activeTab === 'online' && (
+          <div>
+            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50/60 border-b border-gray-100">
+              <p className="text-xs text-gray-500">Staff members with an active session right now</p>
+              <button
+                onClick={fetchOnlineUsers}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Refresh"
+              >
+                <MdRefresh className="w-4 h-4" />
+              </button>
+            </div>
 
-                {/* Name + branch */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{u.full_name}</p>
-                  <p className="text-xs text-gray-400 truncate">{u.branch_name}</p>
-                </div>
-
-                {/* Role badge */}
-                <span className={`hidden sm:inline-flex px-2 py-0.5 rounded-full text-xs font-semibold capitalize flex-shrink-0 ${roleColor[u.role] ?? 'bg-gray-100 text-gray-600'}`}>
-                  {u.role}
-                </span>
-
-                {/* IP */}
-                {u.last_login_ip && (
-                  <span className="hidden md:block text-xs text-gray-400 font-mono flex-shrink-0">
-                    {u.last_login_ip}
-                  </span>
-                )}
+            {onlineLoading ? (
+              <div className="flex items-center gap-2 px-4 py-5 text-sm text-gray-400">
+                <span className="w-4 h-4 border-2 border-gray-200 border-t-emerald-400 rounded-full animate-spin" />
+                Checking who is online…
               </div>
-            ))}
+            ) : onlineUsers.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400">
+                <MdWifi className="w-8 h-8 text-gray-200" />
+                <p className="text-sm font-medium">No staff members are currently active</p>
+                <p className="text-xs text-gray-300">Refreshes every 30 seconds</p>
+              </div>
+            ) : (
+              <>
+                <div className="divide-y divide-gray-50">
+                  {onlineUsers.map((u) => (
+                    <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                      <div className="relative flex-shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#1877F2] to-purple-500 flex items-center justify-center text-white text-sm font-bold">
+                          {u.full_name?.charAt(0).toUpperCase() ?? '?'}
+                        </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{u.full_name}</p>
+                        <p className="text-xs text-gray-400 truncate">{u.branch_name}</p>
+                      </div>
+                      <span className={`hidden sm:inline-flex px-2 py-0.5 rounded-full text-xs font-semibold capitalize flex-shrink-0 ${roleColor[u.role] ?? 'bg-gray-100 text-gray-600'}`}>
+                        {u.role}
+                      </span>
+                      {u.last_login_ip && (
+                        <span className="hidden md:block text-xs text-gray-400 font-mono flex-shrink-0">
+                          {u.last_login_ip}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="px-4 py-2 text-[10px] text-gray-300 border-t border-gray-50">
+                  Refreshes every 30 seconds · Based on active session tokens
+                </p>
+              </>
+            )}
           </div>
         )}
 
-        {onlineUsers.length > 0 && (
-          <p className="px-4 py-2 text-[10px] text-gray-300 border-t border-gray-50">
-            Refreshes every 30 seconds · Based on active session tokens
-          </p>
-        )}
-      </div>
+      </div>{/* end tabs card */}
+
+      {/* ── All Users Tab ── */}
+      {activeTab === 'users' && <>
 
       {/* ── Filters ── */}
       <div className="flex flex-wrap items-end gap-3 px-4 py-3.5 bg-white rounded-xl border border-gray-100 shadow-sm">
@@ -1148,6 +1175,7 @@ const UserManagement = () => {
           </div>
         )}
       </div>
+      </>}{/* end All Users tab */}
 
       {/* ── Modals ── */}
       <Modal isOpen={showCreateModal} onClose={closeCreate} onBackdropClose={() => setShowCreateModal(false)} title="Create New User" size="lg">
