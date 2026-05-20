@@ -2,6 +2,7 @@ import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import api from '../services/api';
 import { ROLE_PRIORITY } from '../constants/roles';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext(null);
 
 const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // refresh every 10 min (safe for short token lifetimes)

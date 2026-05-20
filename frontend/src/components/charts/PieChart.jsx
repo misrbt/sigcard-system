@@ -11,7 +11,7 @@ ChartJS.register(ArcElement, Tooltip, Legend);
 const PieChart = ({
   data,
   title = 'Pie Chart',
-  height = 400,
+  _height = 400,
   responsive = true,
   maintainAspectRatio = false,
   showLabels = true,

@@ -77,7 +77,7 @@ const exportExcel = async (report) => {
   const font  = (sz, bold, color, italic) => ({ name: "Calibri", sz, bold: !!bold, color: { rgb: color }, ...(italic ? { italic: true } : {}) });
   const fill  = (rgb) => ({ patternType: "solid", fgColor: { rgb } });
   const align = (h, v = "center") => ({ horizontal: h, vertical: v });
-  const bord  = (style, rgb) => ({ top: { style, color: { rgb } }, bottom: { style, color: { rgb } }, left: { style, color: { rgb } }, right: { style, color: { rgb } } });
+  const _bord = (style, rgb) => ({ top: { style, color: { rgb } }, bottom: { style, color: { rgb } }, left: { style, color: { rgb } }, right: { style, color: { rgb } } });
   const bordB = (style, rgb) => ({ bottom: { style, color: { rgb } } });
 
   const ST = {

@@ -32,6 +32,7 @@ export function AppConfigProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAppConfig() {
   return useContext(AppConfigContext);
 }

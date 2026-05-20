@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { ROLE_LABELS } from '../../constants/roles';
 import logo from '../../assets/images/logos.png';
 
-const Header = ({ onSidebarToggle, isSidebarOpen, userRole }) => {
+const Header = ({ onSidebarToggle, userRole }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
