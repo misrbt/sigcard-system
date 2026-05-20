@@ -11,6 +11,7 @@ import {
 } from 'react-icons/md';
 import { FaUserShield } from 'react-icons/fa';
 import { adminService } from '../../services/adminService';
+import { useAppConfig } from '../../context/AppConfigContext';
 import Modal from '../../components/common/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -19,7 +20,7 @@ import Button from '../../components/ui/Button';
 // ── UserForm (unchanged) ──────────────────────────────────────────────────────
 const UserForm = ({
   isEdit, formData, formErrors, handleFormChange,
-  handleRoleChange, setFormData, branches, roles, submitting, onCancel, onSubmit,
+  handleRoleChange, setFormData, branches, roles, userStatuses, submitting, onCancel, onSubmit,
 }) => (
   <div className="space-y-5">
     {formErrors.general && (
@@ -37,7 +38,7 @@ const UserForm = ({
     </div>
     <div className="grid grid-cols-2 gap-4">
       <Select label="Branch" name="branch_id" value={formData.branch_id} onChange={handleFormChange} placeholder="Select branch" options={branches.map((b) => ({ value: b.id, label: b.branch_name }))} error={formErrors.branch_id?.[0]} required />
-      <Select label="Status" name="status" value={formData.status} onChange={handleFormChange} options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'suspended', label: 'Suspended' }]} />
+      <Select label="Status" name="status" value={formData.status} onChange={handleFormChange} options={(userStatuses ?? []).map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))} />
     </div>
     <Input label="Account Expires At (optional)" type="date" name="account_expires_at" value={formData.account_expires_at || ''} onChange={handleFormChange} error={formErrors.account_expires_at?.[0]} />
     <div className="space-y-1">
@@ -495,6 +496,7 @@ const SkeletonRows = ({ perPage }) => (
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const UserManagement = () => {
+  const appConfig = useAppConfig();
   const [users, setUsers]           = useState([]);
   const [meta, setMeta]             = useState({ total_active: 0, total_inactive: 0, total_suspended: 0, total_locked: 0 });
   const [pagination, setPagination] = useState({ current_page: 1, last_page: 1, total: 0, from: 0, to: 0 });
@@ -770,7 +772,7 @@ const UserManagement = () => {
     return [...pages].sort((a, b) => a - b);
   };
 
-  const sharedFormProps = { formData, formErrors, handleFormChange, handleRoleChange, setFormData, branches, roles, submitting };
+  const sharedFormProps = { formData, formErrors, handleFormChange, handleRoleChange, setFormData, branches, roles, userStatuses: appConfig.user_statuses, submitting };
 
   const SORT_COL = { name: 'firstname', email: 'email', status: 'status', joined: 'created_at' };
 
@@ -920,10 +922,8 @@ const UserManagement = () => {
         </div>
         <Select name="status" value={filters.status} onChange={handleFilterChange} placeholder="All Status"
           options={[
-            { value: 'active',    label: 'Active'    },
-            { value: 'inactive',  label: 'Inactive'  },
-            { value: 'suspended', label: 'Suspended' },
-            { value: 'locked',    label: '🔒 Locked'  },
+            ...appConfig.user_statuses.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })),
+            { value: 'locked', label: '🔒 Locked' },
           ]} />
         <Select name="role" value={filters.role} onChange={handleFilterChange} placeholder="All Roles"
           options={roles.map((r) => ({ value: r.name, label: r.name }))} />

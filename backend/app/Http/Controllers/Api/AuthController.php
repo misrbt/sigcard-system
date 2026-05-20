@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\UserDeniedPermission;
 use App\Services\BSPAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -257,14 +258,21 @@ class AuthController extends Controller
     {
         $user = $request->user()->load(['roles.permissions', 'branch']);
 
-        $directPermissions = $user->getDirectPermissions()->pluck('name');
+        $denied = UserDeniedPermission::where('user_id', $user->id)
+            ->pluck('permission_name')
+            ->toArray();
+
+        $effective = $user->getAllPermissions()
+            ->pluck('name')
+            ->reject(fn ($p) => in_array($p, $denied))
+            ->values();
 
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user,
-                'permissions' => $user->getPermissionsViaRoles()->pluck('name'),
-                'direct_permissions' => $directPermissions,
+                'permissions' => $effective,
+                'direct_permissions' => $user->getDirectPermissions()->pluck('name'),
                 'roles' => $user->roles->pluck('name'),
                 'session_timeout' => (int) Cache::get('system_setting_session_timeout', 30),
                 'session_info' => [

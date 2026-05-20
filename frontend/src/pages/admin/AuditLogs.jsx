@@ -33,14 +33,15 @@ const CATEGORIES = [
   { key: 'system',          label: 'System',           icon: MdSettings, color: 'slate'  },
 ];
 
+// Label maps — values (keys) come from /api/config; display text and styles are UI concerns
 const DOC_TYPE_LABELS = {
-  sigcard_front:  'Signature Card (Front)',
-  sigcard_back:   'Signature Card (Back)',
-  nais_front:     'NAIS Form (Front)',
-  nais_back:      'NAIS Form (Back)',
-  privacy_front:  'Data Privacy Consent (Front)',
-  privacy_back:   'Data Privacy Consent (Back)',
-  other:          'Supporting Document',
+  sigcard_front: 'Signature Card (Front)',
+  sigcard_back:  'Signature Card (Back)',
+  nais_front:    'NAIS Form (Front)',
+  nais_back:     'NAIS Form (Back)',
+  privacy_front: 'Data Privacy Consent (Front)',
+  privacy_back:  'Data Privacy Consent (Back)',
+  other:         'Supporting Document',
 };
 
 const STATUS_LABELS = {

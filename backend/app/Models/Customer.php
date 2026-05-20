@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\AccountType;
+use App\Enums\CustomerStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -109,7 +111,7 @@ class Customer extends Model
 
     public function isJoint(): bool
     {
-        return $this->account_type === 'Joint';
+        return $this->account_type === AccountType::Joint->value;
     }
 
     /**
@@ -138,7 +140,7 @@ class Customer extends Model
 
     public function getFullNameAttribute(): string
     {
-        if ($this->account_type === 'Corporate') {
+        if ($this->account_type === AccountType::Corporate->value) {
             return $this->company_name ?? '';
         }
 
@@ -161,7 +163,7 @@ class Customer extends Model
 
     public function scopeActive($query)
     {
-        return $query->where('status', 'active');
+        return $query->where('status', CustomerStatus::Active->value);
     }
 
     public function scopeByBranch($query, int $branchId)
