@@ -276,6 +276,13 @@ const Home = () => {
       from: "#4338ca", to: "#6d28d9",
       action: () => navigate("/user/customers?tab=quick"),
     },
+    canView && {
+      label: "Status Tracking",
+      description: "Monitor and update account statuses — active, dormant, escheat, or closed.",
+      icon: HiOutlineCheckCircle,
+      from: "#047857", to: "#065f46",
+      action: () => navigate("/user/status-tracking"),
+    },
   ].filter(Boolean);
 
   const barOpts = {
@@ -394,7 +401,8 @@ const Home = () => {
               <div className={`grid gap-4 ${
                 quickActions.length === 1 ? "grid-cols-1"
                 : quickActions.length === 2 ? "grid-cols-1 sm:grid-cols-2"
-                : "grid-cols-1 sm:grid-cols-3"
+                : quickActions.length === 3 ? "grid-cols-1 sm:grid-cols-3"
+                : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
               }`}>
                 {quickActions.map(({ label, description, icon: Icon, from, to, action }, i) => (
                   <motion.div
