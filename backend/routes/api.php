@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\CashierController;
 use App\Http\Controllers\Api\ComplianceController;
+use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\ManagerController;
 use App\Http\Controllers\Api\ThumbmarkSearchController;
@@ -18,6 +19,9 @@ Route::get('/test', function () {
         'laravel_version' => app()->version(),
     ]);
 });
+
+// Public — enum values used by the frontend (no auth needed)
+Route::get('/config', [ConfigController::class, 'index']);
 
 // DIGICUR Authentication Routes
 Route::prefix('auth')->group(function () {

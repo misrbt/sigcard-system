@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import Swal from "sweetalert2";
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
+import { useAppConfig } from "../../context/AppConfigContext";
 import {
   HiOutlineUser,
   HiOutlineUsers,
@@ -16,16 +17,8 @@ import {
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const RISK_LEVELS = ["Low Risk", "Medium Risk", "High Risk"];
-
-const STATUS_OPTIONS = [
-  { value: "active",      label: "Active",      color: "bg-green-50 border-green-400 text-green-700 ring-2 ring-green-400/20"   },
-  { value: "dormant",     label: "Dormant",     color: "bg-yellow-50 border-yellow-400 text-yellow-700 ring-2 ring-yellow-400/20" },
-  { value: "reactivated", label: "Reactivated", color: "bg-teal-50 border-teal-400 text-teal-700 ring-2 ring-teal-400/20"       },
-  { value: "escheat",     label: "Escheat",     color: "bg-orange-50 border-orange-400 text-orange-700 ring-2 ring-orange-400/20" },
-  { value: "closed",      label: "Closed",      color: "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-400/20"           },
-];
+// ── UI presentation metadata (styles/icons per value) ────────────────────────
+// Valid values come from /api/config; this maps each value to its display style.
 
 const RISK_STYLE = {
   "Low Risk":    "bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-400/20",
@@ -33,21 +26,29 @@ const RISK_STYLE = {
   "High Risk":   "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-400/20",
 };
 
-const ACCOUNT_TYPE_CONFIG = [
-  { value: "Regular",   label: "Regular",   description: "Standard individual savings or checking account.", icon: HiOutlineUser,          color: "blue",   ring: "ring-blue-500",   bg: "bg-blue-50",   border: "border-blue-500",   iconBg: "bg-blue-500"   },
-  { value: "Joint",     label: "Joint",     description: "Two or more people sharing one account.",          icon: HiOutlineUsers,         color: "purple", ring: "ring-purple-500", bg: "bg-purple-50", border: "border-purple-500", iconBg: "bg-purple-500" },
-  { value: "Corporate", label: "Corporate", description: "Business or organization account.",                icon: HiOutlineOfficeBuilding, color: "slate",  ring: "ring-slate-500",  bg: "bg-slate-50",  border: "border-slate-500",  iconBg: "bg-slate-600"  },
-];
+const STATUS_STYLE = {
+  active:      "bg-green-50 border-green-400 text-green-700 ring-2 ring-green-400/20",
+  dormant:     "bg-yellow-50 border-yellow-400 text-yellow-700 ring-2 ring-yellow-400/20",
+  reactivated: "bg-teal-50 border-teal-400 text-teal-700 ring-2 ring-teal-400/20",
+  escheat:     "bg-orange-50 border-orange-400 text-orange-700 ring-2 ring-orange-400/20",
+  closed:      "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-400/20",
+};
 
-const JOINT_SUB_TYPE_CONFIG = [
-  { value: "ITF",     label: "ITF (In Trust For)",  description: "Two or more persons sharing one account. Each person uploads their own documents.", icon: HiOutlineUsers,      color: "purple", ring: "ring-purple-500", bg: "bg-purple-50", border: "border-purple-500", iconBg: "bg-purple-500" },
-  { value: "Non-ITF", label: "Non-ITF",             description: "One customer with one or more accounts. Each account has its own documents.", icon: HiOutlineCreditCard, color: "indigo", ring: "ring-indigo-500", bg: "bg-indigo-50", border: "border-indigo-500", iconBg: "bg-indigo-500" },
-];
+const ACCOUNT_TYPE_META = {
+  Regular:   { label: "Regular",   description: "Standard individual savings or checking account.", icon: HiOutlineUser,           color: "blue",   ring: "ring-blue-500",   bg: "bg-blue-50",   border: "border-blue-500",   iconBg: "bg-blue-500"   },
+  Joint:     { label: "Joint",     description: "Two or more people sharing one account.",          icon: HiOutlineUsers,          color: "purple", ring: "ring-purple-500", bg: "bg-purple-50", border: "border-purple-500", iconBg: "bg-purple-500" },
+  Corporate: { label: "Corporate", description: "Business or organization account.",                icon: HiOutlineOfficeBuilding, color: "slate",  ring: "ring-slate-500",  bg: "bg-slate-50",  border: "border-slate-500",  iconBg: "bg-slate-600"  },
+};
 
-const CORPORATE_SUB_TYPE_CONFIG = [
-  { value: "Corporate",           label: "Corporate",           description: "Business or organization account with two or more authorized signatories.", icon: HiOutlineOfficeBuilding, color: "slate", ring: "ring-slate-500", bg: "bg-slate-50", border: "border-slate-500", iconBg: "bg-slate-600" },
-  { value: "Sole Proprietorship", label: "Sole Proprietorship", description: "Single-owner business account with only one authorized signatory.",         icon: HiOutlineUser,          color: "amber", ring: "ring-amber-500", bg: "bg-amber-50", border: "border-amber-500", iconBg: "bg-amber-600" },
-];
+const JOINT_SUB_TYPE_META = {
+  "ITF":     { label: "ITF (In Trust For)", description: "Two or more persons sharing one account. Each person uploads their own documents.", icon: HiOutlineUsers,      color: "purple", ring: "ring-purple-500", bg: "bg-purple-50", border: "border-purple-500", iconBg: "bg-purple-500" },
+  "Non-ITF": { label: "Non-ITF",            description: "One customer with one or more accounts. Each account has its own documents.",       icon: HiOutlineCreditCard, color: "indigo", ring: "ring-indigo-500", bg: "bg-indigo-50", border: "border-indigo-500", iconBg: "bg-indigo-500" },
+};
+
+const CORPORATE_SUB_TYPE_META = {
+  "Corporate":           { label: "Corporate",           description: "Business or organization account with two or more authorized signatories.", icon: HiOutlineOfficeBuilding, color: "slate", ring: "ring-slate-500", bg: "bg-slate-50", border: "border-slate-500", iconBg: "bg-slate-600" },
+  "Sole Proprietorship": { label: "Sole Proprietorship", description: "Single-owner business account with only one authorized signatory.",         icon: HiOutlineUser,           color: "amber", ring: "ring-amber-500", bg: "bg-amber-50", border: "border-amber-500", iconBg: "bg-amber-600" },
+};
 
 const STATUS_DATE_LABELS = {
   dormant:     "Date of Dormancy",
@@ -105,13 +106,13 @@ const inputCls = "w-full px-3 py-2.5 text-sm border-2 rounded-xl border-slate-20
 
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
-const RiskLevelPicker = ({ value, onChange, label = "Risk Level" }) => (
+const RiskLevelPicker = ({ value, onChange, label = "Risk Level", riskLevels = [] }) => (
   <div className="space-y-1.5">
     <label className="block text-xs font-semibold text-slate-600">
       {label} <span className="text-red-500">*</span>
     </label>
     <div className="grid grid-cols-3 gap-2">
-      {RISK_LEVELS.map((risk) => (
+      {riskLevels.map((risk) => (
         <button key={risk} type="button" onClick={() => onChange(risk)}
           className={`px-3 py-2.5 rounded-xl border-2 text-xs font-semibold transition-all ${value === risk ? RISK_STYLE[risk] : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
           {risk}
@@ -121,16 +122,16 @@ const RiskLevelPicker = ({ value, onChange, label = "Risk Level" }) => (
   </div>
 );
 
-const StatusPicker = ({ value, onChange }) => (
+const StatusPicker = ({ value, onChange, statuses = [] }) => (
   <div className="space-y-1.5">
     <label className="block text-xs font-semibold text-slate-600">
       Account Status <span className="text-red-500">*</span>
     </label>
     <div className="flex flex-wrap gap-2">
-      {STATUS_OPTIONS.map(({ value: v, label, color }) => (
+      {statuses.map((v) => (
         <button key={v} type="button" onClick={() => onChange(v)}
-          className={`px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${value === v ? color : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
-          {label}
+          className={`px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${value === v ? STATUS_STYLE[v] : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
+          {v.charAt(0).toUpperCase() + v.slice(1)}
         </button>
       ))}
     </div>
@@ -184,7 +185,7 @@ const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDat
 );
 
 const AccountTypePill = ({ type, onReset }) => {
-  const cfg = ACCOUNT_TYPE_CONFIG.find((c) => c.value === type);
+  const cfg = ACCOUNT_TYPE_META[type];
   if (!cfg || !type) return null;
   const colorMap = { blue: "bg-blue-50 border-blue-200 text-blue-700", purple: "bg-purple-50 border-purple-200 text-purple-700", slate: "bg-slate-100 border-slate-200 text-slate-700" };
   return (
@@ -252,6 +253,21 @@ const StatusDateField = ({ status, value, onChange }) => {
 // ── Main component ────────────────────────────────────────────────────────────
 const UploadSigcard = () => {
   const { user } = useAuth();
+  const appConfig = useAppConfig();
+
+  // Config-driven lists (values come from backend /api/config)
+  const accountTypeConfig = useMemo(() =>
+    appConfig.account_types.map((v) => ({ value: v, ...ACCOUNT_TYPE_META[v] ?? { label: v } })),
+    [appConfig.account_types]
+  );
+  const jointSubTypeConfig = useMemo(() =>
+    appConfig.joint_sub_types.map((v) => ({ value: v, ...JOINT_SUB_TYPE_META[v] ?? { label: v } })),
+    [appConfig.joint_sub_types]
+  );
+  const corporateSubTypeConfig = useMemo(() =>
+    appConfig.corporate_sub_types.map((v) => ({ value: v, ...CORPORATE_SUB_TYPE_META[v] ?? { label: v } })),
+    [appConfig.corporate_sub_types]
+  );
 
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -657,7 +673,7 @@ const UploadSigcard = () => {
           <div className="space-y-6">
             <p className="text-sm text-slate-500">Select the account type. This determines the required document sets and holder structure.</p>
             <div className="grid gap-4 sm:grid-cols-3">
-              {ACCOUNT_TYPE_CONFIG.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
+              {accountTypeConfig.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
                 const isSelected = formData.accountType === value;
                 return (
                   <motion.button key={value} type="button" whileTap={{ scale: 0.97 }}
@@ -688,7 +704,7 @@ const UploadSigcard = () => {
             <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
             <p className="text-sm text-slate-500">Select the joint account classification.</p>
             <div className="grid gap-4 sm:grid-cols-2">
-              {JOINT_SUB_TYPE_CONFIG.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
+              {jointSubTypeConfig.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
                 const isSelected = formData.jointSubType === value;
                 return (
                   <motion.button key={value} type="button" whileTap={{ scale: 0.97 }}
@@ -719,7 +735,7 @@ const UploadSigcard = () => {
             <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
             <p className="text-sm text-slate-500">Select the corporate account classification.</p>
             <div className="grid gap-4 sm:grid-cols-2">
-              {CORPORATE_SUB_TYPE_CONFIG.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
+              {corporateSubTypeConfig.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
                 const isSelected = formData.corporateSubType === value;
                 return (
                   <motion.button key={value} type="button" whileTap={{ scale: 0.97 }}
@@ -1023,11 +1039,11 @@ const UploadSigcard = () => {
                 </div>
               </div>
 
-              <RiskLevelPicker value={formData.riskLevel} onChange={(v) => setField("riskLevel", v)} />
+              <RiskLevelPicker value={formData.riskLevel} onChange={(v) => setField("riskLevel", v)} riskLevels={appConfig.risk_levels} />
 
               <div className="border-t border-blue-100" />
 
-              <StatusPicker value={formData.status} onChange={(v) => { setField("status", v); setField("statusDate", ""); }} />
+              <StatusPicker value={formData.status} onChange={(v) => { setField("status", v); setField("statusDate", ""); }} statuses={appConfig.customer_statuses} />
               <StatusDateField status={formData.status} value={formData.statusDate} onChange={(e) => setField("statusDate", e.target.value)} />
               <AccountInfoRow
                 accountNo={formData.accountNo} dateOpened={formData.dateOpened} dateUpdated={formData.dateUpdated}
@@ -1060,6 +1076,7 @@ const UploadSigcard = () => {
                     <RiskLevelPicker
                       value={a.riskLevel}
                       onChange={(v) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, riskLevel: v } : x))}
+                      riskLevels={appConfig.risk_levels}
                     />
 
                     <div className="border-t border-slate-100" />
@@ -1067,6 +1084,7 @@ const UploadSigcard = () => {
                     <StatusPicker
                       value={a.status}
                       onChange={(v) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, status: v, statusDate: "" } : x))}
+                      statuses={appConfig.customer_statuses}
                     />
                     <StatusDateField
                       status={a.status}

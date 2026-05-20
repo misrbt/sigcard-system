@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\AccountType;
+use App\Enums\CustomerStatus;
+use App\Enums\DocumentType;
+use App\Enums\RiskLevel;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerDocument;
@@ -34,9 +38,9 @@ class ComplianceController extends Controller
         $totalCustomers = Customer::count();
         $totalUsers = User::count();
         $totalDocuments = CustomerDocument::count();
-        $totalSigcards = CustomerDocument::where('document_type', 'sigcard_front')->count();
+        $totalSigcards = CustomerDocument::where('document_type', DocumentType::SigcardFront->value)->count();
         $todayUploads = Customer::whereDate('created_at', today())->count();
-        $totalBranches = \App\Models\Branch::where('branch_name', '!=', 'Head Office')->count();
+        $totalBranches = \App\Models\Branch::operational()->count();
 
         $byStatus = Customer::select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
@@ -51,7 +55,7 @@ class ComplianceController extends Controller
             ->pluck('count', 'risk_level');
 
         // Sigcard counts per branch (keyed by branch_id)
-        $sigcardCounts = CustomerDocument::where('document_type', 'sigcard_front')
+        $sigcardCounts = CustomerDocument::where('document_type', DocumentType::SigcardFront->value)
             ->join('customers', 'customer_documents.customer_id', '=', 'customers.id')
             ->select('customers.branch_id', DB::raw('count(*) as count'))
             ->groupBy('customers.branch_id')
@@ -91,19 +95,19 @@ class ComplianceController extends Controller
                     'brak' => $branch->brak,
                     'brcode' => $branch->brcode,
                     'total' => $branch->customers_count,
-                    'active' => $statusCounts->get('active', 0),
-                    'dormant' => $statusCounts->get('dormant', 0),
-                    'escheat' => $statusCounts->get('escheat', 0),
-                    'closed' => $statusCounts->get('closed', 0),
-                    'reactivated' => $statusCounts->get('reactivated', 0),
+                    'active' => $statusCounts->get(CustomerStatus::Active->value, 0),
+                    'dormant' => $statusCounts->get(CustomerStatus::Dormant->value, 0),
+                    'escheat' => $statusCounts->get(CustomerStatus::Escheat->value, 0),
+                    'closed' => $statusCounts->get(CustomerStatus::Closed->value, 0),
+                    'reactivated' => $statusCounts->get(CustomerStatus::Reactivated->value, 0),
                     'sigcards' => $sigcardCounts->get($branch->id, 0),
                     'documents' => $documentCounts->get($branch->id, 0),
-                    'individual' => $branchAccountTypes->get('Regular', 0),
-                    'joint' => $branchAccountTypes->get('Joint', 0),
-                    'corporate' => $branchAccountTypes->get('Corporate', 0),
-                    'low_risk' => $branchRiskLevels->get('Low Risk', 0),
-                    'medium_risk' => $branchRiskLevels->get('Medium Risk', 0),
-                    'high_risk' => $branchRiskLevels->get('High Risk', 0),
+                    'individual' => $branchAccountTypes->get(AccountType::Regular->value, 0),
+                    'joint' => $branchAccountTypes->get(AccountType::Joint->value, 0),
+                    'corporate' => $branchAccountTypes->get(AccountType::Corporate->value, 0),
+                    'low_risk' => $branchRiskLevels->get(RiskLevel::Low->value, 0),
+                    'medium_risk' => $branchRiskLevels->get(RiskLevel::Medium->value, 0),
+                    'high_risk' => $branchRiskLevels->get(RiskLevel::High->value, 0),
                 ];
             });
 
