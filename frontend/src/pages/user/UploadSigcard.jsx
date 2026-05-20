@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import Swal from "sweetalert2";
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
@@ -288,6 +288,7 @@ const UploadSigcard = () => {
   const [isSubmitting,         setIsSubmitting]         = useState(false);
   const [uploadProgress,     setUploadProgress]     = useState(0);
   const [submitPhase,        setSubmitPhase]        = useState("idle");
+  const [direction,          setDirection]          = useState(1);
 
   const isJoint              = formData.accountType === "Joint";
   const isCorporate          = formData.accountType === "Corporate";
@@ -501,8 +502,8 @@ const UploadSigcard = () => {
     }
   }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF]);
 
-  const handleNext = () => { if (isStepValid) setStep((s) => Math.min(s + 1, activeSteps.length - 1)); };
-  const handlePrev = () => setStep((s) => Math.max(s - 1, 0));
+  const handleNext = () => { if (isStepValid) { setDirection(1);  setStep((s) => Math.min(s + 1, activeSteps.length - 1)); } };
+  const handlePrev = () => {                   setDirection(-1); setStep((s) => Math.max(s - 1, 0)); };
 
   const resetAll = () => {
     setStep(0);
@@ -1580,8 +1581,19 @@ const UploadSigcard = () => {
 
   const progress = Math.round(((step + 1) / activeSteps.length) * 100);
 
+  const stepVariants = {
+    enter:  (d) => ({ x: d > 0 ? 56 : -56, opacity: 0, rotateY: d > 0 ? 10 : -10, scale: 0.97 }),
+    center: {       x: 0,                   opacity: 1, rotateY: 0,                 scale: 1    },
+    exit:   (d) => ({ x: d > 0 ? -56 : 56, opacity: 0, rotateY: d > 0 ? -10 : 10, scale: 0.97 }),
+  };
+
   return (
-    <div className="bg-gray-50 text-slate-900">
+    <motion.div
+      className="bg-gray-50 text-slate-900"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: "easeOut" }}
+    >
       <main className="flex flex-1 w-full max-w-4xl px-4 py-8 mx-auto sm:px-6 lg:px-8 lg:py-10">
         <div className="w-full space-y-5">
 
@@ -1627,8 +1639,23 @@ const UploadSigcard = () => {
               </div>
             </div>
 
-            {/* Card body */}
-            <div className="p-6 sm:p-8">{renderStep()}</div>
+            {/* Card body — 3D step transition */}
+            <div className="p-6 sm:p-8 overflow-hidden" style={{ perspective: "1200px" }}>
+              <AnimatePresence mode="wait" custom={direction}>
+                <motion.div
+                  key={step}
+                  custom={direction}
+                  variants={stepVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.32, ease: [0.4, 0, 0.2, 1] }}
+                  style={{ transformOrigin: direction > 0 ? "left center" : "right center" }}
+                >
+                  {renderStep()}
+                </motion.div>
+              </AnimatePresence>
+            </div>
 
             {/* Navigation */}
             <div className="flex items-center justify-between gap-4 px-6 sm:px-8 py-5 border-t border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100">
@@ -1687,7 +1714,7 @@ const UploadSigcard = () => {
           </div>
         </div>
       </main>
-    </div>
+    </motion.div>
   );
 };
 
