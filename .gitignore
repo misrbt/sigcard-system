@@ -9,6 +9,7 @@
 backend/.env
 backend/.env.*
 !backend/.env.example
+!backend/.env.testing.example
 frontend/.env
 frontend/.env.*
 !frontend/.env.example
