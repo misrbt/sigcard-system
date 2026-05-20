@@ -1,14 +1,30 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { MdMenu, MdAccountCircle, MdSettings, MdLogout } from 'react-icons/md';
 import { useAuth } from '../../hooks/useAuth';
 import { ROLE_LABELS } from '../../constants/roles';
 import logo from '../../assets/images/logos.png';
 
+const PAGE_TITLES = {
+  '/admin/dashboard':       'Dashboard',
+  '/admin/customers':       'Customer Profiles',
+  '/admin/upload':          'Upload Documents',
+  '/admin/documents':       'Documents',
+  '/admin/users':           'Users',
+  '/admin/roles':           'Roles & Permissions',
+  '/admin/audit-logs':      'Audit Logs',
+  '/admin/reports':         'Reports',
+  '/admin/branches':        'Branches',
+  '/admin/data-management': 'Data Management',
+  '/admin/settings':        'Settings',
+  '/admin/profile':         'My Profile',
+};
+
 const Header = ({ onSidebarToggle, userRole }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const displayName = user?.full_name || user?.firstname || userRole || 'User';
   const displayRole = ROLE_LABELS[userRole] ?? (userRole ? userRole.charAt(0).toUpperCase() + userRole.slice(1) : '');
@@ -44,7 +60,7 @@ const Header = ({ onSidebarToggle, userRole }) => {
 
           <div className="hidden lg:block">
             <h1 className="text-xl xl:text-2xl font-bold text-white truncate tracking-wide">
-              {userRole === 'admin' ? 'Admin Panel' : `${displayRole} Dashboard`}
+              {PAGE_TITLES[location.pathname] ?? (userRole === 'admin' ? 'Admin Panel' : `${displayRole} Dashboard`)}
             </h1>
           </div>
         </div>
