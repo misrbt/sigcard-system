@@ -10,6 +10,7 @@ import {
 import logo from "../../assets/images/logos.png";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_LABELS } from "../../constants/roles";
+import { useAppConfig } from "../../context/AppConfigContext";
 
 const defaultNavLinks = [
   { to: "/user/dashboard", label: "Home",              permission: null },
@@ -23,6 +24,8 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
   const { user, getPrimaryRole, logout, loading, hasPermission } = useAuth();
+  const { app_name, app_abbreviation, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
 
   const visibleLinks = navLinks.filter(
     (link) => !link.permission || hasPermission(link.permission)
@@ -64,12 +67,12 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
               to="/user/dashboard"
               className="flex items-center gap-4 transition-transform hover:scale-105"
             >
-              <img src={logo} alt="DIGICUR Logo" className="w-auto h-10" />
+              <img src={logoSrc} alt={`${app_abbreviation} Logo`} className="w-auto h-10" />
               <div className="hidden sm:block">
                 <p className="text-xs uppercase tracking-[0.45em] text-white/70">
-                  DIGICUR
+                  {app_abbreviation}
                 </p>
-                <p className="text-xl font-semibold tracking-wide">RBTBK</p>
+                <p className="text-xl font-semibold tracking-wide">{app_name}</p>
               </div>
             </Link>
 

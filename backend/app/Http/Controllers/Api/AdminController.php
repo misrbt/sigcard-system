@@ -27,6 +27,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\PersonalAccessToken;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Permission;
@@ -1354,6 +1355,9 @@ class AdminController extends Controller
                 'notification_email' => Cache::get('system_setting_notification_email', config('mail.from.address')),
                 'system_timezone' => Cache::get('system_setting_system_timezone', config('app.timezone')),
                 'currency_code' => Cache::get('system_setting_currency_code', 'PHP'),
+                'app_name' => Cache::get('system_setting_app_name', 'DIGITAL CUSTOMER RECORD'),
+                'app_abbreviation' => Cache::get('system_setting_app_abbreviation', 'DIGICUR'),
+                'app_logo_url' => Cache::get('system_setting_app_logo_url', null),
             ];
 
             activity()
@@ -1412,6 +1416,44 @@ class AdminController extends Controller
                 'success' => false,
                 'message' => 'Failed to update system settings',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload the app logo for branding.
+     */
+    public function uploadAppLogo(Request $request): JsonResponse
+    {
+        $this->authorize('view-system-settings');
+
+        $request->validate([
+            'logo' => ['required', 'image', 'mimes:png,jpg,jpeg,svg,webp', 'max:2048'],
+        ]);
+
+        try {
+            $file = $request->file('logo');
+            $filename = 'app_logo.'.$file->getClientOriginalExtension();
+            $file->storeAs('branding', $filename, 'public');
+
+            $url = Storage::disk('public')->url('branding/'.$filename);
+            Cache::put('system_setting_app_logo_url', $url, now()->addDays(30));
+
+            activity()
+                ->causedBy(auth()->user())
+                ->withProperties(['action' => 'uploaded_app_logo'])
+                ->log('Admin uploaded app logo');
+
+            return response()->json([
+                'success' => true,
+                'logo_url' => $url,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Logo upload failed: '.$e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to upload logo: '.$e->getMessage(),
             ], 500);
         }
     }

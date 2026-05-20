@@ -11,6 +11,7 @@ use App\Enums\RiskLevel;
 use App\Enums\UserStatus;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 
 class ConfigController extends Controller
 {
@@ -28,6 +29,10 @@ class ConfigController extends Controller
             'risk_levels' => RiskLevel::values(),
             'document_types' => DocumentType::values(),
             'user_statuses' => UserStatus::values(),
+            // Branding — configurable from admin settings
+            'app_name' => Cache::get('system_setting_app_name', 'DIGITAL CUSTOMER RECORD'),
+            'app_abbreviation' => Cache::get('system_setting_app_abbreviation', 'DIGICUR'),
+            'app_logo_url' => Cache::get('system_setting_app_logo_url', null),
         ]);
     }
 }
