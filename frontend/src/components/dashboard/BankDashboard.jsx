@@ -24,8 +24,9 @@ const RISK_COLORS = {
   'High Risk':   { bg: 'bg-red-50',     text: 'text-red-700',     bar: 'bg-red-500',     circle: 'bg-red-600',     hex: '#EF4444' },
 };
 
-const TILE_ICONS = { blue: 'bg-cyan-600', indigo: 'bg-[#487FFF]', teal: 'bg-teal-600', purple: 'bg-violet-600', cyan: 'bg-cyan-600', amber: 'bg-orange-500' };
+const TILE_ICONS    = { blue: 'bg-cyan-600', indigo: 'bg-[#487FFF]', teal: 'bg-teal-600', purple: 'bg-violet-600', cyan: 'bg-cyan-600', amber: 'bg-orange-500' };
 const TILE_GRADIENT = { blue: 'from-[#f2fdff] to-[#d4f7ff]', indigo: 'from-[#eef2ff] to-[#e0e7ff]', teal: 'from-[#f0fdfa] to-[#ccfbf1]', purple: 'from-[#faf5ff] to-[#e9e0ff]', cyan: 'from-[#ecfeff] to-[#cffafe]', amber: 'from-[#fff7ed] to-[#ffefdd]' };
+const TILE_ACCENT   = { blue: 'bg-cyan-500/20', indigo: 'bg-[#487FFF]/20', teal: 'bg-teal-500/20', purple: 'bg-violet-500/20', cyan: 'bg-cyan-500/20', amber: 'bg-orange-500/20' };
 
 const CardWrap = ({ children, className = '' }) => (
   <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden ${className}`}>{children}</div>
@@ -186,7 +187,7 @@ const BankDashboard = ({ fetchData, customersPath, customerViewPath, title, subt
     return (
       <div className="space-y-6 animate-pulse">
         <div className="flex items-center justify-between"><div className="h-8 w-48 bg-gray-200 rounded-lg" /><div className="h-9 w-24 bg-gray-200 rounded-lg" /></div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-gray-200 rounded-2xl" />)}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">{[...Array(4)].map((_, i) => <div key={i} className="h-36 bg-gray-200 rounded-2xl" />)}</div>
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           <div className="xl:col-span-8 space-y-6">
             <div className="h-72 bg-gray-200 rounded-2xl" />
@@ -214,7 +215,7 @@ const BankDashboard = ({ fetchData, customersPath, customerViewPath, title, subt
   }
 
   const s = stats.summary;
-  const branchesExHO = stats.by_branch.filter(b => b.branch_name !== 'Head Office');
+  const branchesExHO = stats.by_branch.filter(b => !b.is_head_office);
 
   if (selectedBranch) {
     return (
@@ -282,7 +283,7 @@ const BankDashboard = ({ fetchData, customersPath, customerViewPath, title, subt
       </div>
 
       {/* ── Stat Cards ────────────────────────────────────────────────────────── */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${overviewTiles.length <= 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-3 2xl:grid-cols-6'}`}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {overviewTiles.map(({ title: tileTitle, valueKey, icon, color, to }, i) => (
           <motion.div
             key={tileTitle}
@@ -290,17 +291,18 @@ const BankDashboard = ({ fetchData, customersPath, customerViewPath, title, subt
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.06 }}
             onClick={() => to && navigate(to)}
-            className={`p-4 rounded-2xl border border-white/80 bg-gradient-to-r ${TILE_GRADIENT[color] ?? 'from-gray-50 to-white'} shadow-sm ${to ? 'cursor-pointer hover:-translate-y-0.5 transition-transform' : ''}`}
+            className={`relative p-5 rounded-2xl border border-gray-100 bg-gradient-to-br ${TILE_GRADIENT[color] ?? 'from-gray-50 to-white'} shadow-sm overflow-hidden ${to ? 'cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-200' : ''}`}
           >
-            <div className="flex items-center gap-3 mb-2">
-              <span className={`w-12 h-12 ${TILE_ICONS[color] ?? 'bg-gray-500'} flex-shrink-0 text-white flex justify-center items-center rounded-full text-base`}>
-                {icon}
-              </span>
-              <div>
-                <span className="font-medium text-gray-600 text-sm">{tileTitle}</span>
-                <h6 className="font-bold text-gray-900 text-xl mt-0.5">{Number(s[valueKey] ?? 0).toLocaleString()}</h6>
-              </div>
+            {/* subtle decorative circle */}
+            <div className={`absolute -right-4 -top-4 w-20 h-20 rounded-full ${TILE_ACCENT[color] ?? 'bg-gray-500/10'}`} />
+
+            <div className={`w-11 h-11 ${TILE_ICONS[color] ?? 'bg-gray-500'} text-white flex items-center justify-center rounded-xl text-lg mb-4 relative z-10`}>
+              {icon}
             </div>
+            <h6 className="font-extrabold text-gray-900 text-3xl leading-none mb-1 relative z-10">
+              {Number(s[valueKey] ?? 0).toLocaleString()}
+            </h6>
+            <span className="text-sm font-medium text-gray-500 relative z-10">{tileTitle}</span>
           </motion.div>
         ))}
       </div>

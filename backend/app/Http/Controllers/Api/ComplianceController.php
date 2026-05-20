@@ -94,6 +94,7 @@ class ComplianceController extends Controller
                     'branch_name' => $branch->branch_name,
                     'brak' => $branch->brak,
                     'brcode' => $branch->brcode,
+                    'is_head_office' => (bool) $branch->is_head_office,
                     'total' => $branch->customers_count,
                     'active' => $statusCounts->get(CustomerStatus::Active->value, 0),
                     'dormant' => $statusCounts->get(CustomerStatus::Dormant->value, 0),
