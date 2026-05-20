@@ -21,9 +21,7 @@ jobs:
       - name: Set up test environment
         working-directory: backend
         run: |
-          cp /var/www/staging/sigcard-system/backend/.env .env.testing
-          sed -i 's/^DB_DATABASE=.*/DB_DATABASE=digicur_testing/' .env.testing
-          sed -i 's/^APP_ENV=.*/APP_ENV=testing/' .env.testing
+          cp .env.testing.example .env.testing
           php artisan key:generate --env=testing
 
       - name: Run backend tests
