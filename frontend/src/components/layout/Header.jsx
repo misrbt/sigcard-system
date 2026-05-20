@@ -4,6 +4,7 @@ import { MdMenu, MdAccountCircle, MdSettings, MdLogout } from 'react-icons/md';
 import { useAuth } from '../../hooks/useAuth';
 import { ROLE_LABELS } from '../../constants/roles';
 import logo from '../../assets/images/logos.png';
+import { useAppConfig } from '../../context/AppConfigContext';
 
 const PAGE_TITLES = {
   '/admin/dashboard':       'Dashboard',
@@ -23,6 +24,8 @@ const PAGE_TITLES = {
 const Header = ({ onSidebarToggle, userRole }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const { user, logout } = useAuth();
+  const { app_name, app_abbreviation, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -51,10 +54,10 @@ const Header = ({ onSidebarToggle, userRole }) => {
           </button>
 
           <div className="flex items-center gap-2 sm:gap-3 lg:hidden min-w-0">
-            <img src={logo} alt="DIGICUR Logo" className="h-9 w-9 sm:h-11 sm:w-11 object-contain flex-shrink-0" />
+            <img src={logoSrc} alt={`${app_abbreviation} Logo`} className="h-9 w-9 sm:h-11 sm:w-11 object-contain flex-shrink-0" />
             <div className="flex flex-col min-w-0">
-              <span className="text-white font-extrabold text-base sm:text-lg leading-tight tracking-widest truncate">DIGICUR</span>
-              <span className="text-[#1877F2] font-bold text-[10px] sm:text-xs leading-tight tracking-widest truncate">DIGITAL CUSTOMER RECORD</span>
+              <span className="text-white font-extrabold text-base sm:text-lg leading-tight tracking-widest truncate">{app_abbreviation}</span>
+              <span className="text-[#1877F2] font-bold text-[10px] sm:text-xs leading-tight tracking-widest truncate">{app_name}</span>
             </div>
           </div>
 

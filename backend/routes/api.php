@@ -90,6 +90,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
 
         Route::get('/system-settings', [AdminController::class, 'getSystemSettings']);
         Route::put('/system-settings', [AdminController::class, 'updateSystemSettings']);
+        Route::post('/system-settings/logo', [AdminController::class, 'uploadAppLogo']);
         Route::get('/system-logs', [AdminController::class, 'getSystemLogs']);
         Route::post('/system/backup', [AdminController::class, 'backupSystem']);
         Route::post('/system/restore', [AdminController::class, 'restoreSystem']);

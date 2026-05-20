@@ -35,6 +35,8 @@ class SystemSettingsRequest extends FormRequest
             'notification_email' => ['sometimes', 'email', 'max:255'],
             'system_timezone' => ['sometimes', 'string', 'max:100'],
             'currency_code' => ['sometimes', 'string', 'size:3'],
+            'app_name' => ['sometimes', 'string', 'max:100'],
+            'app_abbreviation' => ['sometimes', 'string', 'max:20'],
         ];
     }
 

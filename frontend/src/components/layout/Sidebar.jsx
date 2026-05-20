@@ -6,6 +6,7 @@ import {
 } from "react-icons/md";
 import logo from "../../assets/images/logos.png";
 import { useAuth } from "../../hooks/useAuth";
+import { useAppConfig } from "../../context/AppConfigContext";
 
 // ── Navigation groups ─────────────────────────────────────────────────────────
 const NAV_GROUPS = {
@@ -109,6 +110,8 @@ const NavItem = ({ item, isActive, isCollapsed, onNavClick }) => {
 const Sidebar = ({ isMobileOpen, isDesktopCollapsed, onMobileClose, onDesktopToggle, userRole }) => {
   const location  = useLocation();
   const { hasPermission } = useAuth();
+  const { app_name, app_abbreviation, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
 
   const groups = NAV_GROUPS[userRole] || [];
   const filteredGroups = groups
@@ -135,19 +138,19 @@ const Sidebar = ({ isMobileOpen, isDesktopCollapsed, onMobileClose, onDesktopTog
             <div className="relative group">
               <div className="absolute inset-0 bg-[#1877F2]/20 rounded-xl blur-lg opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative p-2 rounded-xl border border-white/10 bg-white/5">
-                <img src={logo} alt="Logo" className="w-8 h-8 object-contain" />
+                <img src={logoSrc} alt="Logo" className="w-8 h-8 object-contain" />
               </div>
             </div>
           </div>
         ) : (
           <div className="flex items-center gap-3">
             <div className="flex-shrink-0 p-1.5 rounded-xl border border-white/10 bg-white/5">
-              <img src={logo} alt="Logo" className="w-9 h-9 object-contain" />
+              <img src={logoSrc} alt="Logo" className="w-9 h-9 object-contain" />
             </div>
             <div className="min-w-0">
-              <p className="text-white font-extrabold text-xl tracking-widest leading-none">DIGICUR</p>
+              <p className="text-white font-extrabold text-xl tracking-widest leading-none">{app_abbreviation}</p>
               <p className="text-[#1877F2] text-[9px] font-bold tracking-[0.18em] mt-1 leading-none">
-                DIGITAL CUSTOMER RECORD
+                {app_name}
               </p>
               <div className="mt-1.5 h-px bg-gradient-to-r from-[#1877F2]/60 via-white/15 to-transparent rounded-full" />
             </div>

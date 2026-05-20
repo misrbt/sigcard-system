@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
+import { useRef } from "react";
 import {
   MdSecurity, MdTimer, MdLock, MdSave, MdRefresh,
   MdSettings, MdShield, MdWarning, MdCheckCircle,
-  MdVpnKey, MdClose,
+  MdVpnKey, MdClose, MdBrandingWatermark, MdUpload, MdImage,
 } from "react-icons/md";
 import { adminService } from "../../services/adminService";
+import { useAppConfig } from "../../context/AppConfigContext";
+import defaultLogo from "../../assets/images/logos.png";
 
 // ── Number Stepper ──────────────────────────────────────────────────────────
 
@@ -186,9 +189,10 @@ const ConfirmModal = ({ title, message, confirmLabel, danger = false, onConfirm,
 // ── Tabs Config ─────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "session",        label: "Session & Token",  short: "Session", Icon: MdTimer    },
-  { id: "authentication", label: "Authentication",   short: "Auth",    Icon: MdLock     },
-  { id: "system",         label: "System Config",    short: "System",  Icon: MdSettings },
+  { id: "session",        label: "Session & Token",  short: "Session",   Icon: MdTimer              },
+  { id: "authentication", label: "Authentication",   short: "Auth",      Icon: MdLock               },
+  { id: "system",         label: "System Config",    short: "System",    Icon: MdSettings           },
+  { id: "branding",       label: "App Branding",     short: "Branding",  Icon: MdBrandingWatermark  },
 ];
 
 // ── Main Component ──────────────────────────────────────────────────────────
@@ -202,6 +206,11 @@ const SystemSettings = () => {
   const [success, setSuccess]         = useState("");
   const [activeTab, setActiveTab]     = useState("session");
   const [confirmMaint, setConfirmMaint] = useState(false);
+  const [logoFile, setLogoFile]       = useState(null);
+  const [logoPreview, setLogoPreview] = useState(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef(null);
+  const { app_logo_url, refreshConfig } = useAppConfig();
 
   const isDirty = original && JSON.stringify(settings) !== JSON.stringify(original);
 
@@ -240,6 +249,7 @@ const SystemSettings = () => {
       };
       await adminService.updateSystemSettings(payload);
       setOriginal({ ...settings });
+      refreshConfig();
       setSuccess("Settings saved successfully. Changes have been audit-logged.");
       setTimeout(() => setSuccess(""), 5000);
     } catch (err) {
@@ -250,6 +260,32 @@ const SystemSettings = () => {
       setError(msg);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLogoSelect = (file) => {
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  };
+
+  const handleLogoUpload = async () => {
+    if (!logoFile) return;
+    try {
+      setUploadingLogo(true);
+      setError("");
+      const res = await adminService.uploadAppLogo(logoFile);
+      setSettings((prev) => ({ ...prev, app_logo_url: res.data.logo_url }));
+      setOriginal((prev) => ({ ...prev, app_logo_url: res.data.logo_url }));
+      setLogoFile(null);
+      setLogoPreview(null);
+      refreshConfig();
+      setSuccess("Logo uploaded successfully. The new logo is now live across all screens.");
+      setTimeout(() => setSuccess(""), 5000);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.response?.data?.errors?.logo?.[0] || "Failed to upload logo. Make sure the file is an image under 2 MB.";
+      setError(msg);
+    } finally {
+      setUploadingLogo(false);
     }
   };
 
@@ -719,6 +755,111 @@ const SystemSettings = () => {
                     </span>
                   </div>
                 </FieldRow>
+              </>
+            )}
+
+            {/* ── App Branding Tab ─────────────────────────────────────────── */}
+            {activeTab === "branding" && (
+              <>
+                <SectionHeader
+                  title="App Branding"
+                  description="Customize the application name, abbreviation, and logo shown in the sidebar, top navigation, and mobile header."
+                />
+
+                <FieldRow
+                  label="App Name"
+                  description="The full name shown below the abbreviation in the sidebar and top navigation (e.g. DIGITAL CUSTOMER RECORD)."
+                >
+                  <input
+                    type="text"
+                    value={settings.app_name ?? ""}
+                    onChange={(e) => set("app_name", e.target.value.toUpperCase())}
+                    placeholder="DIGITAL CUSTOMER RECORD"
+                    maxLength={100}
+                    className="w-full sm:w-80 px-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 uppercase tracking-wide"
+                  />
+                </FieldRow>
+
+                <FieldRow
+                  label="App Abbreviation"
+                  description="Short name displayed prominently at the top of the sidebar and navigation bar (e.g. DIGICUR)."
+                >
+                  <input
+                    type="text"
+                    value={settings.app_abbreviation ?? ""}
+                    onChange={(e) => set("app_abbreviation", e.target.value.toUpperCase())}
+                    placeholder="DIGICUR"
+                    maxLength={20}
+                    className="w-48 px-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 uppercase tracking-widest font-bold"
+                  />
+                </FieldRow>
+
+                {/* Logo upload — separate save action */}
+                <div className="flex flex-col sm:flex-row sm:items-start gap-4 p-5 rounded-xl border border-gray-200 bg-white hover:border-blue-200 hover:shadow-sm transition-all duration-150">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800">App Logo</p>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      Upload a PNG, JPG, or SVG file (max 2 MB). The logo appears in the sidebar, top navigation bar, and mobile header.
+                    </p>
+                    <p className="text-[11px] text-blue-500 font-medium mt-1">Recommended: square image, at least 64×64 px.</p>
+                  </div>
+                  <div className="flex flex-col items-center gap-3 shrink-0">
+                    {/* Preview */}
+                    <div className="w-16 h-16 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+                      {logoPreview ? (
+                        <img src={logoPreview} alt="Preview" className="w-full h-full object-contain" />
+                      ) : (settings.app_logo_url || app_logo_url) ? (
+                        <img src={settings.app_logo_url || app_logo_url} alt="Current logo" className="w-full h-full object-contain" />
+                      ) : (
+                        <img src={defaultLogo} alt="Default logo" className="w-full h-full object-contain opacity-40" />
+                      )}
+                    </div>
+                    {/* Buttons */}
+                    <div className="flex items-center gap-2">
+                      <label className="cursor-pointer">
+                        <input
+                          ref={logoInputRef}
+                          type="file"
+                          accept="image/png,image/jpg,image/jpeg,image/svg+xml,image/webp"
+                          className="hidden"
+                          onChange={(e) => { if (e.target.files?.[0]) handleLogoSelect(e.target.files[0]); e.target.value = ""; }}
+                        />
+                        <span className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition cursor-pointer">
+                          <MdImage className="w-3.5 h-3.5" />
+                          {logoPreview ? "Change" : "Select"}
+                        </span>
+                      </label>
+                      {logoFile && (
+                        <button
+                          onClick={handleLogoUpload}
+                          disabled={uploadingLogo}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
+                        >
+                          <MdUpload className="w-3.5 h-3.5" />
+                          {uploadingLogo ? "Uploading…" : "Upload"}
+                        </button>
+                      )}
+                      {logoFile && (
+                        <button
+                          onClick={() => { setLogoFile(null); setLogoPreview(null); }}
+                          className="p-2 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-red-50"
+                        >
+                          <MdClose className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    {logoFile && (
+                      <p className="text-[10px] text-gray-400 text-center max-w-[140px] truncate">{logoFile.name}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-100">
+                  <MdSettings className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700 leading-relaxed">
+                    App Name and Abbreviation are saved with the <strong>Save Changes</strong> button above. The logo has its own <strong>Upload</strong> button and takes effect immediately after upload.
+                  </p>
+                </div>
               </>
             )}
           </div>
