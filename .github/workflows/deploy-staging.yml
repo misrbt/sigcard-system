@@ -1,13 +1,22 @@
-name: Deploy to Staging
+name: Deploy — Staging
 
 on:
   push:
     branches: [staging]
 
+# Prevent two staging deploys running at the same time
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
 jobs:
   deploy:
-    name: Deploy Sigcard to Staging
-    runs-on: [self-hosted, staging]
+    name: Deploy to Staging Server
+    runs-on: [self-hosted, staging-server]
+
     steps:
+      - name: Pull latest code
+        run: git -C /var/www/staging/sigcard-system pull origin staging
+
       - name: Run staging deploy script
         run: bash /var/www/staging/sigcard-system/scripts/deploy-staging.sh
