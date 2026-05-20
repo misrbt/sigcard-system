@@ -41,6 +41,9 @@ frontend/dist/
 frontend/dist-ssr/
 frontend/.vite/
 
+# ── Session / Runtime ────────────────────────────────────────
+.session_log.txt
+
 # ── Logs ─────────────────────────────────────────────────────
 *.log
 logs/
