@@ -15,5 +15,8 @@ jobs:
     runs-on: self-hosted
 
     steps:
+      - name: Pull latest code
+        run: git -C /var/www/staging/sigcard-system pull origin staging
+
       - name: Run staging deploy script
         run: bash /var/www/staging/sigcard-system/scripts/deploy-staging.sh

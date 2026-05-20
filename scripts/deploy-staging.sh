@@ -9,10 +9,7 @@ echo "======================================"
 echo " SIGCARD-SYSTEM — Staging Deploy"
 echo "======================================"
 
-echo "[1/5] Pulling latest code from staging..."
-git -C "$PROJECT_DIR" pull origin staging
-
-echo "[2/5] Installing backend dependencies..."
+echo "[1/5] Installing backend dependencies..."
 composer install --no-dev --optimize-autoloader --no-interaction --working-dir="$BACKEND_DIR"
 
 echo "[3/5] Running database migrations..."
