@@ -85,5 +85,5 @@ jobs:
       - name: Merge develop into staging
         run: |
           git checkout staging
-          git merge origin/develop --no-edit
+          git merge origin/develop -X theirs --no-edit
           git push origin staging
