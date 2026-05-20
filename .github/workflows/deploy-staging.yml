@@ -12,7 +12,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Staging Server
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-server]
 
     steps:
       - name: Pull latest code
