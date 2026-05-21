@@ -21,8 +21,9 @@ echo "======================================"
 echo "[1/6] Pulling latest code from main..."
 if [ -n "$GITHUB_WORKSPACE" ]; then
     echo "  → Using GitHub Actions checkout (already up to date)"
-    # Copy the production .env into the workspace (not stored in git)
-    /usr/bin/cp "$DEPLOY_DIR/backend/.env" "$BACKEND_DIR/.env"
+    # Copy the production .env files into the workspace (not stored in git)
+    /usr/bin/cp "$DEPLOY_DIR/backend/.env"  "$BACKEND_DIR/.env"
+    /usr/bin/cp "$DEPLOY_DIR/frontend/.env" "$FRONTEND_DIR/.env"
 else
     /usr/bin/git -C "$DEPLOY_DIR" pull origin main
 fi
