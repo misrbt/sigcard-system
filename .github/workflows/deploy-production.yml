@@ -21,22 +21,51 @@ jobs:
     runs-on: self-hosted
     environment: production
 
+    env:
+      DEPLOY_DIR: /home/rbtwebsrvr/projects/sigcard-system
+
     steps:
       - name: Checkout latest code
         uses: actions/checkout@v4
 
       - name: Show deploy info
         run: |
-          echo "Deploying branch: ${{ github.ref_name }}"
-          echo "Triggered by:     ${{ github.actor }}"
-          echo "Reason:           ${{ github.event.inputs.reason || 'push to main' }}"
+          echo "Deploying branch : ${{ github.ref_name }}"
+          echo "Triggered by     : ${{ github.actor }}"
+          echo "Reason           : ${{ github.event.inputs.reason || 'push to main' }}"
+          echo "Workspace        : $GITHUB_WORKSPACE"
 
-      - name: Debug — check filesystem access
+      - name: Copy .env from production
+        run: cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
+
+      - name: Install backend dependencies
+        run: /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir=$GITHUB_WORKSPACE/backend
+
+      - name: Run database migrations
+        run: /usr/bin/php $GITHUB_WORKSPACE/backend/artisan migrate --force
+
+      - name: Cache config, routes, views
         run: |
-          echo "Runner user : $(whoami)"
-          echo "Runner UID  : $(id -u)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          ls /home/rbtwebsrvr/projects/ 2>&1 || echo "CANNOT access /home/rbtwebsrvr/projects/"
+          /usr/bin/php $GITHUB_WORKSPACE/backend/artisan config:cache
+          /usr/bin/php $GITHUB_WORKSPACE/backend/artisan route:cache
+          /usr/bin/php $GITHUB_WORKSPACE/backend/artisan view:cache
+          /usr/bin/php $GITHUB_WORKSPACE/backend/artisan optimize
 
-      - name: Run deploy script
-        run: bash "$GITHUB_WORKSPACE/scripts/deploy-production.sh"
+      - name: Build frontend
+        run: |
+          /usr/bin/npm ci --prefix $GITHUB_WORKSPACE/frontend
+          /usr/bin/npm run build --prefix $GITHUB_WORKSPACE/frontend
+
+      - name: Sync built files to production directory
+        run: |
+          /usr/bin/rsync -a --delete $GITHUB_WORKSPACE/backend/app/        $DEPLOY_DIR/backend/app/
+          /usr/bin/rsync -a --delete $GITHUB_WORKSPACE/backend/config/     $DEPLOY_DIR/backend/config/
+          /usr/bin/rsync -a --delete $GITHUB_WORKSPACE/backend/database/   $DEPLOY_DIR/backend/database/
+          /usr/bin/rsync -a --delete $GITHUB_WORKSPACE/backend/routes/     $DEPLOY_DIR/backend/routes/
+          /usr/bin/rsync -a --delete $GITHUB_WORKSPACE/backend/resources/  $DEPLOY_DIR/backend/resources/
+          /usr/bin/rsync -a --delete $GITHUB_WORKSPACE/frontend/dist/      $DEPLOY_DIR/frontend/dist/
+
+      - name: Restart services
+        run: |
+          sudo -n /usr/bin/systemctl restart sigcard-backend
+          sudo -n /usr/bin/systemctl restart sigcard-queue
