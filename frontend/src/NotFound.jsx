@@ -2,8 +2,11 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { HiHome, HiArrowLeft } from "react-icons/hi";
 import logo from "./assets/images/logos.png";
+import { useAppConfig } from "./context/AppConfigContext";
 
 const NotFound = () => {
+  const { app_abbreviation, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-[#030b1d]">
       <div className="absolute inset-0 bg-gradient-to-br from-[#01060f] via-[#05173a] to-[#020a1d]" />
@@ -21,8 +24,8 @@ const NotFound = () => {
           className="w-full max-w-2xl text-center"
         >
           <img
-            src={logo}
-            alt="DIGICUR Logo"
+            src={logoSrc}
+            alt={`${app_abbreviation} Logo`}
             className="mx-auto h-24 w-auto object-contain drop-shadow-2xl"
           />
 
@@ -74,7 +77,7 @@ const NotFound = () => {
             <p className="text-xs uppercase tracking-[0.4em] text-white/60">
               RBT Bank Secure Network
             </p>
-            <p className="mt-2 text-sm text-white/70">DIGICUR Access Portal</p>
+            <p className="mt-2 text-sm text-white/70">{app_abbreviation} Access Portal</p>
           </motion.div>
         </motion.div>
       </div>
