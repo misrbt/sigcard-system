@@ -31,5 +31,12 @@ jobs:
           echo "Triggered by:     ${{ github.actor }}"
           echo "Reason:           ${{ github.event.inputs.reason || 'push to main' }}"
 
+      - name: Debug — check filesystem access
+        run: |
+          echo "Runner user : $(whoami)"
+          echo "Runner UID  : $(id -u)"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          ls /home/rbtwebsrvr/projects/ 2>&1 || echo "CANNOT access /home/rbtwebsrvr/projects/"
+
       - name: Run deploy script
         run: bash "$GITHUB_WORKSPACE/scripts/deploy-production.sh"
