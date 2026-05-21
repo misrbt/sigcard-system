@@ -74,6 +74,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::delete('/users/{user}/tokens/{tokenId}', [AdminController::class, 'revokeToken']);
         Route::post('/users/{user}/clear-force-password-change', [AdminController::class, 'clearForcePasswordChange']);
         Route::post('/users/{user}/restore-login-access', [AdminController::class, 'restoreLoginAccess']);
+        Route::post('/users/{user}/reset-2fa', [AdminController::class, 'resetUser2FA']);
 
         Route::get('/roles', [AdminController::class, 'getAllRoles']);
         Route::post('/roles', [AdminController::class, 'createRole']);
