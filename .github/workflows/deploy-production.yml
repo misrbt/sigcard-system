@@ -1,9 +1,6 @@
 name: Deploy — Production
 
 on:
-  push:
-    branches: [main]
-  # Also allow manual trigger from GitHub website
   workflow_dispatch:
     inputs:
       reason:
