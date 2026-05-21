@@ -7,6 +7,7 @@ import Input from "./components/ui/Input";
 import Button from "./components/ui/Button";
 import Footer from "./components/Footer";
 import { useAuth } from "./hooks/useAuth";
+import { useAppConfig } from "./context/AppConfigContext";
 import api from "./services/api";
 import logo from "./assets/images/logos.png";
 
@@ -14,6 +15,8 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, login, isAuthenticated, getPrimaryRole, fetchUser } = useAuth();
+  const { app_abbreviation, app_name, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
   const fromSessionExpired = location.state?.sessionExpired;
   const [formData, setFormData] = useState({
     email: "",
@@ -261,10 +264,10 @@ const Login = () => {
           >
             <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
               <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
-                <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
+                <img src={logoSrc} alt="Logo" className="h-10 w-auto object-contain" />
                 <div>
-                  <p className="text-white font-bold text-base tracking-widest">DIGICUR</p>
-                  <p className="text-blue-300 text-xs tracking-widest">RBT Bank Inc.</p>
+                  <p className="text-white font-bold text-base tracking-widest">{app_abbreviation}</p>
+                  <p className="text-blue-300 text-xs tracking-widest">{app_name}</p>
                 </div>
               </div>
               <div className="px-6 py-6 space-y-4">
@@ -375,10 +378,10 @@ const Login = () => {
           >
             <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
               <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
-                <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
+                <img src={logoSrc} alt="Logo" className="h-10 w-auto object-contain" />
                 <div>
-                  <p className="text-white font-bold text-base tracking-widest">DIGICUR</p>
-                  <p className="text-blue-300 text-xs tracking-widest">RBT Bank Inc.</p>
+                  <p className="text-white font-bold text-base tracking-widest">{app_abbreviation}</p>
+                  <p className="text-blue-300 text-xs tracking-widest">{app_name}</p>
                 </div>
               </div>
               <div className="px-6 py-6 space-y-5">
@@ -447,10 +450,10 @@ const Login = () => {
             <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
               {/* Header */}
               <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
-                <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
+                <img src={logoSrc} alt="Logo" className="h-10 w-auto object-contain" />
                 <div>
-                  <p className="text-white font-bold text-base tracking-widest">DIGICUR</p>
-                  <p className="text-blue-300 text-xs tracking-widest">RBT Bank Inc.</p>
+                  <p className="text-white font-bold text-base tracking-widest">{app_abbreviation}</p>
+                  <p className="text-blue-300 text-xs tracking-widest">{app_name}</p>
                 </div>
               </div>
 
@@ -614,15 +617,15 @@ const Login = () => {
                   className="absolute h-56 w-56 rounded-full border border-white/20 bg-white/5"
                 />
                 <img
-                  src={logo}
-                  alt="RBT Bank DIGICUR Logo"
+                  src={logoSrc}
+                  alt={`${app_abbreviation} Logo`}
                   className="relative z-10 h-32 w-auto object-contain"
                 />
               </div>
 
               <div className="flex flex-col items-center gap-2">
                 <h2 className="text-2xl font-bold uppercase tracking-widest text-white drop-shadow-md">
-                  DIGICUR
+                  {app_abbreviation}
                 </h2>
                 <p className="text-[10px] font-medium tracking-[0.4em] text-white/60">
                   Digital Customer Record System
