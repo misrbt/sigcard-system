@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout latest code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Show what is in this staging deploy
         run: |
@@ -73,7 +75,6 @@ jobs:
 
       - name: Write GitHub Actions summary
         run: |
-          git fetch origin main --quiet 2>/dev/null || true
           COUNT=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
           echo "## Staging Deploy Complete" >> $GITHUB_STEP_SUMMARY
           echo "**Deployed on:** $(date '+%B %d, %Y %H:%M')" >> $GITHUB_STEP_SUMMARY
