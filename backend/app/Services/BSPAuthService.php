@@ -408,7 +408,7 @@ class BSPAuthService
     private function generateTemporaryToken(User $user): string
     {
         $token = hash('sha256', $user->id.now()->timestamp.random_bytes(32));
-        Cache::put("temp_2fa_token_{$token}", $user->id, now()->addMinutes(5));
+        Cache::put("temp_2fa_token_{$token}", $user->id, now()->addMinutes(10));
 
         return $token;
     }
