@@ -19,10 +19,12 @@ jobs:
   deploy:
     name: Deploy to Production Server
     runs-on: self-hosted
-    # 'production' environment = requires approval in GitHub Settings → Environments
     environment: production
 
     steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v4
+
       - name: Show deploy info
         run: |
           echo "Deploying branch: ${{ github.ref_name }}"
@@ -30,4 +32,4 @@ jobs:
           echo "Reason:           ${{ github.event.inputs.reason || 'push to main' }}"
 
       - name: Run deploy script
-        run: bash /home/rbtwebsrvr/projects/sigcard-system/scripts/deploy-production.sh
+        run: bash "$GITHUB_WORKSPACE/scripts/deploy-production.sh"

@@ -10,16 +10,15 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Fetch all branches
-        run: |
-          /usr/bin/git -C /home/rbtwebsrvr/projects/sigcard-system fetch origin
+      - name: Checkout latest code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Show commits ahead of production
         run: |
-          cd /home/rbtwebsrvr/projects/sigcard-system
-
-          COMMITS=$(/usr/bin/git log origin/main..origin/staging --oneline)
-          COUNT=$(/usr/bin/git rev-list --count origin/main..origin/staging)
+          git fetch origin main --quiet
+          COUNT=$(git rev-list --count origin/main..HEAD)
 
           echo "======================================"
           echo " STAGING REPORT — Ready for Production"
@@ -31,10 +30,10 @@ jobs:
           else
             echo "  $COUNT commit(s) in staging not yet in production:"
             echo ""
-            /usr/bin/git log origin/main..origin/staging --oneline --no-walk=unsorted
+            git log origin/main..HEAD --oneline
             echo ""
             echo "  Files changed:"
-            /usr/bin/git diff --name-only origin/main...origin/staging
+            git diff --name-only origin/main...HEAD
           fi
 
           echo ""
@@ -42,9 +41,8 @@ jobs:
 
       - name: Write GitHub Actions summary
         run: |
-          cd /home/rbtwebsrvr/projects/sigcard-system
-
-          COUNT=$(/usr/bin/git rev-list --count origin/main..origin/staging)
+          git fetch origin main --quiet 2>/dev/null || true
+          COUNT=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
 
           echo "## Staging Report — Ready for Production" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -58,12 +56,12 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| Commit | Message |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
-            /usr/bin/git log origin/main..origin/staging --pretty=format:"| \`%h\` | %s |" >> $GITHUB_STEP_SUMMARY
+            git log origin/main..HEAD --pretty=format:"| \`%h\` | %s |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Files changed" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            /usr/bin/git diff --name-only origin/main...origin/staging >> $GITHUB_STEP_SUMMARY
+            git diff --name-only origin/main...HEAD >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "---" >> $GITHUB_STEP_SUMMARY
