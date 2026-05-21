@@ -7,7 +7,7 @@ import {
   MdFileDownload, MdPeople, MdCheckCircle, MdBlock, MdLock,
   MdBuild, MdDevices, MdLogout, MdWarning, MdInfo,
   MdAccessTime, MdComputer, MdVpnKey, MdKey, MdShield,
-  MdWifi, MdCircle,
+  MdWifi, MdCircle, MdPhoneAndroid, MdPhonelinkErase,
 } from 'react-icons/md';
 import { FaUserShield } from 'react-icons/fa';
 import { adminService } from '../../services/adminService';
@@ -162,6 +162,7 @@ const LoginTroubleshooterModal = ({ user, onClose, onRefreshList }) => {
   const handleRevokeToken     = (id) => act(`tok_${id}`, () => adminService.revokeToken(user.id, id),             'Session revoked successfully.');
   const handleClearFPC        = () => act('fpc',          () => adminService.clearForcePasswordChange(user.id),   'Password change requirement removed.');
   const handleRestoreAccess   = () => act('restore',      () => adminService.restoreLoginAccess(user.id),         'Login access restored. The user can now sign in fresh.');
+  const handleReset2FA        = () => act('reset2fa',     () => adminService.resetUser2FA(user.id),               '2FA disabled. The user can now log in with just their password.');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/75">
@@ -201,7 +202,7 @@ const LoginTroubleshooterModal = ({ user, onClose, onRefreshList }) => {
           ) : !status ? null : (
             <>
               {/* ── Quick-glance banner ── */}
-              {(status.is_locked || status.is_password_expired || status.is_account_expired || status.force_password_change || status.account_status !== 'active') && (
+              {(status.is_locked || status.is_password_expired || status.is_account_expired || status.force_password_change || status.account_status !== 'active' || (status.session_limit > 0 && status.active_sessions_count >= status.session_limit) || status.two_factor_enabled) && (
                 <div className="flex flex-wrap gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
                   <MdWarning className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
                   <p className="text-xs font-semibold text-amber-700 flex-1">
@@ -213,6 +214,10 @@ const LoginTroubleshooterModal = ({ user, onClose, onRefreshList }) => {
                     {status.is_account_expired  && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Account expired</span>}
                     {status.force_password_change && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Forced to change password</span>}
                     {status.account_status !== 'active' && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Account is {status.account_status}</span>}
+                    {status.session_limit > 0 && status.active_sessions_count >= status.session_limit && (
+                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Session limit reached — another device is still logged in</span>
+                    )}
+                    {status.two_factor_enabled && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">2FA enabled — user may have lost access to their verification code</span>}
                   </div>
                 </div>
               )}
@@ -409,7 +414,52 @@ const LoginTroubleshooterModal = ({ user, onClose, onRefreshList }) => {
                 </div>
               </Section>
 
-              {/* ── Section 4: Last Login Info ── */}
+              {/* ── Section 4: Two-Factor Authentication (Verification Code) ── */}
+              <Section title="Two-Factor Authentication (Verification Code)" icon={MdPhoneAndroid} iconColor="text-indigo-600">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500">2FA Status:</span>
+                        <StatusChip ok={!status.two_factor_enabled} label={status.two_factor_enabled ? 'Enabled' : 'Not Enabled'} />
+                      </div>
+                      {status.two_factor_enabled && (
+                        <p className="text-xs text-gray-400">
+                          The user must enter a 6-digit code from their authenticator app every time they log in.
+                          If they lost access to their phone or app, disable 2FA here so they can log in with just their password.
+                        </p>
+                      )}
+                      {!status.two_factor_enabled && (
+                        <p className="text-xs text-emerald-600 flex items-center gap-1.5">
+                          <MdCheckCircle className="w-3.5 h-3.5" /> 2FA is off — no verification code required to log in.
+                        </p>
+                      )}
+                    </div>
+                    {status.two_factor_enabled && (
+                      <ActionBtn
+                        onClick={handleReset2FA}
+                        loading={!!busy.reset2fa}
+                        color="red"
+                        icon={MdPhonelinkErase}
+                      >
+                        Disable 2FA for this User
+                      </ActionBtn>
+                    )}
+                  </div>
+                  {status.two_factor_enabled && (
+                    <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                      <MdWarning className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-orange-700">
+                        <span className="font-semibold">When to use this:</span> If the staff member reports they cannot open their verification code
+                        (e.g., they lost their phone, deleted the app, or got a new device), disable 2FA here.
+                        After logging in, they can set up 2FA again from their Profile page.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </Section>
+
+              {/* ── Section 5: Last Login Info ── */}
               <Section title="Last Successful Login" icon={MdAccessTime} iconColor="text-gray-400">
                 {status.last_login_at ? (
                   <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -483,6 +533,7 @@ const SkeletonRows = ({ perPage }) => (
         <td className="px-4 py-3"><div className="h-5 w-16 bg-gray-100 rounded-full" /></td>
         <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-100 rounded" /></td>
         <td className="px-4 py-3"><div className="h-5 w-14 bg-gray-100 rounded-full" /></td>
+        <td className="px-4 py-3"><div className="h-4 w-16 bg-gray-100 rounded-full" /></td>
         <td className="px-4 py-3"><div className="h-3 w-20 bg-gray-100 rounded" /></td>
         <td className="px-4 py-3">
           <div className="flex gap-1.5">
@@ -773,6 +824,8 @@ const UserManagement = () => {
     return [...pages].sort((a, b) => a - b);
   };
 
+  const onlineUserIds = useMemo(() => new Set(onlineUsers.map((u) => u.id)), [onlineUsers]);
+
   const sharedFormProps = { formData, formErrors, handleFormChange, handleRoleChange, setFormData, branches, roles, userStatuses: appConfig.user_statuses, submitting };
 
   const SORT_COL = { name: 'firstname', email: 'email', status: 'status', joined: 'created_at' };
@@ -997,6 +1050,7 @@ const UserManagement = () => {
                 <th className={thClass('status')} onClick={() => handleSort(SORT_COL.status)}>
                   <span className="flex items-center">Status <SortIcon col={SORT_COL.status} sort={sort} /></span>
                 </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Security</th>
                 <th className={thClass('joined')} onClick={() => handleSort(SORT_COL.joined)}>
                   <span className="flex items-center">Joined <SortIcon col={SORT_COL.joined} sort={sort} /></span>
                 </th>
@@ -1008,7 +1062,7 @@ const UserManagement = () => {
                 <SkeletonRows perPage={perPage} />
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-16 text-center">
+                  <td colSpan={9} className="px-4 py-16 text-center">
                     <MdPeople className="w-10 h-10 text-gray-200 mx-auto mb-2" />
                     <p className="text-sm font-semibold text-gray-400">No users found</p>
                     <p className="text-xs text-gray-300 mt-0.5">Try adjusting your search or filters</p>
@@ -1017,6 +1071,7 @@ const UserManagement = () => {
               ) : (
                 users.map((user, idx) => {
                   const isLocked = !!user.account_locked_at;
+                  const isOnline = onlineUserIds.has(user.id);
                   return (
                     <tr key={user.id} className={`transition-colors hover:bg-blue-50/30 ${isLocked ? 'bg-yellow-50/30' : ''}`}>
                       {/* # */}
@@ -1065,6 +1120,35 @@ const UserManagement = () => {
                         ) : (
                           <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_STYLE[user.status] ?? STATUS_STYLE.inactive}`}>{user.status}</span>
                         )}
+                      </td>
+                      {/* Security */}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          {isOnline && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 w-fit">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              Online
+                            </span>
+                          )}
+                          {user.two_factor_enabled ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700 w-fit">
+                              <MdPhoneAndroid className="w-2.5 h-2.5" />
+                              2FA On
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-400 w-fit">
+                              2FA Off
+                            </span>
+                          )}
+                          {user.active_tokens_count > 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 w-fit">
+                              <MdDevices className="w-2.5 h-2.5" />
+                              {user.active_tokens_count} session{user.active_tokens_count !== 1 ? 's' : ''}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-300">No sessions</span>
+                          )}
+                        </div>
                       </td>
                       {/* Joined */}
                       <td className="px-4 py-3">
