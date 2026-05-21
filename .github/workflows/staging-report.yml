@@ -1,0 +1,71 @@
+name: Staging — What's Ready for Production
+
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  report:
+    name: Show changes ready for production
+    runs-on: self-hosted
+
+    steps:
+      - name: Fetch all branches
+        run: |
+          /usr/bin/git -C /home/rbtwebsrvr/projects/sigcard-system fetch origin
+
+      - name: Show commits ahead of production
+        run: |
+          cd /home/rbtwebsrvr/projects/sigcard-system
+
+          COMMITS=$(/usr/bin/git log origin/main..origin/staging --oneline)
+          COUNT=$(/usr/bin/git rev-list --count origin/main..origin/staging)
+
+          echo "======================================"
+          echo " STAGING REPORT — Ready for Production"
+          echo "======================================"
+          echo ""
+
+          if [ "$COUNT" -eq "0" ]; then
+            echo "✓ Staging is already in sync with production. Nothing new to deploy."
+          else
+            echo "  $COUNT commit(s) in staging not yet in production:"
+            echo ""
+            /usr/bin/git log origin/main..origin/staging --oneline --no-walk=unsorted
+            echo ""
+            echo "  Files changed:"
+            /usr/bin/git diff --name-only origin/main...origin/staging
+          fi
+
+          echo ""
+          echo "======================================"
+
+      - name: Write GitHub Actions summary
+        run: |
+          cd /home/rbtwebsrvr/projects/sigcard-system
+
+          COUNT=$(/usr/bin/git rev-list --count origin/main..origin/staging)
+
+          echo "## Staging Report — Ready for Production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date '+%B %d, %Y %H:%M')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$COUNT" -eq "0" ]; then
+            echo "✅ Staging is already in sync with production. Nothing new to deploy." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### $COUNT commit(s) waiting to go to production" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Commit | Message |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
+            /usr/bin/git log origin/main..origin/staging --pretty=format:"| \`%h\` | %s |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Files changed" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            /usr/bin/git diff --name-only origin/main...origin/staging >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "When ready: push \`staging\` → \`main\` to deploy to production." >> $GITHUB_STEP_SUMMARY
+          fi
