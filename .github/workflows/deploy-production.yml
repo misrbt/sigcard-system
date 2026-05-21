@@ -35,18 +35,8 @@ jobs:
           echo "Reason           : ${{ github.event.inputs.reason || 'push to main' }}"
           echo "Workspace        : $GITHUB_WORKSPACE"
 
-      - name: Write backend .env
-        run: |
-          if [ -n "${{ secrets.BACKEND_ENV }}" ]; then
-            echo "${{ secrets.BACKEND_ENV }}" > $GITHUB_WORKSPACE/backend/.env
-          elif [ -f "$DEPLOY_DIR/backend/.env" ]; then
-            cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
-          else
-            echo "ERROR: No backend .env found."
-            echo "Add a BACKEND_ENV secret in GitHub (Settings → Secrets → Actions)"
-            echo "or place the .env at $DEPLOY_DIR/backend/.env on the server."
-            exit 1
-          fi
+      - name: Copy .env from server
+        run: cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
 
       - name: Install backend dependencies
         run: /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir=$GITHUB_WORKSPACE/backend
