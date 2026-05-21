@@ -42,6 +42,19 @@ echo "[4/6] Caching config, routes, views..."
 
 echo "[5/6] Building frontend..."
 /usr/bin/npm ci --prefix "$FRONTEND_DIR"
+
+# Guard: ensure VITE_API_BASE_URL is set so the correct API URL is baked into
+# the build. The .env copy above is the primary source; this is the failsafe.
+if [ -z "$VITE_API_BASE_URL" ]; then
+    VITE_API_BASE_URL=$(grep '^VITE_API_BASE_URL=' "$FRONTEND_DIR/.env" 2>/dev/null | cut -d= -f2-)
+fi
+if [ -z "$VITE_API_BASE_URL" ]; then
+    echo "ERROR: VITE_API_BASE_URL is not set and could not be read from frontend/.env"
+    echo "  The build would fall back to localhost:8000 — aborting to prevent a broken deploy."
+    exit 1
+fi
+export VITE_API_BASE_URL
+echo "  → Building with VITE_API_BASE_URL=$VITE_API_BASE_URL"
 /usr/bin/npm run build --prefix "$FRONTEND_DIR"
 
 if [ -n "$GITHUB_WORKSPACE" ]; then
@@ -52,6 +65,7 @@ if [ -n "$GITHUB_WORKSPACE" ]; then
     /usr/bin/rsync -a --delete "$BACKEND_DIR/routes/"     "$DEPLOY_DIR/backend/routes/"
     /usr/bin/rsync -a --delete "$BACKEND_DIR/resources/"  "$DEPLOY_DIR/backend/resources/"
     /usr/bin/rsync -a --delete "$FRONTEND_DIR/dist/"      "$DEPLOY_DIR/frontend/dist/"
+    /usr/bin/rsync -a --delete "$SRC/scripts/"            "$DEPLOY_DIR/scripts/"
 fi
 
 echo "[6/6] Restarting backend service..."
