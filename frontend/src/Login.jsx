@@ -22,7 +22,7 @@ const Login = () => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState({ message: "", type: "" });
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lockoutCountdown, setLockoutCountdown] = useState(0);
 

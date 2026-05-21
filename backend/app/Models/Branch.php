@@ -11,12 +11,13 @@ use Spatie\Activitylog\Traits\LogsActivity;
 class Branch extends Model
 {
     use LogsActivity;
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
             ->useLogName('branch')
             ->logOnly([
-                'branch_name', 'brak', 'brcode', 'parent_id',
+                'branch_name', 'brak', 'brcode', 'parent_id', 'is_head_office',
             ])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs();
@@ -27,6 +28,7 @@ class Branch extends Model
         'brak',
         'brcode',
         'parent_id',
+        'is_head_office',
     ];
 
     public function users(): HasMany
@@ -54,5 +56,16 @@ class Branch extends Model
     public function isMotherBranch(): bool
     {
         return is_null($this->parent_id);
+    }
+
+    public function isHeadOffice(): bool
+    {
+        return (bool) $this->is_head_office;
+    }
+
+    /** Scope: exclude the head office branch from operational branch lists. */
+    public function scopeOperational($query)
+    {
+        return $query->where('is_head_office', false);
     }
 }

@@ -172,6 +172,28 @@ class UserController extends Controller
             $yearlyTransitions[] = $row;
         }
 
+        // Monthly risk level distribution — last 12 months
+        $monthlyRiskLevels = [];
+        for ($i = 11; $i >= 0; $i--) {
+            $month = now()->subMonths($i);
+            $counts = (clone $base)
+                ->whereYear('created_at', $month->year)
+                ->whereMonth('created_at', $month->month)
+                ->whereNotNull('risk_level')
+                ->selectRaw('risk_level, COUNT(*) as count')
+                ->groupBy('risk_level')
+                ->pluck('count', 'risk_level')
+                ->toArray();
+
+            $monthlyRiskLevels[] = [
+                'month'       => $month->format('M Y'),
+                'month_key'   => $month->format('Y-m'),
+                'Low Risk'    => (int) ($counts['Low Risk']    ?? 0),
+                'Medium Risk' => (int) ($counts['Medium Risk'] ?? 0),
+                'High Risk'   => (int) ($counts['High Risk']   ?? 0),
+            ];
+        }
+
         // Total documents
         $docQuery = CustomerDocument::query();
         if ($branchId) {
@@ -207,7 +229,8 @@ class UserController extends Controller
                     $statusCounts
                 ),
                 'account_types' => $accountTypes,
-                'risk_levels' => $riskLevels,
+                'risk_levels'         => $riskLevels,
+                'monthly_risk_levels' => $monthlyRiskLevels,
                 'monthly_trend' => $monthly,
                 'monthly_by_status' => $monthlyByStatus,
                 'monthly_transitions' => $monthlyTransitions,

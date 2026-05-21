@@ -25,7 +25,7 @@ ChartJS.register(
 const LineChart = ({
   data,
   title = 'Line Chart',
-  height = 400,
+  _height = 400,
   responsive = true,
   maintainAspectRatio = false,
   ...options

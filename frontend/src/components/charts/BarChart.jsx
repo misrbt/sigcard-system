@@ -21,7 +21,7 @@ ChartJS.register(
 const BarChart = ({
   data,
   title = 'Bar Chart',
-  height = 400,
+  _height = 400,
   responsive = true,
   maintainAspectRatio = false,
   horizontal = false,

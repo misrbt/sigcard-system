@@ -28,11 +28,13 @@ import {
 import { MdFingerprint } from "react-icons/md";
 import Swal from "sweetalert2";
 import api from "../../services/api";
+import { useAppConfig } from "../../context/AppConfigContext";
 import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
 
 const PAGE_SIZE = 10;
 
-const statusStyle = {
+// UI presentation maps — values come from /api/config, styling stays in frontend
+const STATUS_STYLE = {
   active:      "bg-green-100 text-green-700 border border-green-300",
   dormant:     "bg-yellow-100 text-yellow-700 border border-yellow-300",
   escheat:     "bg-orange-100 text-orange-700 border border-orange-300",
@@ -40,26 +42,26 @@ const statusStyle = {
   reactivated: "bg-teal-100 text-teal-700 border border-teal-300",
 };
 
-const riskStyle = {
+const RISK_STYLE = {
   "Low Risk":    "bg-emerald-50 text-emerald-700",
   "Medium Risk": "bg-yellow-50 text-yellow-700",
   "High Risk":   "bg-red-50 text-red-700",
 };
 
-const accountStyle = {
+const ACCOUNT_STYLE = {
   Regular:   "bg-blue-50 text-blue-700",
   Joint:     "bg-purple-50 text-purple-700",
   Corporate: "bg-slate-100 text-slate-700",
 };
 
-const docLabel = {
-  sigcard_front:  "Sigcard Front",
-  sigcard_back:   "Sigcard Back",
-  nais_front:     "NAIS Front",
-  nais_back:      "NAIS Back",
-  privacy_front:  "Data Privacy Front",
-  privacy_back:   "Data Privacy Back",
-  other:          "Other Document",
+const DOC_LABEL = {
+  sigcard_front: "Sigcard Front",
+  sigcard_back:  "Sigcard Back",
+  nais_front:    "NAIS Front",
+  nais_back:     "NAIS Back",
+  privacy_front: "Data Privacy Front",
+  privacy_back:  "Data Privacy Back",
+  other:         "Other Document",
 };
 
 const storageUrl = (path) => {
@@ -131,7 +133,7 @@ const AccountsCell = ({ c }) => {
             <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white border border-slate-100 shadow-sm">
               <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">{i + 1}</span>
               <span className="text-[11px] text-slate-700 font-mono flex-1 min-w-0 truncate">{a.account_no ?? "—"}</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${statusStyle[a.status] ?? "bg-slate-100 text-slate-500"}`}>{a.status ?? "—"}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[a.status] ?? "bg-slate-100 text-slate-500"}`}>{a.status ?? "—"}</span>
             </div>
           ))}
         </div>
@@ -452,7 +454,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
           const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
           if (doc) {
             if (startType === type && startPerson === p) startIdx = imgs.length;
-            imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
+            imgs.push({ src: storageUrl(doc.file_path), label: DOC_LABEL[type] ?? type, person: persons.length > 1 ? p : null });
           }
         });
       });
@@ -600,7 +602,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       : [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort();
   const otherDocs = docsForSection.filter((d) => d.document_type === "other");
   const totalDocs = docsForSection.length;
-  const sCfg     = statusStyle[customer.status] ?? "bg-slate-100 text-slate-500";
+  const sCfg     = STATUS_STYLE[customer.status] ?? "bg-slate-100 text-slate-500";
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -689,7 +691,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                     <p className="text-xs text-white/80 font-medium flex-1 min-w-0 truncate">
                       {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
                     </p>
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${riskStyle[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${RISK_STYLE[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
                       {h.risk_level}
                     </span>
                   </div>
@@ -736,12 +738,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         <div key={acct.acctIndex} className="flex items-center gap-1.5">
                           <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">{acct.acctIndex}</span>
                           <span className="text-[10px] text-slate-500 font-mono truncate flex-1">{acct.account_no ?? "—"}</span>
-                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold uppercase ${STATUS_STYLE[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
                       {customer.status ?? "—"}
                     </span>
                   )}
@@ -788,7 +790,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         )}
                       </div>
                       <span className={`self-start px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                        isActive ? "bg-white/20 text-white" : (statusStyle[acct.status] ?? "bg-slate-100 text-slate-500")
+                        isActive ? "bg-white/20 text-white" : (STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500")
                       }`}>
                         {acct.status ?? "—"}
                       </span>
@@ -804,7 +806,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100">
               <HiOutlineDocumentText className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-bold text-slate-900">Documents</h2>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${STATUS_STYLE[customer.status] ?? "bg-slate-100 text-slate-600 border border-slate-200"}`}>
                 {customer.status ?? "—"}
               </span>
               {currentDocsStatusForAcct && (
@@ -941,7 +943,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         onClick={() => setHistoryExpanded((prev) => ({ ...prev, [logKey]: !isExpanded }))}
                         className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
                       >
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[log.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[log.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                           {log.status}
                         </span>
                         <div className="flex-1 min-w-0">
@@ -1042,7 +1044,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         onClick={() => setHistoryExpanded((prev) => ({ ...prev, [legacyKey]: !isExpanded }))}
                         className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
                       >
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[group.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[group.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                           {group.status}
                         </span>
                         <div className="flex-1 min-w-0">
@@ -1103,7 +1105,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         onClick={() => setHistoryExpanded((prev) => ({ ...prev, [initKey]: !isExpanded }))}
                         className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
                       >
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[initialStatus] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[initialStatus] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                           {initialStatus ?? "active"}
                         </span>
                         <div className="flex-1 min-w-0">
@@ -1317,6 +1319,7 @@ const EditChoiceModal = ({ customer, onClose, onPick }) => (
 
 // Edit customer personal info — name, account type, holders
 const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
+  const appConfig = useAppConfig();
   const [form, setForm] = useState({
     firstname:    customer.firstname    ?? "",
     middlename:   customer.middlename   ?? "",
@@ -1363,9 +1366,9 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
       <div>
         <label className="block text-xs font-semibold text-slate-600 mb-1">Account Type</label>
         <select value={form.account_type} onChange={set("account_type")} className={editInputCls}>
-          <option>Regular</option>
-          <option>Joint</option>
-          <option>Corporate</option>
+          {appConfig.account_types.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
         </select>
       </div>
 
@@ -1541,7 +1544,7 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
                 <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
               </div>
               <div className="text-right flex-shrink-0">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status ?? "—"}</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status ?? "—"}</span>
                 <p className="text-[10px] text-slate-400 mt-0.5">{acct.risk_level ?? "—"}</p>
               </div>
               <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
@@ -1779,7 +1782,7 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                     </div>
                     <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
                     {acct.status ?? "—"}
                   </span>
                   {acctIsEscheat
@@ -1960,7 +1963,7 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                 <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 animate-pulse" />
                 <span className="text-xs font-semibold text-amber-700">
                   Status will change to{" "}
-                  <span className={`inline-flex px-1.5 py-0.5 rounded-full font-bold capitalize text-[10px] ml-0.5 ${statusStyle[status] ?? "bg-slate-100 text-slate-600"}`}>
+                  <span className={`inline-flex px-1.5 py-0.5 rounded-full font-bold capitalize text-[10px] ml-0.5 ${STATUS_STYLE[status] ?? "bg-slate-100 text-slate-600"}`}>
                     {status}
                   </span>{" "}
                   — only confirmed when you upload
@@ -2052,6 +2055,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { hasPermission, user } = useAuth();
+  const appConfig = useAppConfig();
   const canEdit = hasPermission('edit-customers');
 
   const initialTab = onlyTab ?? (searchParams.get("tab") ?? defaultTab);
@@ -2276,11 +2280,9 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
                   >
                     <option value="all">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="reactivated">Reactivated</option>
-                    <option value="dormant">Dormant</option>
-                    <option value="escheat">Escheat</option>
-                    <option value="closed">Closed</option>
+                    {appConfig.customer_statuses.map((s) => (
+                      <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                    ))}
                   </select>
 
                   {/* Account Type */}
@@ -2290,9 +2292,9 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
                   >
                     <option value="all">All Account Types</option>
-                    <option value="Regular">Regular</option>
-                    <option value="Joint">Joint</option>
-                    <option value="Corporate">Corporate</option>
+                    {appConfig.account_types.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
 
                   {/* Risk Level */}
@@ -2302,9 +2304,9 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
                   >
                     <option value="all">All Risk Levels</option>
-                    <option value="Low Risk">Low Risk</option>
-                    <option value="Medium Risk">Medium Risk</option>
-                    <option value="High Risk">High Risk</option>
+                    {appConfig.risk_levels.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
                   </select>
 
                   {/* Branch — manager & cashier, only when they have child branches */}
@@ -2403,13 +2405,13 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                           </td>
                           {/* Account Type */}
                           <td className="px-4 py-2.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${accountStyle[c.account_type] ?? "bg-slate-100 text-slate-600"}`}>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${ACCOUNT_STYLE[c.account_type] ?? "bg-slate-100 text-slate-600"}`}>
                               {c.account_type ?? "—"}
                             </span>
                           </td>
                           {/* Risk Level */}
                           <td className="px-4 py-2.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${riskStyle[c.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${RISK_STYLE[c.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
                               {c.risk_level ?? "—"}
                             </span>
                           </td>
@@ -2418,7 +2420,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                             {(c.accounts?.length ?? 0) > 0 ? (
                               <span className="text-[10px] text-slate-400 font-medium">{c.accounts.length + 1} accounts</span>
                             ) : (
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[c.status] ?? "bg-slate-100 text-slate-500"}`}>
                                 {c.status ?? "—"}
                               </span>
                             )}
@@ -2607,7 +2609,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                       {c.account_no ? `Acct: ${c.account_no} · ` : ""}{c.branch?.branch_name ?? "No Branch"} · {c.account_type}
                                     </p>
                                   </div>
-                                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
+                                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[c.status] ?? "bg-slate-100 text-slate-500"}`}>
                                     {c.status}
                                   </span>
                                   <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />

@@ -252,12 +252,12 @@ const UserPermissionsTab = ({ allPermissions, permissionGroups }) => {
     setError('');
     setSuccess('');
     try {
-      const res    = await adminService.getUserPermissions(u.id);
-      const d      = res.data.data;
-      const direct = d.direct_permissions || [];
+      const res       = await adminService.getUserPermissions(u.id);
+      const d         = res.data.data;
       setUser(u);
       setRolePerms(d.role_permissions || []);
-      setPendingPerms([...direct]);
+      // pendingPerms = the full effective set the user currently has
+      setPendingPerms([...(d.effective_permissions || [])]);
       setHasChanges(false);
     } catch {
       setError('Failed to load user permissions.');
@@ -334,7 +334,7 @@ const UserPermissionsTab = ({ allPermissions, permissionGroups }) => {
             onChange={handleQueryChange}
             onFocus={() => results.length > 0 && setShowDrop(true)}
             placeholder="Search by name or email…"
-            className="w-full pl-9 pr-9 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            className="w-full pl-9 pr-9 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
           />
           {(query || user) && (
             <button
@@ -385,8 +385,8 @@ const UserPermissionsTab = ({ allPermissions, permissionGroups }) => {
       {!user && !loadingPerms && (
         <div className="flex flex-col items-center justify-center py-20 border border-dashed border-gray-200 rounded-xl bg-gray-50">
           <FaUsers className="text-5xl text-gray-300 mb-3" />
-          <p className="text-sm font-medium text-gray-500">Search for a user to manage their direct permissions</p>
-          <p className="text-xs text-gray-400 mt-1">Direct permissions are granted on top of the user's role permissions.</p>
+          <p className="text-sm font-medium text-gray-500">Search for a user to manage their permissions</p>
+          <p className="text-xs text-gray-400 mt-1">Check or uncheck permissions to grant or restrict access for this user. Role permissions can be blocked individually.</p>
         </div>
       )}
 
@@ -429,15 +429,28 @@ const UserPermissionsTab = ({ allPermissions, permissionGroups }) => {
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                 </span>
-                Inherited from role (read-only)
+                From role
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded border-2 border-green-500 inline-block flex-shrink-0" />
-                Direct access (editable)
+                <span className="w-4 h-4 rounded bg-green-100 border border-green-400 inline-block flex-shrink-0" />
+                Direct grant
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded bg-red-100 border border-red-400 inline-block flex-shrink-0" />
+                Blocked (role permission denied)
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs text-gray-500 mr-1">{rolePerms.length} inherited · {pendingPerms.length} direct</p>
+              {(() => {
+                const fromRole = pendingPerms.filter(p => rolePerms.includes(p)).length;
+                const direct   = pendingPerms.filter(p => !rolePerms.includes(p)).length;
+                const blocked  = rolePerms.filter(p => !pendingPerms.includes(p)).length;
+                return (
+                  <p className="text-xs text-gray-500 mr-1">
+                    {fromRole} from role · {direct} direct · {blocked} blocked
+                  </p>
+                );
+              })()}
               <button
                 onClick={() => { setPendingPerms([...existingPermNames]); setHasChanges(true); }}
                 className="text-xs px-3 py-1.5 rounded-lg font-semibold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors"
@@ -470,11 +483,11 @@ const UserPermissionsTab = ({ allPermissions, permissionGroups }) => {
                   <th className="sticky left-0 z-10 px-4 py-3 text-xs font-semibold tracking-wider text-left text-white/60 uppercase bg-[#01060f] min-w-[240px]">
                     Permission
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-semibold text-white/60 uppercase tracking-wider min-w-[150px]">
-                    Via Role
+                  <th className="px-6 py-3 text-center text-xs font-semibold text-white/60 uppercase tracking-wider min-w-[120px]">
+                    Access
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-semibold text-white/60 uppercase tracking-wider min-w-[150px]">
-                    Direct Access
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-white/60 uppercase tracking-wider min-w-[160px]">
+                    Source
                   </th>
                 </tr>
               </thead>
@@ -490,26 +503,49 @@ const UserPermissionsTab = ({ allPermissions, permissionGroups }) => {
                         <span className="ml-2 font-normal text-gray-400 normal-case">({perms.length})</span>
                       </td>
                       <td className="px-6 py-2 text-center bg-gray-50">
-                        <span className="text-xs text-gray-400">—</span>
-                      </td>
-                      <td className="px-6 py-2 text-center bg-gray-50">
                         <button
                           onClick={() => toggleGroup(perms)}
-                          title={allChecked ? 'Remove all direct in group' : 'Grant all direct in group'}
-                          className="transition-colors hover:text-green-600"
+                          title={allChecked ? 'Remove all in group' : 'Grant all in group'}
+                          className="transition-colors hover:text-blue-600"
                         >
                           {allChecked
-                            ? <FaCheckSquare className="text-green-500 text-base mx-auto" />
+                            ? <FaCheckSquare className="text-blue-500 text-base mx-auto" />
                             : someChecked
-                            ? <FaCheckSquare className="text-green-300 text-base mx-auto" />
+                            ? <FaCheckSquare className="text-blue-300 text-base mx-auto" />
                             : <FaRegSquare className="text-gray-300 text-base mx-auto" />}
                         </button>
                       </td>
+                      <td className="px-6 py-2 bg-gray-50" />
                     </tr>,
 
                     ...perms.map((perm) => {
-                      const fromRole = rolePerms.includes(perm);
-                      const isDirect = pendingPerms.includes(perm);
+                      const fromRole   = rolePerms.includes(perm);
+                      const isEffective = pendingPerms.includes(perm);
+
+                      let sourceBadge = null;
+                      if (isEffective && fromRole) {
+                        sourceBadge = (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium bg-blue-100 text-blue-700 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+                            via role
+                          </span>
+                        );
+                      } else if (isEffective && !fromRole) {
+                        sourceBadge = (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium bg-green-100 text-green-700 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                            direct
+                          </span>
+                        );
+                      } else if (!isEffective && fromRole) {
+                        sourceBadge = (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium bg-red-100 text-red-700 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+                            blocked
+                          </span>
+                        );
+                      }
+
                       return (
                         <tr key={perm} className="hover:bg-blue-50/30 transition-colors">
                           <td className="sticky left-0 z-10 px-4 py-2.5 bg-white border-r border-gray-100 pl-6">
@@ -517,28 +553,17 @@ const UserPermissionsTab = ({ allPermissions, permissionGroups }) => {
                             <p className="text-[11px] text-gray-400 font-mono">{perm}</p>
                           </td>
                           <td className="px-6 py-2 text-center">
-                            {fromRole ? (
-                              <span
-                                className="inline-flex items-center justify-center w-5 h-5 rounded bg-blue-500"
-                                title={`Granted via "${roleLabel}" role`}
-                              >
-                                <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                              </span>
-                            ) : (
-                              <span className="inline-block w-5 h-5 rounded border-2 border-gray-200 bg-gray-50" />
-                            )}
-                          </td>
-                          <td className="px-6 py-2 text-center">
                             <label className="inline-flex items-center cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={isDirect}
+                                checked={isEffective}
                                 onChange={() => togglePerm(perm)}
-                                className="w-4 h-4 rounded border-gray-300 accent-green-600"
+                                className="w-4 h-4 rounded border-gray-300 accent-blue-600"
                               />
                             </label>
+                          </td>
+                          <td className="px-6 py-2">
+                            {sourceBadge}
                           </td>
                         </tr>
                       );

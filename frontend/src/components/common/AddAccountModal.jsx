@@ -102,7 +102,7 @@ const AddAccountModal = ({ customer, isOpen, onClose, onSuccess }) => {
   const [otherDocs,      setOtherDocs]      = useState([]);
   const [isSubmitting,   setIsSubmitting]   = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [submitPhase,    setSubmitPhase]    = useState("idle");
+  const [_submitPhase,   setSubmitPhase]    = useState("idle");
 
   if (!isOpen) return null;
 

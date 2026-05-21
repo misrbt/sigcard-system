@@ -1,14 +1,33 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { MdMenu, MdAccountCircle, MdSettings, MdLogout } from 'react-icons/md';
 import { useAuth } from '../../hooks/useAuth';
 import { ROLE_LABELS } from '../../constants/roles';
 import logo from '../../assets/images/logos.png';
+import { useAppConfig } from '../../context/AppConfigContext';
 
-const Header = ({ onSidebarToggle, isSidebarOpen, userRole }) => {
+const PAGE_TITLES = {
+  '/admin/dashboard':       'Dashboard',
+  '/admin/customers':       'Customer Profiles',
+  '/admin/upload':          'Upload Documents',
+  '/admin/documents':       'Documents',
+  '/admin/users':           'Users',
+  '/admin/roles':           'Roles & Permissions',
+  '/admin/audit-logs':      'Audit Logs',
+  '/admin/reports':         'Reports',
+  '/admin/branches':        'Branches',
+  '/admin/data-management': 'Data Management',
+  '/admin/settings':        'Settings',
+  '/admin/profile':         'My Profile',
+};
+
+const Header = ({ onSidebarToggle, userRole }) => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const { user, logout } = useAuth();
+  const { app_name, app_abbreviation, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
   const navigate = useNavigate();
+  const location = useLocation();
 
   const displayName = user?.full_name || user?.firstname || userRole || 'User';
   const displayRole = ROLE_LABELS[userRole] ?? (userRole ? userRole.charAt(0).toUpperCase() + userRole.slice(1) : '');
@@ -35,16 +54,16 @@ const Header = ({ onSidebarToggle, isSidebarOpen, userRole }) => {
           </button>
 
           <div className="flex items-center gap-2 sm:gap-3 lg:hidden min-w-0">
-            <img src={logo} alt="DIGICUR Logo" className="h-9 w-9 sm:h-11 sm:w-11 object-contain flex-shrink-0" />
+            <img src={logoSrc} alt={`${app_abbreviation} Logo`} className="h-9 w-9 sm:h-11 sm:w-11 object-contain flex-shrink-0" />
             <div className="flex flex-col min-w-0">
-              <span className="text-white font-extrabold text-base sm:text-lg leading-tight tracking-widest truncate">DIGICUR</span>
-              <span className="text-[#1877F2] font-bold text-[10px] sm:text-xs leading-tight tracking-widest truncate">DIGITAL CUSTOMER RECORD</span>
+              <span className="text-white font-extrabold text-base sm:text-lg leading-tight tracking-widest truncate">{app_abbreviation}</span>
+              <span className="text-[#1877F2] font-bold text-[10px] sm:text-xs leading-tight tracking-widest truncate">{app_name}</span>
             </div>
           </div>
 
           <div className="hidden lg:block">
             <h1 className="text-xl xl:text-2xl font-bold text-white truncate tracking-wide">
-              {userRole === 'admin' ? 'Admin Panel' : `${displayRole} Dashboard`}
+              {PAGE_TITLES[location.pathname] ?? (userRole === 'admin' ? 'Admin Panel' : `${displayRole} Dashboard`)}
             </h1>
           </div>
         </div>

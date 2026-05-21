@@ -49,4 +49,9 @@ export const adminService = {
   // System Settings
   getSystemSettings: () => api.get('/admin/system-settings'),
   updateSystemSettings: (data) => api.put('/admin/system-settings', data),
+  uploadAppLogo: (file) => {
+    const fd = new FormData();
+    fd.append('logo', file);
+    return api.post('/admin/system-settings/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
 };

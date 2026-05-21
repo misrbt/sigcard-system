@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\AccountType;
+use App\Enums\CustomerStatus;
+use App\Enums\DocumentType;
+use App\Enums\RiskLevel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreatePermissionRequest;
 use App\Http\Requests\CreateRoleRequest;
@@ -13,6 +17,7 @@ use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\CustomerDocument;
 use App\Models\User;
+use App\Models\UserDeniedPermission;
 use App\Services\BSPAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +27,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\PersonalAccessToken;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Permission;
@@ -41,9 +47,9 @@ class AdminController extends Controller
         $totalCustomers = Customer::count();
         $totalUsers = User::count();
         $totalDocuments = CustomerDocument::count();
-        $totalSigcards = CustomerDocument::where('document_type', 'sigcard_front')->count();
+        $totalSigcards = CustomerDocument::where('document_type', DocumentType::SigcardFront->value)->count();
         $todayUploads = Customer::whereDate('created_at', today())->count();
-        $totalBranches = Branch::where('branch_name', '!=', 'Head Office')->count();
+        $totalBranches = Branch::operational()->count();
 
         $byStatus = Customer::select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
@@ -58,7 +64,7 @@ class AdminController extends Controller
             ->pluck('count', 'risk_level');
 
         // Sigcard counts per branch (keyed by branch_id)
-        $sigcardCounts = CustomerDocument::where('document_type', 'sigcard_front')
+        $sigcardCounts = CustomerDocument::where('document_type', DocumentType::SigcardFront->value)
             ->join('customers', 'customer_documents.customer_id', '=', 'customers.id')
             ->select('customers.branch_id', DB::raw('count(*) as count'))
             ->groupBy('customers.branch_id')
@@ -106,21 +112,22 @@ class AdminController extends Controller
                     'branch_name' => $branch->branch_name,
                     'brak' => $branch->brak,
                     'brcode' => $branch->brcode,
+                    'is_head_office' => (bool) $branch->is_head_office,
                     'total' => $branch->customers_count,
-                    'active' => $statusCounts->get('active', 0),
-                    'dormant' => $statusCounts->get('dormant', 0),
-                    'escheat' => $statusCounts->get('escheat', 0),
-                    'closed' => $statusCounts->get('closed', 0),
-                    'reactivated' => $statusCounts->get('reactivated', 0),
+                    'active' => $statusCounts->get(CustomerStatus::Active->value, 0),
+                    'dormant' => $statusCounts->get(CustomerStatus::Dormant->value, 0),
+                    'escheat' => $statusCounts->get(CustomerStatus::Escheat->value, 0),
+                    'closed' => $statusCounts->get(CustomerStatus::Closed->value, 0),
+                    'reactivated' => $statusCounts->get(CustomerStatus::Reactivated->value, 0),
                     'sigcards' => $sigcardCounts->get($branch->id, 0),
                     'documents' => $documentCounts->get($branch->id, 0),
                     'users' => $userCounts->get($branch->id, 0),
-                    'individual' => $branchAccountTypes->get('Regular', 0),
-                    'joint' => $branchAccountTypes->get('Joint', 0),
-                    'corporate' => $branchAccountTypes->get('Corporate', 0),
-                    'low_risk' => $branchRiskLevels->get('Low Risk', 0),
-                    'medium_risk' => $branchRiskLevels->get('Medium Risk', 0),
-                    'high_risk' => $branchRiskLevels->get('High Risk', 0),
+                    'individual' => $branchAccountTypes->get(AccountType::Regular->value, 0),
+                    'joint' => $branchAccountTypes->get(AccountType::Joint->value, 0),
+                    'corporate' => $branchAccountTypes->get(AccountType::Corporate->value, 0),
+                    'low_risk' => $branchRiskLevels->get(RiskLevel::Low->value, 0),
+                    'medium_risk' => $branchRiskLevels->get(RiskLevel::Medium->value, 0),
+                    'high_risk' => $branchRiskLevels->get(RiskLevel::High->value, 0),
                 ];
             });
 
@@ -1219,24 +1226,37 @@ class AdminController extends Controller
     }
 
     /**
-     * Get a user's role-inherited and direct permissions
+     * Get a user's role-inherited, direct, denied, and effective permissions
      */
     public function getUserPermissions(User $user): JsonResponse
     {
         $this->authorize('assign-permissions');
 
+        $denied = UserDeniedPermission::where('user_id', $user->id)->pluck('permission_name')->values();
+        $rolePerms = $user->getPermissionsViaRoles()->pluck('name')->values();
+        $directPerms = $user->getDirectPermissions()->pluck('name')->values();
+        $effective = collect($rolePerms)->merge($directPerms)->unique()
+            ->reject(fn ($p) => $denied->contains($p))
+            ->values();
+
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user->load(['roles', 'branch']),
-                'role_permissions' => $user->getPermissionsViaRoles()->pluck('name')->values(),
-                'direct_permissions' => $user->getDirectPermissions()->pluck('name')->values(),
+                'role_permissions' => $rolePerms,
+                'direct_permissions' => $directPerms,
+                'denied_permissions' => $denied,
+                'effective_permissions' => $effective,
             ],
         ]);
     }
 
     /**
-     * Sync a user's direct permissions (does not affect role permissions)
+     * Sync a user's effective permissions.
+     *
+     * Accepts the full list of permissions the user should effectively have.
+     * Permissions the user's role grants but are absent from the list are stored
+     * as denied; permissions not in the role but in the list are stored as direct grants.
      */
     public function syncUserPermissions(Request $request, User $user): JsonResponse
     {
@@ -1248,7 +1268,26 @@ class AdminController extends Controller
         ]);
 
         try {
-            $user->syncPermissions($request->permissions);
+            $effectivePerms = $request->permissions;
+            $rolePerms = $user->getPermissionsViaRoles()->pluck('name')->toArray();
+
+            // Role-granted permissions NOT in the effective list → denied
+            $toDeny = array_values(array_diff($rolePerms, $effectivePerms));
+
+            // Permissions in the effective list that the role does NOT grant → direct grants
+            $toGrant = array_values(array_diff($effectivePerms, $rolePerms));
+
+            DB::transaction(function () use ($user, $toDeny, $toGrant) {
+                // Sync denied permissions
+                UserDeniedPermission::where('user_id', $user->id)->delete();
+                foreach ($toDeny as $perm) {
+                    UserDeniedPermission::create(['user_id' => $user->id, 'permission_name' => $perm]);
+                }
+
+                // Sync direct permissions (only the non-role grants)
+                $user->syncPermissions($toGrant);
+            });
+
             app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
             activity()
@@ -1256,15 +1295,21 @@ class AdminController extends Controller
                 ->performedOn($user)
                 ->withProperties([
                     'action' => 'user_permissions_synced',
-                    'permissions' => $request->permissions,
+                    'effective' => $effectivePerms,
+                    'denied' => $toDeny,
+                    'direct_grants' => $toGrant,
                 ])
-                ->log('Admin synced user direct permissions');
+                ->log('Admin synced user effective permissions');
+
+            $fresh = $user->fresh();
+            $denied = UserDeniedPermission::where('user_id', $user->id)->pluck('permission_name')->values();
 
             return response()->json([
                 'success' => true,
                 'message' => 'User permissions updated successfully',
                 'data' => [
-                    'direct_permissions' => $user->fresh()->getDirectPermissions()->pluck('name')->values(),
+                    'direct_permissions' => $fresh->getDirectPermissions()->pluck('name')->values(),
+                    'denied_permissions' => $denied,
                 ],
             ]);
 
@@ -1310,6 +1355,9 @@ class AdminController extends Controller
                 'notification_email' => Cache::get('system_setting_notification_email', config('mail.from.address')),
                 'system_timezone' => Cache::get('system_setting_system_timezone', config('app.timezone')),
                 'currency_code' => Cache::get('system_setting_currency_code', 'PHP'),
+                'app_name' => Cache::get('system_setting_app_name', 'DIGITAL CUSTOMER RECORD'),
+                'app_abbreviation' => Cache::get('system_setting_app_abbreviation', 'DIGICUR'),
+                'app_logo_url' => Cache::get('system_setting_app_logo_url', null),
             ];
 
             activity()
@@ -1368,6 +1416,44 @@ class AdminController extends Controller
                 'success' => false,
                 'message' => 'Failed to update system settings',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload the app logo for branding.
+     */
+    public function uploadAppLogo(Request $request): JsonResponse
+    {
+        $this->authorize('view-system-settings');
+
+        $request->validate([
+            'logo' => ['required', 'image', 'mimes:png,jpg,jpeg,svg,webp', 'max:2048'],
+        ]);
+
+        try {
+            $file = $request->file('logo');
+            $filename = 'app_logo.'.$file->getClientOriginalExtension();
+            $file->storeAs('branding', $filename, 'public');
+
+            $url = Storage::disk('public')->url('branding/'.$filename);
+            Cache::put('system_setting_app_logo_url', $url, now()->addDays(30));
+
+            activity()
+                ->causedBy(auth()->user())
+                ->withProperties(['action' => 'uploaded_app_logo'])
+                ->log('Admin uploaded app logo');
+
+            return response()->json([
+                'success' => true,
+                'logo_url' => $url,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Logo upload failed: '.$e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to upload logo: '.$e->getMessage(),
             ], 500);
         }
     }
