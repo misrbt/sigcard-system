@@ -1,11 +1,13 @@
+import { lazy } from "react";
 import { Route } from "react-router-dom";
 import TopNavLayout from "../components/layout/TopNavLayout";
 import ProtectedRoute from "../components/common/ProtectedRoute";
-import CashierDashboard from "../pages/cashier/Dashboard";
-import CustomerProfiles from "../pages/user/CustomerProfiles.jsx";
-import CustomerView from "../pages/user/CustomerView.jsx";
-import BranchDocuments from "../pages/shared/BranchDocuments.jsx";
-import Profile from "../pages/user/Profile.jsx";
+
+const CashierDashboard = lazy(() => import("../pages/cashier/Dashboard"));
+const CustomerProfiles = lazy(() => import("../pages/user/CustomerProfiles.jsx"));
+const CustomerView     = lazy(() => import("../pages/user/CustomerView.jsx"));
+const BranchDocuments  = lazy(() => import("../pages/shared/BranchDocuments.jsx"));
+const Profile          = lazy(() => import("../pages/user/Profile.jsx"));
 
 const withLayout = (element, permission = null) => (
   <ProtectedRoute roles={["cashier"]} permission={permission}>

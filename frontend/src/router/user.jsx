@@ -1,14 +1,16 @@
+import { lazy } from "react";
 import { Route } from "react-router-dom";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import UserLayout from "../components/layout/UserLayout";
-import Home from "../pages/user/Home.jsx";
-import UploadSigcard from "../pages/user/UploadSigcard.jsx";
-import CustomerProfiles from "../pages/user/CustomerProfiles.jsx";
-import EditCustomerDocs from "../pages/user/EditCustomerDocs.jsx";
-import CustomerView from "../pages/user/CustomerView.jsx";
-import AddAccount from "../pages/user/AddAccount.jsx";
-import Profile from "../pages/user/Profile.jsx";
-import StatusTracking from "../pages/user/StatusTracking.jsx";
+
+const Home             = lazy(() => import("../pages/user/Home.jsx"));
+const UploadSigcard    = lazy(() => import("../pages/user/UploadSigcard.jsx"));
+const CustomerProfiles = lazy(() => import("../pages/user/CustomerProfiles.jsx"));
+const EditCustomerDocs = lazy(() => import("../pages/user/EditCustomerDocs.jsx"));
+const CustomerView     = lazy(() => import("../pages/user/CustomerView.jsx"));
+const AddAccount       = lazy(() => import("../pages/user/AddAccount.jsx"));
+const Profile          = lazy(() => import("../pages/user/Profile.jsx"));
+const StatusTracking   = lazy(() => import("../pages/user/StatusTracking.jsx"));
 
 const withLayout = (element, permission = null) => (
   <ProtectedRoute roles={["user"]} permission={permission}>

@@ -1,15 +1,17 @@
+import { lazy } from "react";
 import { Route } from "react-router-dom";
 import TopNavLayout from "../components/layout/TopNavLayout";
 import ProtectedRoute from "../components/common/ProtectedRoute";
-import ManagerDashboard from "../pages/manager/Dashboard.jsx";
-import CustomerProfiles from "../pages/user/CustomerProfiles.jsx";
-import CustomerView from "../pages/user/CustomerView.jsx";
-import EditCustomerDocs from "../pages/user/EditCustomerDocs.jsx";
-import AddAccount from "../pages/user/AddAccount.jsx";
-import UploadSigcard from "../pages/user/UploadSigcard.jsx";
-import BranchDocuments from "../pages/shared/BranchDocuments.jsx";
-import StatusTracking from "../pages/user/StatusTracking.jsx";
-import Profile from "../pages/user/Profile.jsx";
+
+const ManagerDashboard = lazy(() => import("../pages/manager/Dashboard.jsx"));
+const CustomerProfiles = lazy(() => import("../pages/user/CustomerProfiles.jsx"));
+const CustomerView     = lazy(() => import("../pages/user/CustomerView.jsx"));
+const EditCustomerDocs = lazy(() => import("../pages/user/EditCustomerDocs.jsx"));
+const AddAccount       = lazy(() => import("../pages/user/AddAccount.jsx"));
+const UploadSigcard    = lazy(() => import("../pages/user/UploadSigcard.jsx"));
+const BranchDocuments  = lazy(() => import("../pages/shared/BranchDocuments.jsx"));
+const StatusTracking   = lazy(() => import("../pages/user/StatusTracking.jsx"));
+const Profile          = lazy(() => import("../pages/user/Profile.jsx"));
 
 const withLayout = (element, permission = null) => (
   <ProtectedRoute roles={["manager"]} permission={permission}>

@@ -1,6 +1,8 @@
+import { lazy } from 'react';
 import { Route } from 'react-router-dom';
 import AuthLayout from '@layouts/AuthLayout';
-import Login from '@/Login';
+
+const Login = lazy(() => import('@/Login'));
 
 // Import auth pages here
 // import Register from '../../pages/auth/Register';

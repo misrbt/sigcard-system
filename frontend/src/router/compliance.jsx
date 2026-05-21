@@ -1,16 +1,18 @@
+import { lazy } from "react";
 import { Route } from "react-router-dom";
 import TopNavLayout from "../components/layout/TopNavLayout";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import { useAuth } from "../hooks/useAuth";
-import ComplianceAuditDashboard from "../pages/compliance-audit/Dashboard.jsx";
-import ComplianceReports from "../pages/compliance-audit/Reports.jsx";
-import ReportPreview from "../pages/compliance-audit/ReportPreview.jsx";
-import BranchDetail from "../pages/compliance-audit/BranchDetail.jsx";
-import AuditLogs from "../pages/admin/AuditLogs.jsx";
-import CustomerProfiles from "../pages/user/CustomerProfiles.jsx";
-import CustomerView from "../pages/user/CustomerView.jsx";
-import BranchDocuments from "../pages/shared/BranchDocuments.jsx";
-import Profile from "../pages/user/Profile.jsx";
+
+const ComplianceAuditDashboard = lazy(() => import("../pages/compliance-audit/Dashboard.jsx"));
+const ComplianceReports        = lazy(() => import("../pages/compliance-audit/Reports.jsx"));
+const ReportPreview            = lazy(() => import("../pages/compliance-audit/ReportPreview.jsx"));
+const BranchDetail             = lazy(() => import("../pages/compliance-audit/BranchDetail.jsx"));
+const AuditLogs                = lazy(() => import("../pages/admin/AuditLogs.jsx"));
+const CustomerProfiles         = lazy(() => import("../pages/user/CustomerProfiles.jsx"));
+const CustomerView             = lazy(() => import("../pages/user/CustomerView.jsx"));
+const BranchDocuments          = lazy(() => import("../pages/shared/BranchDocuments.jsx"));
+const Profile                  = lazy(() => import("../pages/user/Profile.jsx"));
 
 const ALLOWED_ROLES = ["compliance", "audit", "admin"];
 const COMPLIANCE_LAYOUT_ROLES = ["compliance", "audit"];

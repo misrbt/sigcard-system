@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import AuthRoutes from "./router/auth.jsx";
@@ -6,13 +7,21 @@ import UserRoutes from "./router/user.jsx";
 import ComplianceRoutes from "./router/compliance.jsx";
 import ManagerRoutes from "./router/manager.jsx";
 import CashierRoutes from "./router/cashier.jsx";
-import NotFound from "./NotFound.jsx";
-import Maintenance from "./Maintenance.jsx";
-import Unauthorized from "./pages/shared/Unauthorized.jsx";
+
+const NotFound    = lazy(() => import("./NotFound.jsx"));
+const Maintenance = lazy(() => import("./Maintenance.jsx"));
+const Unauthorized = lazy(() => import("./pages/shared/Unauthorized.jsx"));
+
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-900" />
+  </div>
+);
 
 function CrisChen() {
   return (
     <BrowserRouter>
+      <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
 
@@ -52,6 +61,7 @@ function CrisChen() {
         {/* 404 Not Found */}
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

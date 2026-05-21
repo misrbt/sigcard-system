@@ -1,24 +1,26 @@
+import { lazy } from "react";
 import { Route } from "react-router-dom";
 import AppLayout from "@layouts/AppLayout";
 import ProtectedRoute from "../components/common/ProtectedRoute";
-import AdminDashboard from "../pages/admin/dashboard";
-import UserManagement from "../pages/admin/UserManagement";
-import RolePermissionMatrix from "../pages/admin/RolePermissionMatrix";
-import AuditLogs from "../pages/admin/AuditLogs";
-import SystemSettings from "../pages/admin/SystemSettings";
-import DataManagement from "../pages/admin/DataManagement";
-import BranchManagement from "../pages/admin/BranchManagement";
-import CustomerProfiles from "../pages/user/CustomerProfiles";
-import CustomerView from "../pages/user/CustomerView";
-import Profile from "../pages/user/Profile.jsx";
-import UploadSigcard from "../pages/user/UploadSigcard";
-import EditCustomerDocs from "../pages/user/EditCustomerDocs";
-import AddAccount from "../pages/user/AddAccount";
-import StatusTracking from "../pages/user/StatusTracking";
-import ComplianceReports from "../pages/compliance-audit/Reports";
-import ReportPreview from "../pages/compliance-audit/ReportPreview";
-import BranchDetail from "../pages/compliance-audit/BranchDetail";
-import BranchDocuments from "../pages/shared/BranchDocuments";
+
+const AdminDashboard      = lazy(() => import("../pages/admin/dashboard"));
+const UserManagement      = lazy(() => import("../pages/admin/UserManagement"));
+const RolePermissionMatrix = lazy(() => import("../pages/admin/RolePermissionMatrix"));
+const AuditLogs           = lazy(() => import("../pages/admin/AuditLogs"));
+const SystemSettings      = lazy(() => import("../pages/admin/SystemSettings"));
+const DataManagement      = lazy(() => import("../pages/admin/DataManagement"));
+const BranchManagement    = lazy(() => import("../pages/admin/BranchManagement"));
+const CustomerProfiles    = lazy(() => import("../pages/user/CustomerProfiles"));
+const CustomerView        = lazy(() => import("../pages/user/CustomerView"));
+const Profile             = lazy(() => import("../pages/user/Profile"));
+const UploadSigcard       = lazy(() => import("../pages/user/UploadSigcard"));
+const EditCustomerDocs    = lazy(() => import("../pages/user/EditCustomerDocs"));
+const AddAccount          = lazy(() => import("../pages/user/AddAccount"));
+const StatusTracking      = lazy(() => import("../pages/user/StatusTracking"));
+const ComplianceReports   = lazy(() => import("../pages/compliance-audit/Reports"));
+const ReportPreview       = lazy(() => import("../pages/compliance-audit/ReportPreview"));
+const BranchDetail        = lazy(() => import("../pages/compliance-audit/BranchDetail"));
+const BranchDocuments     = lazy(() => import("../pages/shared/BranchDocuments"));
 
 const AdminRoutes = () => {
   return (
