@@ -19,6 +19,7 @@ export const adminService = {
   revokeToken: (userId, tokenId) => api.delete(`/admin/users/${userId}/tokens/${tokenId}`),
   clearForcePasswordChange: (id) => api.post(`/admin/users/${id}/clear-force-password-change`),
   restoreLoginAccess: (id) => api.post(`/admin/users/${id}/restore-login-access`),
+  resetUser2FA: (id) => api.post(`/admin/users/${id}/reset-2fa`),
 
   // Roles
   getRoles: () => api.get('/admin/roles'),

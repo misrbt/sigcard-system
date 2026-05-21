@@ -199,7 +199,9 @@ class AdminController extends Controller
         $this->authorize('view-users');
 
         try {
-            $query = User::query()->with(['roles', 'permissions', 'branch'])
+            $query = User::query()
+                ->with(['roles', 'permissions', 'branch'])
+                ->withCount(['tokens as active_tokens_count' => fn ($q) => $q->where(fn ($s) => $s->whereNull('expires_at')->orWhere('expires_at', '>', now()))])
                 ->where('email', 'not like', '%_deleted_%');
 
             // Apply filters
@@ -688,6 +690,9 @@ class AdminController extends Controller
                 'active_sessions_count' => $sessions->count(),
                 'session_limit' => $sessionLimit,
                 'sessions' => $sessions->values(),
+
+                // Two-factor authentication
+                'two_factor_enabled' => (bool) $user->two_factor_enabled,
             ],
         ]);
     }
@@ -828,6 +833,45 @@ class AdminController extends Controller
             Log::error('Error restoring login access: '.$e->getMessage());
 
             return response()->json(['success' => false, 'message' => 'Failed to restore login access.'], 500);
+        }
+    }
+
+    /**
+     * Disable two-factor authentication for a user (admin override).
+     * Used when a user has lost access to their authenticator app and cannot log in.
+     */
+    public function resetUser2FA(User $user): JsonResponse
+    {
+        $this->authorize('reset-user-passwords');
+
+        try {
+            if (! $user->two_factor_enabled && ! $user->two_factor_secret) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '2FA is not currently enabled for this user.',
+                ], 422);
+            }
+
+            $user->update([
+                'two_factor_enabled' => false,
+                'two_factor_secret' => null,
+                'two_factor_recovery_codes' => null,
+            ]);
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties(['action' => '2fa_disabled_by_admin'])
+                ->log('Admin disabled two-factor authentication for user (account recovery)');
+
+            return response()->json([
+                'success' => true,
+                'message' => '2FA has been disabled for this user. They can now log in with just their password.',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error resetting 2FA: '.$e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Failed to disable 2FA.'], 500);
         }
     }
 
