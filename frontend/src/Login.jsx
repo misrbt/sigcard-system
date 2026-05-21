@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { MdEmail, MdLock, MdUploadFile, MdVerified } from "react-icons/md";
@@ -64,27 +64,33 @@ const Login = () => {
     return () => clearInterval(timer);
   }, []);
 
+  const isLockedOut = lockoutCountdown > 0;
+
   useEffect(() => {
-    if (lockoutCountdown <= 0) return;
+    if (!isLockedOut) return;
     const interval = setInterval(() => {
       setLockoutCountdown((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
+          setApiError({ message: "", type: "" });
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-    // Auto-dismiss the error banner once the lockout period expires.
-    const autoHide = setTimeout(() => {
-      setApiError({ message: "", type: "" });
-      setLockoutCountdown(0);
-    }, lockoutCountdown * 1000);
-    return () => {
-      clearInterval(interval);
-      clearTimeout(autoHide);
+    return () => clearInterval(interval);
+  }, [isLockedOut]);
+
+  const redirectByRole = useCallback((role) => {
+    const routes = {
+      admin:      "/admin",
+      manager:    "/manager/dashboard",
+      compliance: "/compliance",
+      audit:      "/compliance",
+      user:       "/user",
+      cashier:    "/cashier",
     };
-  }, [lockoutCountdown > 0]);
+    navigate(routes[role] || "/user", { replace: true });
+  }, [navigate]);
 
   // Redirect if already authenticated — skip if force password change is pending
   useEffect(() => {
@@ -95,19 +101,7 @@ const Login = () => {
         redirectByRole(getPrimaryRole());
       }
     }
-  }, [isAuthenticated, user]);
-
-  const redirectByRole = (role) => {
-    const routes = {
-      admin:              "/admin",
-      manager:            "/manager/dashboard",
-      compliance: "/compliance",
-      audit:      "/compliance",
-      user:               "/user",
-      cashier:            "/cashier",
-    };
-    navigate(routes[role] || "/user", { replace: true });
-  };
+  }, [isAuthenticated, user, redirectByRole, getPrimaryRole]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
