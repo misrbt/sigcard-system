@@ -1,8 +1,11 @@
 import { motion } from "framer-motion";
 import { HiWrenchScrewdriver } from "react-icons/hi2";
 import logo from "./assets/images/logos.png";
+import { useAppConfig } from "./context/AppConfigContext";
 
 const Maintenance = () => {
+  const { app_abbreviation, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-[#030b1d]">
       <div className="absolute inset-0 bg-gradient-to-br from-[#01060f] via-[#05173a] to-[#020a1d]" />
@@ -20,8 +23,8 @@ const Maintenance = () => {
           className="w-full max-w-2xl text-center"
         >
           <img
-            src={logo}
-            alt="DIGICUR Logo"
+            src={logoSrc}
+            alt={`${app_abbreviation} Logo`}
             className="mx-auto h-24 w-auto object-contain drop-shadow-2xl"
           />
 
@@ -41,7 +44,7 @@ const Maintenance = () => {
 
             <div className="mt-4 space-y-2">
               <p className="text-lg text-white/70 max-w-md mx-auto leading-relaxed">
-                The DIGICUR system is temporarily offline for scheduled
+                The {app_abbreviation} system is temporarily offline for scheduled
                 maintenance. We apologize for the inconvenience.
               </p>
             </div>
@@ -61,7 +64,7 @@ const Maintenance = () => {
             <p className="text-xs uppercase tracking-[0.4em] text-white/40">
               RBT Bank Secure Network
             </p>
-            <p className="mt-2 text-sm text-white/50">DIGICUR Access Portal</p>
+            <p className="mt-2 text-sm text-white/50">{app_abbreviation} Access Portal</p>
           </motion.div>
         </motion.div>
       </div>

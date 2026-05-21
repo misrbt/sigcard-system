@@ -1,7 +1,9 @@
 import { motion } from "framer-motion";
+import { useAppConfig } from "../../context/AppConfigContext";
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
+  const { app_abbreviation } = useAppConfig();
 
   return (
     <>
@@ -20,7 +22,7 @@ const Footer = () => {
                 </h3>
               </div>
               <span className="hidden text-gray-500 md:inline">|</span>
-              <div>&copy; {currentYear} DIGICUR — Digital Customer Record System. All rights reserved.</div>
+              <div>&copy; {currentYear} {app_abbreviation} — Digital Customer Record System. All rights reserved.</div>
             </div>
 
             <div className="flex flex-col items-center justify-center gap-1 text-xs uppercase tracking-[0.4em] text-gray-400 md:flex-row md:gap-6">
