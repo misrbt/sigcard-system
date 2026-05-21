@@ -12,11 +12,75 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Staging Server
-    runs-on: [self-hosted, staging-server]
+    runs-on: self-hosted
 
     steps:
-      - name: Pull latest code
-        run: git -C /var/www/staging/sigcard-system pull origin staging
+      - name: Fetch latest from remote
+        run: /usr/bin/git -C /home/rbtwebsrvr/projects/sigcard-system fetch origin
+
+      - name: Show what is in this staging deploy
+        run: |
+          cd /home/rbtwebsrvr/projects/sigcard-system
+          COUNT=$(/usr/bin/git rev-list --count origin/main..origin/staging)
+
+          echo "======================================"
+          echo " STAGING DEPLOY — Commits vs Production"
+          echo "======================================"
+          echo ""
+
+          if [ "$COUNT" -eq "0" ]; then
+            echo "  No new commits vs production. Staging is already in sync."
+          else
+            echo "  $COUNT commit(s) in this deploy not yet in production:"
+            echo ""
+            /usr/bin/git log origin/main..origin/staging --oneline
+            echo ""
+            echo "  Files changed:"
+            /usr/bin/git diff --name-only origin/main...origin/staging
+          fi
+
+          echo ""
+          echo "======================================"
 
       - name: Run staging deploy script
         run: bash /var/www/staging/sigcard-system/scripts/deploy-staging.sh
+
+      - name: Write GitHub Actions summary
+        run: |
+          cd /home/rbtwebsrvr/projects/sigcard-system
+          COUNT=$(/usr/bin/git rev-list --count origin/main..origin/staging)
+
+          echo "## Staging Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed on:** $(date '+%B %d, %Y %H:%M')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$COUNT" -eq "0" ]; then
+            echo "✅ Staging already matches production — nothing new to promote." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### $COUNT commit(s) ready for production" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Commit | Message |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
+            /usr/bin/git log origin/main..origin/staging --pretty=format:"| \`%h\` | %s |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Files changed" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            /usr/bin/git diff --name-only origin/main...origin/staging >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> After testing, click **Review deployments** on the next job to deploy to production." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  promote-to-production:
+    name: "Confirm: Deploy to Production?"
+    needs: deploy
+    runs-on: self-hosted
+    # This job PAUSES and waits for your approval in GitHub Actions.
+    # Go to: Actions → this workflow run → Review deployments → Approve
+    environment: production-gate
+
+    steps:
+      - name: Deploy to production
+        run: bash /home/rbtwebsrvr/projects/sigcard-system/scripts/deploy-production.sh
