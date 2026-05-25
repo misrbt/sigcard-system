@@ -40,8 +40,10 @@ jobs:
           fi
           echo "======================================"
 
-      - name: Copy .env from server
-        run: cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
+      - name: Copy .env from production
+        run: |
+          cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
+          cp $DEPLOY_DIR/frontend/.env $GITHUB_WORKSPACE/frontend/.env
 
       - name: Install backend dependencies
         run: /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir=$GITHUB_WORKSPACE/backend
@@ -109,8 +111,10 @@ jobs:
       - name: Checkout latest code
         uses: actions/checkout@v4
 
-      - name: Copy .env from server
-        run: cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
+      - name: Copy .env from production
+        run: |
+          cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
+          cp $DEPLOY_DIR/frontend/.env $GITHUB_WORKSPACE/frontend/.env
 
       - name: Install backend dependencies
         run: /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir=$GITHUB_WORKSPACE/backend
