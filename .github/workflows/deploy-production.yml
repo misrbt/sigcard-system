@@ -35,8 +35,10 @@ jobs:
           echo "Reason           : ${{ github.event.inputs.reason || 'push to main' }}"
           echo "Workspace        : $GITHUB_WORKSPACE"
 
-      - name: Copy .env from server
-        run: cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
+      - name: Copy .env from production
+        run: |
+          cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
+          cp $DEPLOY_DIR/frontend/.env $GITHUB_WORKSPACE/frontend/.env
 
       - name: Install backend dependencies
         run: /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir=$GITHUB_WORKSPACE/backend
