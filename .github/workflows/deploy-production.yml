@@ -55,6 +55,7 @@ jobs:
 
       - name: Build frontend
         run: |
+          set -a && source $DEPLOY_DIR/frontend/.env && set +a
           /usr/bin/npm ci --prefix $GITHUB_WORKSPACE/frontend
           /usr/bin/npm run build --prefix $GITHUB_WORKSPACE/frontend
 
