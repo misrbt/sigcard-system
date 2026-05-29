@@ -670,6 +670,17 @@ class CustomerController extends Controller
                     ->latest()
                     ->first();
 
+            // A document_id pointing to an already-demoted record must not be re-versioned.
+            // Demote any true is_current docs for this slot, then proceed as a fresh upload.
+            if ($existing && ! $existing->is_current) {
+                $customer->documents()
+                    ->where('document_type', $request->document_type)
+                    ->where('person_index', $request->person_index)
+                    ->where('is_current', true)
+                    ->update(['is_current' => false]);
+                $existing = null;
+            }
+
             $versionedPath = null;
             $oldFileName = null;
 
@@ -677,7 +688,10 @@ class CustomerController extends Controller
                 $oldFileName = $existing->file_name;
                 $pathInfo = pathinfo($existing->file_path);
                 $dir = $pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] : '';
-                $versionedName = $pathInfo['filename'].'_v'.now()->format('Ymd_His').'.jpg';
+                // Strip any stacked _v{YYYYMMDD_HHmmss} suffixes so the archived name is
+                // always derived from the original base name, preventing runaway growth.
+                $baseName = preg_replace('/(_v\d{8}_\d{6})+$/', '', $pathInfo['filename']);
+                $versionedName = $baseName.'_v'.now()->format('Ymd_His').'.jpg';
                 $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
 
                 if (Storage::disk('public')->exists($existing->file_path)) {
