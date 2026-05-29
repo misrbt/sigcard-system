@@ -2091,18 +2091,23 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const searchContainerRef                        = useRef(null);
   const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
 
-  // ── Fetch branch + children for branch filter (manager & cashier) ─────────
+  // ── Fetch branch options for the branch filter ────────────────────────────
   useEffect(() => {
-    if (!branchScoped || !user?.branch_id) return;
-    api.get("/branches").then(({ data }) => {
+    api.get("/branches", { params: { per_page: 100 } }).then(({ data }) => {
       const all = data.data ?? [];
-      const children = all.filter((b) => b.parent_id === user.branch_id);
-      if (children.length === 0) return; // no children → no dropdown
-      const mother = all.find((b) => b.id === user.branch_id);
-      setBranchOptions([
-        { id: mother?.id ?? user.branch_id, branch_name: (mother?.branch_name ?? "My Branch") + " (Mother)" },
-        ...children,
-      ]);
+      if (branchScoped) {
+        if (!user?.branch_id) return;
+        const children = all.filter((b) => b.parent_id === user.branch_id);
+        if (children.length === 0) return; // no children → no dropdown
+        const mother = all.find((b) => b.id === user.branch_id);
+        setBranchOptions([
+          { id: mother?.id ?? user.branch_id, branch_name: (mother?.branch_name ?? "My Branch") + " (Mother)" },
+          ...children,
+        ]);
+      } else {
+        // Admin / unrestricted view — show all operational branches (exclude Head Office)
+        setBranchOptions(all.filter((b) => !b.is_head_office));
+      }
     }).catch(() => {});
   }, [branchScoped, user?.branch_id]);
 
@@ -2115,7 +2120,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
       if (statusFilter !== "all")     params.status       = statusFilter;
       if (accountTypeFilter !== "all") params.account_type = accountTypeFilter;
       if (riskLevelFilter !== "all")  params.risk_level   = riskLevelFilter;
-      if (branchScoped && branchFilter !== "all") params.branch_id = branchFilter;
+      if (branchFilter !== "all") params.branch_id = branchFilter;
 
       const { data } = await api.get("/customers", { params });
 
@@ -2309,8 +2314,8 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     ))}
                   </select>
 
-                  {/* Branch — manager & cashier, only when they have child branches */}
-                  {branchScoped && branchOptions.length > 0 && (
+                  {/* Branch — admin sees all branches; manager/cashier see children only */}
+                  {branchOptions.length > 0 && (
                     <select
                       value={branchFilter}
                       onChange={(e) => setBranchFilter(e.target.value)}
