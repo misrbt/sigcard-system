@@ -1137,12 +1137,6 @@ const UploadSigcard = () => {
                   </div>
                 </div>
               ))}
-              <button type="button" onClick={() => addItfPair("sigcard")}
-                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all">
-                <HiOutlinePlus className="w-3.5 h-3.5" />
-                Add Another Sigcard
-              </button>
-
               {/* Second sigcard front prompt */}
               {!hasSecondJointFront ? (
                 <button type="button"
