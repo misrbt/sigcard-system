@@ -222,7 +222,7 @@ const TopNavLayout = ({ children, userRole }) => {
       </header>
 
       {/* Page Content */}
-      <main className="flex-1 max-w-screen-2xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-24">
+      <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 pb-24">
         {children}
       </main>
 
