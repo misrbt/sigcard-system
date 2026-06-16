@@ -62,6 +62,26 @@ When starting a new conversation:
 
 ---
 
+## RULE 5 — Production Issues: Report Only, Do NOT Fix Directly
+
+This server (`sigcard.rbtbank.com`) is **production**. When a bug or issue is found here:
+
+1. **Do NOT edit any files or apply any fixes on this server.**
+2. **Do NOT commit or push any fix from here.**
+3. Instead, provide the user with a complete, copy-paste-ready fix guide so they can apply it on their own PC (on the `develop` branch) and go through the normal deploy process.
+
+**The fix guide must include:**
+- Which file(s) to edit and their exact path (e.g. `backend/app/Http/Controllers/Api/CustomerController.php`)
+- The exact lines to find (show the current code in a code block)
+- The exact replacement code (show the new code in a code block)
+- A plain-English explanation of why the change fixes the issue
+- Any follow-up steps (e.g. run migrations, clear cache, rebuild frontend)
+
+**Why this rule exists:**
+Fixes applied directly to production bypass code review, testing, and the normal `develop → staging → main` deployment pipeline. This creates risk of untested changes breaking the live system for bank staff.
+
+---
+
 ## RULE 4 — Before Context Fills Up
 
 If the conversation is growing very long or approaching limits:
