@@ -16,11 +16,18 @@ class StoreCustomerRequest extends FormRequest
      */
     public function rules(): array
     {
-        // Escheat accounts dated 2021 or earlier are exempt from the Data Privacy requirement
-        // (the policy was only implemented in 2022).
-        $privacyExempt = $this->input('status') === 'escheat'
-            && $this->input('status_date')
-            && (int) date('Y', strtotime($this->input('status_date'))) <= 2021;
+        // Accounts opened before 2017 are exempt from the Data Privacy requirement
+        // (the Data Privacy Act amendment only took effect in 2017), and escheat
+        // accounts dated 2021 or earlier are exempt as well (the policy was only
+        // implemented in 2022).
+        $dateOpenedYear = $this->input('date_opened')
+            ? (int) date('Y', strtotime($this->input('date_opened')))
+            : null;
+
+        $privacyExempt = ($dateOpenedYear !== null && $dateOpenedYear < 2017)
+            || ($this->input('status') === 'escheat'
+                && $this->input('status_date')
+                && (int) date('Y', strtotime($this->input('status_date'))) <= 2021);
 
         return [
             'account_no' => 'nullable|string|max:100',
