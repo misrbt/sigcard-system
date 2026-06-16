@@ -297,10 +297,13 @@ const UploadSigcard = () => {
   const isSoleProprietorship = isCorporate && formData.corporateSubType === "Sole Proprietorship";
   const isEscheat            = formData.status === "escheat";
   const escheatYear          = formData.statusDate ? new Date(formData.statusDate).getFullYear() : null;
-  const privacyNotRequired   = isEscheat && escheatYear !== null && escheatYear <= 2021;
+  const dateOpenedYear       = formData.dateOpened ? new Date(formData.dateOpened).getFullYear() : null;
+  const isPreDataPrivacyAct  = dateOpenedYear !== null && dateOpenedYear < 2017;
+  const privacyNotRequired   = isPreDataPrivacyAct || (isEscheat && escheatYear !== null && escheatYear <= 2021);
 
   // Dynamic steps: insert sub-type step after accountType when Joint or Corporate;
-  // skip privacy step entirely for pre-2022 escheat accounts
+  // skip privacy step entirely for accounts opened before 2017 (Data Privacy Act IRR not yet
+  // in effect, so there is no signed consent form to upload) and for pre-2022 escheat accounts
   const activeSteps = useMemo(() => {
     let steps;
     if (isJoint) {

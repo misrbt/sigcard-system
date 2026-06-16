@@ -35,10 +35,13 @@ jobs:
           echo "Reason           : ${{ github.event.inputs.reason || 'push to main' }}"
           echo "Workspace        : $GITHUB_WORKSPACE"
 
-      - name: Copy .env from production
+      - name: Write .env files from GitHub Secrets
         run: |
-          cp $DEPLOY_DIR/backend/.env $GITHUB_WORKSPACE/backend/.env
-          cp $DEPLOY_DIR/frontend/.env $GITHUB_WORKSPACE/frontend/.env
+          printf '%s' "$BACKEND_ENV" > $GITHUB_WORKSPACE/backend/.env
+          printf '%s' "$FRONTEND_ENV" > $GITHUB_WORKSPACE/frontend/.env
+        env:
+          BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
+          FRONTEND_ENV: ${{ secrets.FRONTEND_ENV }}
 
       - name: Install backend dependencies
         run: /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir=$GITHUB_WORKSPACE/backend
@@ -55,7 +58,6 @@ jobs:
 
       - name: Build frontend
         run: |
-          set -a && source $DEPLOY_DIR/frontend/.env && set +a
           /usr/bin/npm ci --prefix $GITHUB_WORKSPACE/frontend
           /usr/bin/npm run build --prefix $GITHUB_WORKSPACE/frontend
 
