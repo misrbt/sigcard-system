@@ -1,5 +1,5 @@
 # DIGICUR — Documentation Index
-### Digital Customer Record System · RBT Bank Inc.
+### Digital Signature Card Management System · RBT Bank Inc.
 #### Rural Bank of Talisayan, Misamis Oriental
 
 ---

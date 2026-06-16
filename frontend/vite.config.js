@@ -48,7 +48,7 @@ export default defineConfig(({ mode }) => {
             'vendor-charts': ['chart.js', 'react-chartjs-2', 'apexcharts', 'react-apexcharts'],
             'vendor-icons':  ['react-icons'],
             'vendor-http':   ['axios', '@tanstack/react-query'],
-            'vendor-xlsx':   ['xlsx', 'xlsx-js-style'],
+            'vendor-xlsx':   ['exceljs'],
             'vendor-pdf':    ['jspdf', 'jspdf-autotable'],
             'vendor-upload': ['react-dropzone', 'react-image-crop', 'browser-image-compression'],
           },

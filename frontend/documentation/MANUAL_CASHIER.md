@@ -1,6 +1,6 @@
 # DIGICUR — User Manual
 ## For: Cashiers
-### Digital Customer Record System · RBT Bank Inc.
+### Digital Signature Card Management System · RBT Bank Inc.
 
 ---
 

@@ -1,6 +1,6 @@
 # DIGICUR — User Manual
 ## For: New Account Staff · Customer Associates
-### Digital Customer Record System · RBT Bank Inc.
+### Digital Signature Card Management System · RBT Bank Inc.
 
 ---
 

@@ -1,6 +1,6 @@
 # DIGICUR — User Manual
 ## For: IT Administrator
-### Digital Customer Record System · RBT Bank Inc.
+### Digital Signature Card Management System · RBT Bank Inc.
 
 ---
 
@@ -263,7 +263,7 @@ Settings are organized into four tabs:
 
 | Setting | What it controls |
 |---|---|
-| App Name | The full display name of the system (e.g., "Digital Customer Record System") |
+| App Name | The full display name of the system (e.g., "Digital Signature Card Management System") |
 | App Abbreviation | Short code shown in the header and login page (e.g., "DIGICUR") |
 | App Logo | Upload a custom logo — appears on the login screen, navigation, and error pages |
 

@@ -160,29 +160,36 @@ const NameGrid = ({ values, onChange }) => (
   </div>
 );
 
-const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated }) => (
-  <div className="grid grid-cols-2 gap-3">
-    <div className="space-y-1.5">
-      <label className="block text-xs font-semibold text-slate-600">
-        Account No. <span className="text-red-500">*</span>
-      </label>
-      <input type="text" value={accountNo} onChange={onAccountNo}
-        placeholder="e.g. 1234-5678-9012" maxLength={100} className={inputCls} />
+const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated, showPrivacyHint = false }) => {
+  const openedYear = dateOpened ? new Date(dateOpened).getFullYear() : null;
+  const preDataPrivacy = showPrivacyHint && openedYear !== null && openedYear < 2017;
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-1.5">
+        <label className="block text-xs font-semibold text-slate-600">
+          Account No. <span className="text-red-500">*</span>
+        </label>
+        <input type="text" value={accountNo} onChange={onAccountNo}
+          placeholder="e.g. 1234-5678-9012" maxLength={100} className={inputCls} />
+      </div>
+      <div className="space-y-1.5">
+        <label className="block text-xs font-semibold text-slate-600">
+          Date Opened
+        </label>
+        <input type="date" value={dateOpened} onChange={onDateOpened} className={inputCls} />
+        {preDataPrivacy && (
+          <p className="text-[11px] text-slate-400">Opened before 2017 — Data Privacy step will be skipped.</p>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <label className="block text-xs font-semibold text-slate-600">
+          Date Updated <span className="font-normal text-slate-400">(Optional)</span>
+        </label>
+        <input type="date" value={dateUpdated ?? ""} onChange={onDateUpdated} className={inputCls} />
+      </div>
     </div>
-    <div className="space-y-1.5">
-      <label className="block text-xs font-semibold text-slate-600">
-        Date Opened
-      </label>
-      <input type="date" value={dateOpened} onChange={onDateOpened} className={inputCls} />
-    </div>
-    <div className="space-y-1.5">
-      <label className="block text-xs font-semibold text-slate-600">
-        Date Updated <span className="font-normal text-slate-400">(Optional)</span>
-      </label>
-      <input type="date" value={dateUpdated ?? ""} onChange={onDateUpdated} className={inputCls} />
-    </div>
-  </div>
-);
+  );
+};
 
 const AccountTypePill = ({ type, onReset }) => {
   const cfg = ACCOUNT_TYPE_META[type];
@@ -297,10 +304,13 @@ const UploadSigcard = () => {
   const isSoleProprietorship = isCorporate && formData.corporateSubType === "Sole Proprietorship";
   const isEscheat            = formData.status === "escheat";
   const escheatYear          = formData.statusDate ? new Date(formData.statusDate).getFullYear() : null;
-  const privacyNotRequired   = isEscheat && escheatYear !== null && escheatYear <= 2021;
+  const dateOpenedYear       = formData.dateOpened ? new Date(formData.dateOpened).getFullYear() : null;
+  const isPreDataPrivacyAct  = dateOpenedYear !== null && dateOpenedYear < 2017;
+  const privacyNotRequired   = isPreDataPrivacyAct || (isEscheat && escheatYear !== null && escheatYear <= 2021);
 
   // Dynamic steps: insert sub-type step after accountType when Joint or Corporate;
-  // skip privacy step entirely for pre-2022 escheat accounts
+  // skip privacy step entirely for accounts opened before 2017 (Data Privacy Act IRR not yet
+  // in effect, so there is no signed consent form to upload) and for pre-2022 escheat accounts
   const activeSteps = useMemo(() => {
     let steps;
     if (isJoint) {
@@ -1048,6 +1058,7 @@ const UploadSigcard = () => {
               <StatusDateField status={formData.status} value={formData.statusDate} onChange={(e) => setField("statusDate", e.target.value)} />
               <AccountInfoRow
                 accountNo={formData.accountNo} dateOpened={formData.dateOpened} dateUpdated={formData.dateUpdated}
+                showPrivacyHint
                 onAccountNo={(e) => setField("accountNo", e.target.value)}
                 onDateOpened={(e) => setField("dateOpened", e.target.value)}
                 onDateUpdated={(e) => setField("dateUpdated", e.target.value)}

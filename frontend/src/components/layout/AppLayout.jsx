@@ -55,7 +55,7 @@ const AppLayout = ({ children, userRole }) => {
         <Header onSidebarToggle={handleHeaderToggle} userRole={userRole} />
 
         <main className="min-h-screen p-3 sm:p-4 md:p-6 pb-20 sm:pb-24 md:pb-32">
-          <div className="max-w-7xl mx-auto w-full">{children}</div>
+          <div className="w-full">{children}</div>
         </main>
 
         <Footer />
