@@ -16,6 +16,19 @@ class AddCustomerAccountRequest extends FormRequest
         $customer = $this->route('customer');
         $isJoint = $customer && $customer->account_type === 'Joint';
 
+        // Accounts opened before 2017 are exempt from the Data Privacy requirement
+        // (the Data Privacy Act amendment only took effect in 2017), and escheat
+        // accounts dated 2021 or earlier are exempt as well (the policy was only
+        // implemented in 2022).
+        $dateOpenedYear = $this->input('date_opened')
+            ? (int) date('Y', strtotime($this->input('date_opened')))
+            : null;
+
+        $privacyExempt = ($dateOpenedYear !== null && $dateOpenedYear < 2017)
+            || ($this->input('status') === 'escheat'
+                && $this->input('status_date')
+                && (int) date('Y', strtotime($this->input('status_date'))) <= 2021);
+
         $base = [
             'risk_level' => 'required|in:Low Risk,Medium Risk,High Risk',
 
@@ -27,9 +40,9 @@ class AddCustomerAccountRequest extends FormRequest
             'naisPairs.*.front' => 'nullable|image|max:10240',
             'naisPairs.*.back' => 'nullable|image|max:10240',
 
-            'privacyPairs' => 'required|array|min:1|max:1',
-            'privacyPairs.*.front' => 'required|image|max:10240',
-            'privacyPairs.*.back' => 'required|image|max:10240',
+            'privacyPairs' => $privacyExempt ? 'nullable|array' : 'required|array|min:1|max:1',
+            'privacyPairs.*.front' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
+            'privacyPairs.*.back' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
 
             'otherDocs' => 'nullable|array',
             'otherDocs.*' => 'image|max:10240',
