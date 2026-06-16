@@ -37,13 +37,13 @@ function hexToRgb(hex) {
 
 const STATUS_SHEET_ORDER = ['active', 'dormant', 'closed', 'reactivated', 'escheat'];
 
-// Hex colors for each status (no "#" prefix — xlsx-js-style format)
+// ARGB colors for each status (FF prefix = full opacity, for ExcelJS)
 const STATUS_HEX = {
-  active:      { header: "10b981", tint: "d1fae5", dark: "065f46" },
-  dormant:     { header: "f59e0b", tint: "fef3c7", dark: "92400e" },
-  closed:      { header: "f43f5e", tint: "ffe4e6", dark: "9f1239" },
-  reactivated: { header: "3b82f6", tint: "dbeafe", dark: "1e40af" },
-  escheat:     { header: "8b5cf6", tint: "ede9fe", dark: "5b21b6" },
+  active:      { header: "FF10B981", tint: "FFD1FAE5", dark: "FF065F46" },
+  dormant:     { header: "FFF59E0B", tint: "FFFEF3C7", dark: "FF92400E" },
+  closed:      { header: "FFF43F5E", tint: "FFFFE4E6", dark: "FF9F1239" },
+  reactivated: { header: "FF3B82F6", tint: "FFDBEAFE", dark: "FF1E40AF" },
+  escheat:     { header: "FF8B5CF6", tint: "FFEDE9FE", dark: "FF5B21B6" },
 };
 
 const ACTIVITY_LABELS = {
@@ -55,82 +55,85 @@ const ACTIVITY_LABELS = {
 };
 
 const exportExcel = async (report) => {
-  // xlsx-js-style is a drop-in for xlsx with full cell-styling support
-  const mod = await import("xlsx-js-style");
-  const XLSX = mod.default ?? mod;
-  const { utils, writeFile } = XLSX;
+  const ExcelJSMod = await import("exceljs");
+  const ExcelJS = ExcelJSMod.default ?? ExcelJSMod;
   const { meta, summary, customers_by_event } = report;
-  const wb = utils.book_new();
+  const wb = new ExcelJS.Workbook();
   const sd = (s) => String(s ?? "").replace(/,?\s+/g, "_");
 
-  // ── Brand palette (hex without #) ──────────────────────────────────────────
-  const N_DARK   = "053161"; // RBT navy dark
-  const N_MID    = "0d4a8a"; // RBT navy mid
-  const N_LIGHT  = "1c6db5"; // RBT navy light
-  const WHITE    = "FFFFFF";
-  const DARK_TXT = "1e293b";
-  const MID_TXT  = "64748b";
-  const ROW_ALT  = "eef3fb"; // very light blue-gray alternating row
-  const BORDER   = "cbd5e1";
+  // ── Brand palette (ARGB — FF prefix = full opacity, for ExcelJS) ──────────
+  const N_DARK   = "FF053161";
+  const N_MID    = "FF0D4A8A";
+  const N_LIGHT  = "FF1C6DB5";
+  const WHITE    = "FFFFFFFF";
+  const DARK_TXT = "FF1E293B";
+  const ROW_ALT  = "FFEEF3FB";
+  const BORDER   = "FFCBD5E1";
 
-  // ── Style helpers ──────────────────────────────────────────────────────────
-  const font  = (sz, bold, color, italic) => ({ name: "Calibri", sz, bold: !!bold, color: { rgb: color }, ...(italic ? { italic: true } : {}) });
-  const fill  = (rgb) => ({ patternType: "solid", fgColor: { rgb } });
-  const align = (h, v = "center") => ({ horizontal: h, vertical: v });
-  const _bord = (style, rgb) => ({ top: { style, color: { rgb } }, bottom: { style, color: { rgb } }, left: { style, color: { rgb } }, right: { style, color: { rgb } } });
-  const bordB = (style, rgb) => ({ bottom: { style, color: { rgb } } });
+  // ── Style helpers (ExcelJS format) ────────────────────────────────────────
+  const font  = (sz, bold, argb, italic) => ({ name: "Calibri", size: sz, bold: !!bold, color: { argb }, ...(italic ? { italic: true } : {}) });
+  const fill  = (argb) => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
+  const align = (h, v = "middle") => ({ horizontal: h, vertical: v });
+  const bordB = (style, argb) => ({ bottom: { style, color: { argb } } });
 
   const ST = {
-    bankTitle:    { fill: fill(N_DARK),  font: font(16, true,  WHITE),    alignment: align("center") },
-    reportTitle:  { fill: fill(N_DARK),  font: font(11, false, WHITE),    alignment: align("center") },
-    colorBar:     { fill: fill(N_LIGHT), font: font(8,  false, WHITE) },
-    metaLabel:    { font: font(10, true,  N_DARK),   alignment: align("left", "center") },
-    metaVal:      { font: font(10, false, DARK_TXT), alignment: align("left", "center") },
-    secHdr:       { fill: fill(N_DARK),  font: font(10, true, WHITE),     alignment: align("left", "center") },
-    colHdrL:      { fill: fill(N_MID),   font: font(9,  true, WHITE),     alignment: align("left",   "center"), border: bordB("medium", N_LIGHT) },
-    colHdrR:      { fill: fill(N_MID),   font: font(9,  true, WHITE),     alignment: align("right",  "center"), border: bordB("medium", N_LIGHT) },
-    rowL:   (alt) => ({ ...(alt ? { fill: fill(ROW_ALT) } : {}), font: font(10, false, DARK_TXT), alignment: align("left",  "center"), border: bordB("hair", BORDER) }),
-    rowR:   (alt) => ({ ...(alt ? { fill: fill(ROW_ALT) } : {}), font: font(10, false, N_DARK),   alignment: align("right", "center"), border: bordB("hair", BORDER) }),
-    totalL:       { fill: fill(N_DARK),  font: font(10, true, WHITE),     alignment: align("left",  "center") },
-    totalR:       { fill: fill(N_DARK),  font: font(10, true, WHITE),     alignment: align("right", "center") },
-    footerTxt:    { fill: fill(N_DARK),  font: font(8,  false, WHITE, true), alignment: align("left", "center") },
+    bankTitle:   { fill: fill(N_DARK),  font: font(16, true,  WHITE),    alignment: align("center") },
+    reportTitle: { fill: fill(N_DARK),  font: font(11, false, WHITE),    alignment: align("center") },
+    colorBar:    { fill: fill(N_LIGHT), font: font(8,  false, WHITE) },
+    metaLabel:   { font: font(10, true,  N_DARK),   alignment: align("left") },
+    metaVal:     { font: font(10, false, DARK_TXT), alignment: align("left") },
+    secHdr:      { fill: fill(N_DARK),  font: font(10, true, WHITE),     alignment: align("left") },
+    colHdrL:     { fill: fill(N_MID),   font: font(9,  true, WHITE),     alignment: align("left"),  border: bordB("medium", N_LIGHT) },
+    colHdrR:     { fill: fill(N_MID),   font: font(9,  true, WHITE),     alignment: align("right"), border: bordB("medium", N_LIGHT) },
+    rowL:   (alt) => ({ ...(alt ? { fill: fill(ROW_ALT) } : {}), font: font(10, false, DARK_TXT), alignment: align("left"),  border: bordB("hair", BORDER) }),
+    rowR:   (alt) => ({ ...(alt ? { fill: fill(ROW_ALT) } : {}), font: font(10, false, N_DARK),   alignment: align("right"), border: bordB("hair", BORDER) }),
+    totalL:      { fill: fill(N_DARK),  font: font(10, true, WHITE),     alignment: align("left") },
+    totalR:      { fill: fill(N_DARK),  font: font(10, true, WHITE),     alignment: align("right") },
+    footerTxt:   { fill: fill(N_DARK),  font: font(8,  false, WHITE, true), alignment: align("left") },
   };
 
-  // ── Low-level cell writer ──────────────────────────────────────────────────
+  // ── Cell writer (row/col are 0-based; ExcelJS uses 1-based) ──────────────
   const wc = (ws, row, col, value, style) => {
-    const addr = utils.encode_cell({ r: row, c: col });
-    ws[addr] = { v: value ?? "", t: typeof value === "number" ? "n" : "s", s: style };
+    const cell = ws.getCell(row + 1, col + 1);
+    cell.value = value ?? "";
+    if (style.font)      cell.font      = style.font;
+    if (style.fill)      cell.fill      = style.fill;
+    if (style.alignment) cell.alignment = style.alignment;
+    if (style.border)    cell.border    = style.border;
   };
   const fillRow = (ws, row, c1, c2, style) => {
     for (let c = c1; c <= c2; c++) wc(ws, row, c, "", style);
   };
-  const mrg = (list, r1, c1, r2, c2) => list.push({ s: { r: r1, c: c1 }, e: { r: r2, c: c2 } });
+  const applyMerges = (ws, merges) => {
+    for (const { r1, c1, r2, c2 } of merges) {
+      ws.mergeCells(r1 + 1, c1 + 1, r2 + 1, c2 + 1);
+    }
+  };
 
   // ══════════════════════════════════════════════════════════════════════════
   // SUMMARY SHEET
   // ══════════════════════════════════════════════════════════════════════════
-  const ws1 = {};
+  const ws1 = wb.addWorksheet("Summary");
   const m1  = [];
-  const rh1 = [];
   let r = 0;
   const C = 3; // last col index (4 cols: 0–3)
 
   // ── Title block ───────────────────────────────────────────────────────────
   fillRow(ws1, r, 0, C, ST.bankTitle);
   wc(ws1, r, 0, "RBT BANK INC.", ST.bankTitle);
-  mrg(m1, r, 0, r, C);
-  rh1[r] = { hpt: 34 }; r++;
+  m1.push({ r1: r, c1: 0, r2: r, c2: C });
+  ws1.getRow(r + 1).height = 34; r++;
 
   fillRow(ws1, r, 0, C, ST.reportTitle);
   wc(ws1, r, 0, "Customer Account Activity Report", ST.reportTitle);
-  mrg(m1, r, 0, r, C);
-  rh1[r] = { hpt: 22 }; r++;
+  m1.push({ r1: r, c1: 0, r2: r, c2: C });
+  ws1.getRow(r + 1).height = 22; r++;
 
   fillRow(ws1, r, 0, C, ST.colorBar);
-  rh1[r] = { hpt: 5 }; r++;
+  ws1.getRow(r + 1).height = 5; r++;
 
   // ── Report info ───────────────────────────────────────────────────────────
-  rh1[r] = { hpt: 8 }; r++; // spacer
+  ws1.getRow(r + 1).height = 8; r++; // spacer
 
   [
     ["Report Period",  `${meta.date_from}  to  ${meta.date_to}`],
@@ -139,25 +142,23 @@ const exportExcel = async (report) => {
   ].forEach(([lbl, val]) => {
     wc(ws1, r, 1, lbl, ST.metaLabel);
     wc(ws1, r, 2, val, ST.metaVal);
-    rh1[r] = { hpt: 18 }; r++;
+    ws1.getRow(r + 1).height = 18; r++;
   });
 
-  rh1[r] = { hpt: 14 }; r++; // spacer
+  ws1.getRow(r + 1).height = 14; r++; // spacer
 
   // ── Section: Account Activity ─────────────────────────────────────────────
   fillRow(ws1, r, 0, C, ST.secHdr);
   wc(ws1, r, 0, "  ACCOUNT ACTIVITY DURING THIS PERIOD", ST.secHdr);
-  mrg(m1, r, 0, r, C);
-  rh1[r] = { hpt: 24 }; r++;
+  m1.push({ r1: r, c1: 0, r2: r, c2: C });
+  ws1.getRow(r + 1).height = 24; r++;
 
-  // Column headers
   wc(ws1, r, 0, "", ST.colHdrL);
   wc(ws1, r, 1, "Type of Activity", ST.colHdrL);
   wc(ws1, r, 2, "Number of Accounts", ST.colHdrR);
   wc(ws1, r, 3, "", ST.colHdrR);
-  rh1[r] = { hpt: 20 }; r++;
+  ws1.getRow(r + 1).height = 20; r++;
 
-  // Event data rows
   EVENTS.forEach(({ key }, i) => {
     const count = summary[key] ?? 0;
     const alt = i % 2 === 1;
@@ -165,30 +166,29 @@ const exportExcel = async (report) => {
     wc(ws1, r, 1, ACTIVITY_LABELS[key], ST.rowL(alt));
     wc(ws1, r, 2, count, ST.rowR(alt));
     wc(ws1, r, 3, "", ST.rowL(alt));
-    rh1[r] = { hpt: 18 }; r++;
+    ws1.getRow(r + 1).height = 18; r++;
   });
 
-  // Total row
   fillRow(ws1, r, 0, C, ST.totalL);
   wc(ws1, r, 1, "Total Account Changes in This Period", ST.totalL);
   wc(ws1, r, 2, summary.total_events ?? 0, ST.totalR);
-  rh1[r] = { hpt: 22 }; r++;
+  ws1.getRow(r + 1).height = 22; r++;
 
-  rh1[r] = { hpt: 16 }; r++; // spacer
+  ws1.getRow(r + 1).height = 16; r++; // spacer
 
   // ── Section: By Account Type ──────────────────────────────────────────────
   const acctEntries = Object.entries(summary.by_account_type ?? {});
   if (acctEntries.length > 0) {
     fillRow(ws1, r, 0, C, ST.secHdr);
     wc(ws1, r, 0, "  BREAKDOWN BY ACCOUNT TYPE", ST.secHdr);
-    mrg(m1, r, 0, r, C);
-    rh1[r] = { hpt: 24 }; r++;
+    m1.push({ r1: r, c1: 0, r2: r, c2: C });
+    ws1.getRow(r + 1).height = 24; r++;
 
     wc(ws1, r, 0, "", ST.colHdrL);
     wc(ws1, r, 1, "Account Type", ST.colHdrL);
     wc(ws1, r, 2, "Number of Accounts", ST.colHdrR);
     wc(ws1, r, 3, "", ST.colHdrR);
-    rh1[r] = { hpt: 20 }; r++;
+    ws1.getRow(r + 1).height = 20; r++;
 
     acctEntries.forEach(([k, v], i) => {
       const alt = i % 2 === 1;
@@ -196,10 +196,10 @@ const exportExcel = async (report) => {
       wc(ws1, r, 1, k, ST.rowL(alt));
       wc(ws1, r, 2, v, ST.rowR(alt));
       wc(ws1, r, 3, "", ST.rowL(alt));
-      rh1[r] = { hpt: 18 }; r++;
+      ws1.getRow(r + 1).height = 18; r++;
     });
 
-    rh1[r] = { hpt: 16 }; r++;
+    ws1.getRow(r + 1).height = 16; r++;
   }
 
   // ── Section: By Risk Rating ───────────────────────────────────────────────
@@ -207,14 +207,14 @@ const exportExcel = async (report) => {
   if (riskEntries.length > 0) {
     fillRow(ws1, r, 0, C, ST.secHdr);
     wc(ws1, r, 0, "  BREAKDOWN BY RISK RATING", ST.secHdr);
-    mrg(m1, r, 0, r, C);
-    rh1[r] = { hpt: 24 }; r++;
+    m1.push({ r1: r, c1: 0, r2: r, c2: C });
+    ws1.getRow(r + 1).height = 24; r++;
 
     wc(ws1, r, 0, "", ST.colHdrL);
     wc(ws1, r, 1, "Risk Rating", ST.colHdrL);
     wc(ws1, r, 2, "Number of Accounts", ST.colHdrR);
     wc(ws1, r, 3, "", ST.colHdrR);
-    rh1[r] = { hpt: 20 }; r++;
+    ws1.getRow(r + 1).height = 20; r++;
 
     riskEntries.forEach(([k, v], i) => {
       const alt = i % 2 === 1;
@@ -222,23 +222,20 @@ const exportExcel = async (report) => {
       wc(ws1, r, 1, k, ST.rowL(alt));
       wc(ws1, r, 2, v, ST.rowR(alt));
       wc(ws1, r, 3, "", ST.rowL(alt));
-      rh1[r] = { hpt: 18 }; r++;
+      ws1.getRow(r + 1).height = 18; r++;
     });
 
-    rh1[r] = { hpt: 16 }; r++;
+    ws1.getRow(r + 1).height = 16; r++;
   }
 
   // ── Footer ────────────────────────────────────────────────────────────────
   fillRow(ws1, r, 0, C, ST.footerTxt);
   wc(ws1, r, 0, `  This report is for internal bank use only.   RBT Bank Inc.  |  Prepared: ${meta.generated_at}`, ST.footerTxt);
-  mrg(m1, r, 0, r, C);
-  rh1[r] = { hpt: 18 };
+  m1.push({ r1: r, c1: 0, r2: r, c2: C });
+  ws1.getRow(r + 1).height = 18;
 
-  ws1["!ref"]    = utils.encode_range({ s: { r: 0, c: 0 }, e: { r: r, c: C } });
-  ws1["!merges"] = m1;
-  ws1["!cols"]   = [{ wch: 3 }, { wch: 42 }, { wch: 24 }, { wch: 3 }];
-  ws1["!rows"]   = rh1;
-  utils.book_append_sheet(wb, ws1, "Summary");
+  ws1.columns = [{ width: 3 }, { width: 42 }, { width: 24 }, { width: 3 }];
+  applyMerges(ws1, m1);
 
   // ══════════════════════════════════════════════════════════════════════════
   // STATUS SHEETS  (one per status: Active, Dormant, Closed, Reactivated, Escheat)
@@ -258,20 +255,8 @@ const exportExcel = async (report) => {
     }
   }
 
-  // List sheet column definitions
-  const LIST_COLS = [
-    { wch: 5  }, // #
-    { wch: 18 }, // Account No.
-    { wch: 28 }, // Full Name
-    { wch: 20 }, // Account Type
-    { wch: 14 }, // Status
-    { wch: 14 }, // Date Opened
-    { wch: 22 }, // Branch
-    { wch: 12 }, // Branch Code
-    { wch: 14 }, // Risk Rating
-    { wch: 24 }, // Recorded By
-  ];
-  const LC = LIST_COLS.length - 1; // last col index = 9
+  const LIST_COL_WIDTHS = [5, 18, 28, 20, 14, 14, 22, 12, 14, 24];
+  const LC = LIST_COL_WIDTHS.length - 1; // last col index = 9
 
   const LIST_HEADERS = [
     { label: "#",            align: "center" },
@@ -291,44 +276,43 @@ const exportExcel = async (report) => {
     if (rows.length === 0) { continue; }
 
     const sheetLabel = STATUS_META[status]?.label ?? status;
-    const sc = STATUS_HEX[status] ?? { header: "64748b", tint: "f1f5f9", dark: "334155" };
+    const sc = STATUS_HEX[status] ?? { header: "FF64748B", tint: "FFF1F5F9", dark: "FF334155" };
 
-    const ws2 = {};
+    const ws2 = wb.addWorksheet(sheetLabel.slice(0, 31));
     const m2  = [];
-    const rh2 = [];
     let r2 = 0;
 
     // ── Status sheet title ──────────────────────────────────────────────────
-    const sBankTitle = { fill: fill(N_DARK), font: font(13, true, WHITE), alignment: align("left", "center") };
+    const sBankTitle = { fill: fill(N_DARK), font: font(13, true, WHITE), alignment: align("left") };
     fillRow(ws2, r2, 0, LC, sBankTitle);
     wc(ws2, r2, 0, "  RBT BANK INC. — Customer Account Activity Report", sBankTitle);
-    mrg(m2, r2, 0, r2, LC);
-    rh2[r2] = { hpt: 26 }; r2++;
+    m2.push({ r1: r2, c1: 0, r2: r2, c2: LC });
+    ws2.getRow(r2 + 1).height = 26; r2++;
 
-    const sStatusBanner = { fill: fill(sc.header), font: font(13, true, WHITE), alignment: align("left", "center") };
+    const sStatusBanner = { fill: fill(sc.header), font: font(13, true, WHITE), alignment: align("left") };
     fillRow(ws2, r2, 0, LC, sStatusBanner);
     wc(ws2, r2, 0, `  ${sheetLabel} Accounts  —  ${rows.length} Record(s)`, sStatusBanner);
-    mrg(m2, r2, 0, r2, LC);
-    rh2[r2] = { hpt: 26 }; r2++;
+    m2.push({ r1: r2, c1: 0, r2: r2, c2: LC });
+    ws2.getRow(r2 + 1).height = 26; r2++;
 
-    const sPeriod = { fill: fill(sc.tint), font: font(9, false, sc.dark), alignment: align("left", "center") };
+    const sPeriod = { fill: fill(sc.tint), font: font(9, false, sc.dark), alignment: align("left") };
     fillRow(ws2, r2, 0, LC, sPeriod);
     wc(ws2, r2, 0, `  Report Period: ${meta.date_from}  to  ${meta.date_to}   |   Branch: ${meta.branch_label}   |   Date Prepared: ${meta.generated_at}`, sPeriod);
-    mrg(m2, r2, 0, r2, LC);
-    rh2[r2] = { hpt: 16 }; r2++;
+    m2.push({ r1: r2, c1: 0, r2: r2, c2: LC });
+    ws2.getRow(r2 + 1).height = 16; r2++;
 
-    rh2[r2] = { hpt: 6 }; r2++; // spacer
+    ws2.getRow(r2 + 1).height = 6; r2++; // spacer
 
     // ── Column headers ──────────────────────────────────────────────────────
     LIST_HEADERS.forEach((h, ci) => {
       wc(ws2, r2, ci, h.label, {
         fill: fill(N_DARK),
         font: font(9, true, WHITE),
-        alignment: align(h.align, "center"),
+        alignment: align(h.align),
         border: bordB("medium", N_LIGHT),
       });
     });
-    rh2[r2] = { hpt: 20 }; r2++;
+    ws2.getRow(r2 + 1).height = 20; r2++;
 
     // ── Data rows ───────────────────────────────────────────────────────────
     const ROW_ALIGNS = ["center","left","left","left","center","center","left","center","center","left"];
@@ -351,27 +335,32 @@ const exportExcel = async (report) => {
         wc(ws2, r2, ci, v, {
           ...(alt ? { fill: fill(ROW_ALT) } : {}),
           font: font(10, false, DARK_TXT),
-          alignment: align(ROW_ALIGNS[ci], "center"),
+          alignment: align(ROW_ALIGNS[ci]),
           border: bordB("hair", BORDER),
         });
       });
-      rh2[r2] = { hpt: 17 }; r2++;
+      ws2.getRow(r2 + 1).height = 17; r2++;
     });
 
     // ── Footer ──────────────────────────────────────────────────────────────
     fillRow(ws2, r2, 0, LC, ST.footerTxt);
     wc(ws2, r2, 0, `  Total: ${rows.length} ${sheetLabel} account(s)   |   This report is for internal bank use only.  —  RBT Bank Inc.`, ST.footerTxt);
-    mrg(m2, r2, 0, r2, LC);
-    rh2[r2] = { hpt: 18 };
+    m2.push({ r1: r2, c1: 0, r2: r2, c2: LC });
+    ws2.getRow(r2 + 1).height = 18;
 
-    ws2["!ref"]    = utils.encode_range({ s: { r: 0, c: 0 }, e: { r: r2, c: LC } });
-    ws2["!merges"] = m2;
-    ws2["!cols"]   = LIST_COLS;
-    ws2["!rows"]   = rh2;
-    utils.book_append_sheet(wb, ws2, sheetLabel.slice(0, 31));
+    ws2.columns = LIST_COL_WIDTHS.map(w => ({ width: w }));
+    applyMerges(ws2, m2);
   }
 
-  writeFile(wb, `Account_Activity_Report_${sd(meta.date_from)}_to_${sd(meta.date_to)}.xlsx`);
+  // ── Download ──────────────────────────────────────────────────────────────
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Account_Activity_Report_${sd(meta.date_from)}_to_${sd(meta.date_to)}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 // ── PDF Export ────────────────────────────────────────────────────────────────
