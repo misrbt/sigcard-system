@@ -18,7 +18,7 @@ const RISK_STYLE = {
   "High Risk":   "bg-red-50 border-red-400 text-red-700 ring-2 ring-red-400/20",
 };
 
-const steps = [
+const ALL_STEPS = [
   { key: "info",    title: "Account Info"      },
   { key: "sigcard", title: "Sigcard"           },
   { key: "nais",    title: "NAIS (Optional)"   },
@@ -106,6 +106,12 @@ const AddAccountModal = ({ customer, isOpen, onClose, onSuccess }) => {
 
   if (!isOpen) return null;
 
+  // Accounts opened before 2017 are exempt from the Data Privacy requirement
+  // (the Data Privacy Act amendment only took effect in 2017).
+  const dateOpenedYear      = dateOpened ? new Date(dateOpened).getFullYear() : null;
+  const isPreDataPrivacyAct = dateOpenedYear !== null && dateOpenedYear < 2017;
+  const steps = isPreDataPrivacyAct ? ALL_STEPS.filter((s) => s.key !== "privacy") : ALL_STEPS;
+
   const resetState = () => {
     setStep(0);
     setRiskLevel("");
@@ -152,8 +158,10 @@ const AddAccountModal = ({ customer, isOpen, onClose, onSuccess }) => {
       if (nais.front) fd.append("naisPairs[0][front]", nais.front);
       if (nais.back)  fd.append("naisPairs[0][back]",  nais.back);
 
-      fd.append("privacyPairs[0][front]", privacy.front);
-      fd.append("privacyPairs[0][back]",  privacy.back);
+      if (!isPreDataPrivacyAct) {
+        fd.append("privacyPairs[0][front]", privacy.front);
+        fd.append("privacyPairs[0][back]",  privacy.back);
+      }
 
       otherDocs.forEach((f) => fd.append("otherDocs[]", f));
 
