@@ -14,6 +14,7 @@ import {
 } from "react-icons/md";
 import { ROLE_LABELS } from "../../constants/roles";
 import { useAuth } from "../../hooks/useAuth";
+import { useAppConfig } from "../../context/AppConfigContext";
 import logo from "../../assets/images/logos.png";
 import Footer from "./Footer";
 
@@ -49,6 +50,8 @@ const TopNavLayout = ({ children, userRole }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, hasPermission } = useAuth();
+  const { app_abbreviation, app_name, app_logo_url } = useAppConfig();
+  const logoSrc = app_logo_url || logo;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -88,16 +91,16 @@ const TopNavLayout = ({ children, userRole }) => {
             {/* Logo */}
             <div className="flex items-center gap-2 flex-shrink-0">
               <img
-                src={logo}
-                alt="DIGICUR Logo"
+                src={logoSrc}
+                alt={`${app_abbreviation} Logo`}
                 className="h-8 w-8 sm:h-9 sm:w-9 object-contain"
               />
               <div className="flex flex-col leading-none">
                 <span className="text-white font-extrabold text-sm tracking-wide">
-                  DIGICUR
+                  {app_abbreviation}
                 </span>
                 <span className="text-blue-300 font-semibold text-[10px] tracking-widest">
-                  RBTBK
+                  {app_name}
                 </span>
               </div>
             </div>
