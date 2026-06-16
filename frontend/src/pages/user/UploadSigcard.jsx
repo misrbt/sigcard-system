@@ -160,36 +160,29 @@ const NameGrid = ({ values, onChange }) => (
   </div>
 );
 
-const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated, showPrivacyHint = false }) => {
-  const openedYear = dateOpened ? new Date(dateOpened).getFullYear() : null;
-  const preDataPrivacy = showPrivacyHint && openedYear !== null && openedYear < 2017;
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <div className="space-y-1.5">
-        <label className="block text-xs font-semibold text-slate-600">
-          Account No. <span className="text-red-500">*</span>
-        </label>
-        <input type="text" value={accountNo} onChange={onAccountNo}
-          placeholder="e.g. 1234-5678-9012" maxLength={100} className={inputCls} />
-      </div>
-      <div className="space-y-1.5">
-        <label className="block text-xs font-semibold text-slate-600">
-          Date Opened
-        </label>
-        <input type="date" value={dateOpened} onChange={onDateOpened} className={inputCls} />
-        {preDataPrivacy && (
-          <p className="text-[11px] text-slate-400">Opened before 2017 — Data Privacy step will be skipped.</p>
-        )}
-      </div>
-      <div className="space-y-1.5">
-        <label className="block text-xs font-semibold text-slate-600">
-          Date Updated <span className="font-normal text-slate-400">(Optional)</span>
-        </label>
-        <input type="date" value={dateUpdated ?? ""} onChange={onDateUpdated} className={inputCls} />
-      </div>
+const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated }) => (
+  <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-1.5">
+      <label className="block text-xs font-semibold text-slate-600">
+        Account No. <span className="text-red-500">*</span>
+      </label>
+      <input type="text" value={accountNo} onChange={onAccountNo}
+        placeholder="e.g. 1234-5678-9012" maxLength={100} className={inputCls} />
     </div>
-  );
-};
+    <div className="space-y-1.5">
+      <label className="block text-xs font-semibold text-slate-600">
+        Date Opened
+      </label>
+      <input type="date" value={dateOpened} onChange={onDateOpened} className={inputCls} />
+    </div>
+    <div className="space-y-1.5">
+      <label className="block text-xs font-semibold text-slate-600">
+        Date Updated <span className="font-normal text-slate-400">(Optional)</span>
+      </label>
+      <input type="date" value={dateUpdated ?? ""} onChange={onDateUpdated} className={inputCls} />
+    </div>
+  </div>
+);
 
 const AccountTypePill = ({ type, onReset }) => {
   const cfg = ACCOUNT_TYPE_META[type];
@@ -1058,7 +1051,6 @@ const UploadSigcard = () => {
               <StatusDateField status={formData.status} value={formData.statusDate} onChange={(e) => setField("statusDate", e.target.value)} />
               <AccountInfoRow
                 accountNo={formData.accountNo} dateOpened={formData.dateOpened} dateUpdated={formData.dateUpdated}
-                showPrivacyHint
                 onAccountNo={(e) => setField("accountNo", e.target.value)}
                 onDateOpened={(e) => setField("dateOpened", e.target.value)}
                 onDateUpdated={(e) => setField("dateUpdated", e.target.value)}
