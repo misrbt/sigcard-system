@@ -28,13 +28,11 @@ import {
 import { MdFingerprint } from "react-icons/md";
 import Swal from "sweetalert2";
 import api from "../../services/api";
-import { useAppConfig } from "../../context/AppConfigContext";
 import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
 
 const PAGE_SIZE = 10;
 
-// UI presentation maps — values come from /api/config, styling stays in frontend
-const STATUS_STYLE = {
+const statusStyle = {
   active:      "bg-green-100 text-green-700 border border-green-300",
   dormant:     "bg-yellow-100 text-yellow-700 border border-yellow-300",
   escheat:     "bg-orange-100 text-orange-700 border border-orange-300",
@@ -42,26 +40,26 @@ const STATUS_STYLE = {
   reactivated: "bg-teal-100 text-teal-700 border border-teal-300",
 };
 
-const RISK_STYLE = {
+const riskStyle = {
   "Low Risk":    "bg-emerald-50 text-emerald-700",
   "Medium Risk": "bg-yellow-50 text-yellow-700",
   "High Risk":   "bg-red-50 text-red-700",
 };
 
-const ACCOUNT_STYLE = {
+const accountStyle = {
   Regular:   "bg-blue-50 text-blue-700",
   Joint:     "bg-purple-50 text-purple-700",
   Corporate: "bg-slate-100 text-slate-700",
 };
 
-const DOC_LABEL = {
-  sigcard_front: "Sigcard Front",
-  sigcard_back:  "Sigcard Back",
-  nais_front:    "NAIS Front",
-  nais_back:     "NAIS Back",
-  privacy_front: "Data Privacy Front",
-  privacy_back:  "Data Privacy Back",
-  other:         "Other Document",
+const docLabel = {
+  sigcard_front:  "Sigcard Front",
+  sigcard_back:   "Sigcard Back",
+  nais_front:     "NAIS Front",
+  nais_back:      "NAIS Back",
+  privacy_front:  "Data Privacy Front",
+  privacy_back:   "Data Privacy Back",
+  other:          "Other Document",
 };
 
 const storageUrl = (path) => {
@@ -88,16 +86,6 @@ const initials = (customer) => {
   const f = customer?.firstname?.[0] ?? "";
   const l = customer?.lastname?.[0]  ?? "";
   return (f + l).toUpperCase() || "?";
-};
-
-// Format: "Lastname, Firstname Middlename" (middle name only if present)
-const formatDisplayName = (c) => {
-  const last  = (c.lastname  ?? "").trim();
-  const first = (c.firstname ?? "").trim();
-  const mid   = (c.middlename ?? "").trim();
-  if (!last && !first) return c.full_name ?? "—";
-  const firstMid = mid ? `${first} ${mid}` : first;
-  return last ? `${last}, ${firstMid}`.trim() : firstMid || "—";
 };
 
 // ── AccountsCell — collapsed summary, expandable on click ────────────────────
@@ -133,7 +121,7 @@ const AccountsCell = ({ c }) => {
             <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white border border-slate-100 shadow-sm">
               <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">{i + 1}</span>
               <span className="text-[11px] text-slate-700 font-mono flex-1 min-w-0 truncate">{a.account_no ?? "—"}</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[a.status] ?? "bg-slate-100 text-slate-500"}`}>{a.status ?? "—"}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${statusStyle[a.status] ?? "bg-slate-100 text-slate-500"}`}>{a.status ?? "—"}</span>
             </div>
           ))}
         </div>
@@ -454,7 +442,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
           const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
           if (doc) {
             if (startType === type && startPerson === p) startIdx = imgs.length;
-            imgs.push({ src: storageUrl(doc.file_path), label: DOC_LABEL[type] ?? type, person: persons.length > 1 ? p : null });
+            imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
           }
         });
       });
@@ -491,10 +479,9 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
   }
 
   // ── Status-log-aware data computation ────────────────────────────────────────
-  const holders              = customer.holders ?? [];
-  const isJoint              = customer.account_type === "Joint";
-  const isCorporate          = customer.account_type === "Corporate";
-  const isSoleProprietorship = isCorporate && customer.corporate_sub_type === "Sole Proprietorship";
+  const holders     = customer.holders ?? [];
+  const isJoint     = customer.account_type === "Joint";
+  const isCorporate = customer.account_type === "Corporate";
 
   const statusLogs        = customer.status_logs ?? [];
   const initialDocs       = (customer.documents ?? []).filter((d) => !d.account_status);
@@ -602,7 +589,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       : [...new Set(docs.filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type)).map((d) => d.person_index))].sort();
   const otherDocs = docsForSection.filter((d) => d.document_type === "other");
   const totalDocs = docsForSection.length;
-  const sCfg     = STATUS_STYLE[customer.status] ?? "bg-slate-100 text-slate-500";
+  const sCfg     = statusStyle[customer.status] ?? "bg-slate-100 text-slate-500";
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -656,10 +643,9 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                 <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-white/50">
                   <span className="flex items-center gap-1">
                     <HiOutlineCreditCard className="w-3.5 h-3.5" />
-                    {customer.account_type}
-                    {isSoleProprietorship ? " · Sole Proprietorship" : isJoint ? ` · ${allHolders.length} holders` : isCorporate ? ` · ${allHolders.length} signatories` : ""}
+                    {customer.account_type}{isJoint ? ` · ${allHolders.length} holders` : ""}{isCorporate ? ` · ${allHolders.length} signatories` : ""}
                   </span>
-                  {!isJoint && (!isCorporate || isSoleProprietorship) && customer.risk_level && (
+                  {!isJoint && !isCorporate && customer.risk_level && (
                     <span className="flex items-center gap-1">
                       <HiOutlineShieldCheck className="w-3.5 h-3.5" />
                       {customer.risk_level}
@@ -691,7 +677,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                     <p className="text-xs text-white/80 font-medium flex-1 min-w-0 truncate">
                       {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
                     </p>
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${RISK_STYLE[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${riskStyle[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
                       {h.risk_level}
                     </span>
                   </div>
@@ -711,9 +697,8 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                 { icon: HiOutlineUser,           label: "Full Name",    value: customer.full_name },
                 { icon: HiOutlineCreditCard,      label: "Account Type", value: customer.account_type },
                 ...(isJoint ? [{ icon: HiOutlineTag, label: "Joint Sub Type", value: customer.joint_sub_type ?? "—" }] : []),
-                ...(isCorporate && customer.corporate_sub_type ? [{ icon: HiOutlineTag, label: "Corp. Sub Type", value: customer.corporate_sub_type }] : []),
                 { icon: HiOutlineDocumentText,    label: "Account No.",  value: customer.account_no ?? "—" },
-                ...(!isJoint && (!isCorporate || isSoleProprietorship) ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level ?? "—" }] : []),
+                ...(!isJoint && !isCorporate ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level ?? "—" }] : []),
                 { icon: HiOutlineCalendar,        label: "Date Opened",  value: customer.date_opened ? formatDate(customer.date_opened) : "—" },
                 { icon: HiOutlineOfficeBuilding,  label: "Branch",       value: customer.branch?.branch_name ?? "—" },
                 { icon: HiOutlineCalendar,        label: "Date Added",   value: formatDate(customer.created_at) },
@@ -738,12 +723,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         <div key={acct.acctIndex} className="flex items-center gap-1.5">
                           <span className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">{acct.acctIndex}</span>
                           <span className="text-[10px] text-slate-500 font-mono truncate flex-1">{acct.account_no ?? "—"}</span>
-                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold uppercase ${STATUS_STYLE[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-500"}`}>
                       {customer.status ?? "—"}
                     </span>
                   )}
@@ -790,7 +775,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         )}
                       </div>
                       <span className={`self-start px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                        isActive ? "bg-white/20 text-white" : (STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500")
+                        isActive ? "bg-white/20 text-white" : (statusStyle[acct.status] ?? "bg-slate-100 text-slate-500")
                       }`}>
                         {acct.status ?? "—"}
                       </span>
@@ -806,7 +791,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100">
               <HiOutlineDocumentText className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-bold text-slate-900">Documents</h2>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${STATUS_STYLE[customer.status] ?? "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[customer.status] ?? "bg-slate-100 text-slate-600 border border-slate-200"}`}>
                 {customer.status ?? "—"}
               </span>
               {currentDocsStatusForAcct && (
@@ -943,7 +928,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         onClick={() => setHistoryExpanded((prev) => ({ ...prev, [logKey]: !isExpanded }))}
                         className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
                       >
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[log.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[log.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                           {log.status}
                         </span>
                         <div className="flex-1 min-w-0">
@@ -1044,7 +1029,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         onClick={() => setHistoryExpanded((prev) => ({ ...prev, [legacyKey]: !isExpanded }))}
                         className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
                       >
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[group.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[group.status] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                           {group.status}
                         </span>
                         <div className="flex-1 min-w-0">
@@ -1105,7 +1090,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         onClick={() => setHistoryExpanded((prev) => ({ ...prev, [initKey]: !isExpanded }))}
                         className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
                       >
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[initialStatus] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[initialStatus] ?? "bg-slate-100 text-slate-500 border border-slate-200"}`}>
                           {initialStatus ?? "active"}
                         </span>
                         <div className="flex-1 min-w-0">
@@ -1319,7 +1304,6 @@ const EditChoiceModal = ({ customer, onClose, onPick }) => (
 
 // Edit customer personal info — name, account type, holders
 const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
-  const appConfig = useAppConfig();
   const [form, setForm] = useState({
     firstname:    customer.firstname    ?? "",
     middlename:   customer.middlename   ?? "",
@@ -1366,9 +1350,9 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
       <div>
         <label className="block text-xs font-semibold text-slate-600 mb-1">Account Type</label>
         <select value={form.account_type} onChange={set("account_type")} className={editInputCls}>
-          {appConfig.account_types.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
+          <option>Regular</option>
+          <option>Joint</option>
+          <option>Corporate</option>
         </select>
       </div>
 
@@ -1544,7 +1528,7 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
                 <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
               </div>
               <div className="text-right flex-shrink-0">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status ?? "—"}</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status ?? "—"}</span>
                 <p className="text-[10px] text-slate-400 mt-0.5">{acct.risk_level ?? "—"}</p>
               </div>
               <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
@@ -1600,14 +1584,7 @@ const STATUS_CONFIG = {
   closed:      { label: "Closed",      desc: "Account has been permanently closed.",        icon: "✕", ring: "ring-red-400",    bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500"    },
 };
 
-const STATUS_DATE_LABELS = {
-  dormant:     "Date of Dormancy",
-  reactivated: "Date of Reactivation",
-  escheat:     "Date of Escheat",
-  closed:      "Date of Closure",
-};
-
-const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => {
+const EditStatusModal = ({ customer, onClose, onSaved }) => {
   const navigate = useNavigate();
 
   // Build all accounts: primary first, then additional
@@ -1621,23 +1598,17 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
   const isMulti = allAccounts.length > 1;
 
   // step: "select" | "pick" | "upload_select"
-  const [step, setStep]                   = useState(isMulti ? "select" : "pick");
-  const [selectedAcctIdx, setSelectedAcctIdx] = useState(isMulti ? null : 0); // index into allAccounts
-  const [status, setStatus]               = useState(isMulti ? null : (customer.status ?? "active"));
-  const [saving, setSaving]               = useState(false);
-  const [statusDate, setStatusDate]       = useState("");
-  const [statusDateMode, setStatusDateMode] = useState("auto"); // "auto" | "manual"
-  const [uploadTypes, setUploadTypes]     = useState({ sigcard: false, nais: false, privacy: false, other: false });
+  const [step, setStep]               = useState(isMulti ? "select" : "pick");
+  const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
+  const [status, setStatus]           = useState(isMulti ? null : (customer.status ?? "active"));
+  const [saving, setSaving]           = useState(false);
+  const [newStatus, setNewStatus]     = useState(null);
+  const [statusLogId, setStatusLogId] = useState(null);
+  const [uploadTypes, setUploadTypes] = useState({ sigcard: false, nais: false, privacy: false, other: false });
 
-  // Derive selectedAcct from index so it stays valid across re-renders
-  const selectedAcct = selectedAcctIdx !== null ? allAccounts[selectedAcctIdx] : null;
-
-  const handleSelectAcct = (arrayIdx) => {
-    const acct = allAccounts[arrayIdx];
-    setSelectedAcctIdx(arrayIdx);
+  const handleSelectAcct = (acct) => {
+    setSelectedAcct(acct);
     setStatus(acct.status ?? "active");
-    setStatusDate("");
-    setStatusDateMode("auto");
     setStep("pick");
   };
 
@@ -1648,11 +1619,6 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
   const toggleUploadType = (key) =>
     setUploadTypes((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const resolvedStatusDate = statusDateMode === "auto"
-    ? new Date().toISOString().split("T")[0]
-    : statusDate || null;
-
-  // Confirm status selection and proceed to document type picker — no API call yet
   const handleSave = async () => {
     if (status === "escheat") {
       const confirm = await Swal.fire({
@@ -1680,49 +1646,33 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
       });
       if (!confirm.isConfirmed) return;
     }
-    setStep("upload_select");
-  };
-
-  // Navigate to CustomerView with all intent carried as URL params (status saved on upload)
-  const handleGoToUpload = () => {
-    const chosen = Object.entries(uploadTypes).filter(([, v]) => v).map(([k]) => k);
-    onClose();
-    if (chosen.length > 0) {
-      const acctIndex = (selectedAcctIdx ?? 0) + 1;
-      const params = new URLSearchParams({ upload: chosen.join(","), pendingStatus: status, acct: acctIndex });
-      if (resolvedStatusDate) params.set("pendingStatusDate", resolvedStatusDate);
-      if (selectedAcct?.type === "additional" && selectedAcct?.id) {
-        params.set("pendingAcctId", selectedAcct.id);
-      }
-      navigate(`${basePath}/customers/${customer.id}/view?${params.toString()}`);
-    }
-  };
-
-  // Fallback: save status without uploading documents (requires explicit confirmation)
-  const handleSaveWithoutDocs = async () => {
-    const confirm = await Swal.fire({
-      icon: "warning",
-      title: "Save without documents?",
-      html: `<p style="font-size:14px;color:#374151;">The account status will be changed to <strong class="capitalize">${status}</strong> but <strong>no supporting documents will be uploaded</strong>.</p><p style="margin-top:8px;font-size:12px;color:#6b7280;">BSP guidelines recommend uploading documents for every status change.</p>`,
-      showCancelButton: true,
-      confirmButtonText: "Save without documents",
-      cancelButtonText: "Go back",
-      confirmButtonColor: "#dc2626",
-      cancelButtonColor: "#6b7280",
-      reverseButtons: true,
-    });
-    if (!confirm.isConfirmed) return;
 
     setSaving(true);
     try {
-      const payload = { status, status_date: resolvedStatusDate };
+      let res;
       if (selectedAcct.type === "primary") {
-        await api.put(`/customers/${customer.id}`, payload);
+        res = await api.put(`/customers/${customer.id}`, { status });
       } else {
-        await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, payload);
+        res = await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, { status });
       }
       onSaved();
-      onClose();
+
+      if (status === "escheat") {
+        await Swal.fire({
+          icon: "success",
+          title: "Status Updated",
+          text: "Account has been marked as Escheat.",
+          confirmButtonColor: "#ea580c",
+          timer: 2000,
+          timerProgressBar: true,
+        });
+        onClose();
+        return;
+      }
+
+      setNewStatus(status);
+      setStatusLogId(res.data?.status_log_id ?? null);
+      setStep("upload_select");
     } catch (err) {
       const msg = err?.response?.data?.message ?? "Something went wrong.";
       Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
@@ -1731,9 +1681,19 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
     }
   };
 
+  const handleGoToUpload = () => {
+    const chosen = Object.entries(uploadTypes).filter(([, v]) => v).map(([k]) => k);
+    onClose();
+    if (chosen.length > 0) {
+      const params = new URLSearchParams({ upload: chosen.join(","), newStatus });
+      if (statusLogId) params.set("statusLogId", statusLogId);
+      navigate(`/user/customers/${customer.id}/view?${params.toString()}`);
+    }
+  };
+
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
@@ -1750,7 +1710,7 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
 
         {/* Step: Select which account */}
         {step === "select" && (
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-2">
+          <div className="px-6 py-5 space-y-2">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
               Which account's status would you like to change?
             </p>
@@ -1759,7 +1719,7 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
               return (
                 <button
                   key={acct.id ?? "primary"}
-                  onClick={acctIsEscheat ? undefined : () => handleSelectAcct(i)}
+                  onClick={acctIsEscheat ? undefined : () => handleSelectAcct(acct)}
                   disabled={acctIsEscheat}
                   className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 transition-all text-left group
                     ${acctIsEscheat
@@ -1782,7 +1742,7 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                     </div>
                     <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex-shrink-0 ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>
                     {acct.status ?? "—"}
                   </span>
                   {acctIsEscheat
@@ -1798,9 +1758,9 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
         {/* Step: Pick new status */}
         {step === "pick" && (
           <>
-            {/* Back button / account label — fixed */}
+            {/* Back button for multi */}
             {isMulti && (
-              <div className="px-6 pt-4 pb-2 flex-shrink-0">
+              <div className="px-6 pt-4 pb-0">
                 <button
                   onClick={() => setStep("select")}
                   className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline"
@@ -1814,8 +1774,8 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
               </div>
             )}
 
-            {/* Current status — fixed */}
-            <div className="px-6 pt-4 pb-1 flex-shrink-0">
+            {/* Current status indicator */}
+            <div className="px-6 pt-4 pb-1">
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Current Status</p>
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_CONFIG[selectedAcct.status]?.dot ?? "bg-slate-400"}`} />
@@ -1823,8 +1783,8 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
               </div>
             </div>
 
-            {/* Status options — scrollable */}
-            <div className="flex-1 overflow-y-auto px-6 pt-3 pb-2 space-y-2">
+            {/* Status options / escheat lock */}
+            <div className="px-6 pt-4 pb-5 space-y-2">
               {isEscheat ? (
                 <div className="flex items-start gap-3 px-4 py-4 rounded-2xl bg-orange-50 border-2 border-orange-200">
                   <HiOutlineLockClosed className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
@@ -1837,7 +1797,7 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                 </div>
               ) : (
                 <>
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Select New Status</p>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Select New Status</p>
                   {STATUS_OPTIONS.map((s) => {
                     const cfg       = STATUS_CONFIG[s];
                     const isActive  = status === s;
@@ -1873,68 +1833,14 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
               )}
             </div>
 
-            {/* ── Status Date — always visible when not locked ── */}
-            {!isEscheat && (
-              <div className="px-6 py-3 border-t border-blue-100 bg-blue-50 flex-shrink-0">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">
-                    {STATUS_DATE_LABELS[status] ?? "Effective Date"}
-                  </p>
-                  <span className="text-[10px] font-bold text-red-500 bg-white border border-red-200 px-2 py-0.5 rounded-full">Required</span>
-                </div>
-
-                {/* Auto / Manual toggle */}
-                <div className="flex gap-2 mb-2">
-                  {[
-                    { value: "auto",   label: "Auto (Today)" },
-                    { value: "manual", label: "Manual Input"  },
-                  ].map(({ value, label }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setStatusDateMode(value)}
-                      className={`flex-1 py-1.5 px-3 text-xs font-bold rounded-xl border-2 transition-all
-                        ${statusDateMode === value
-                          ? "border-blue-500 bg-white text-blue-700 shadow-sm"
-                          : "border-blue-200 bg-blue-50 text-blue-400 hover:border-blue-400"
-                        }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Auto: read-only today */}
-                {statusDateMode === "auto" && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-blue-200 bg-white text-sm text-slate-700">
-                    <span className="text-blue-500 font-bold text-[10px] uppercase">Today</span>
-                    <span className="font-semibold">
-                      {new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}
-                    </span>
-                  </div>
-                )}
-
-                {/* Manual: date picker */}
-                {statusDateMode === "manual" && (
-                  <input
-                    type="date"
-                    value={statusDate}
-                    onChange={(e) => setStatusDate(e.target.value)}
-                    max={new Date().toISOString().split("T")[0]}
-                    className="w-full px-3 py-2 rounded-xl border-2 border-blue-300 focus:border-blue-500 focus:outline-none text-sm text-slate-800 bg-white transition-colors"
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Footer — fixed at bottom */}
-            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
               <p className="text-xs text-slate-400">
                 {isEscheat
                   ? <span className="flex items-center gap-1 text-orange-500"><HiOutlineLockClosed className="w-3.5 h-3.5" /> Status locked — Escheat</span>
                   : isUnchanged
-                    ? "No changes"
-                    : <span>Will change to <strong className={`capitalize ${selected?.text}`}>{status}</strong></span>
+                    ? "No changes made"
+                    : <span>Changing to <strong className={`capitalize ${selected?.text}`}>{status}</strong></span>
                 }
               </p>
               <div className="flex items-center gap-2.5">
@@ -1942,11 +1848,9 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                   className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
                   Cancel
                 </button>
-                <button
-                  onClick={handleSave}
-                  disabled={isUnchanged || isEscheat || (statusDateMode === "manual" && !statusDate)}
+                <button onClick={handleSave} disabled={saving || isUnchanged || isEscheat}
                   className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow transition-all disabled:opacity-50 disabled:shadow-none bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90">
-                  Next: Choose Documents
+                  {saving ? "Saving…" : "Confirm Update"}
                 </button>
               </div>
             </div>
@@ -1956,41 +1860,26 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
         {/* Step: Upload document type selection */}
         {step === "upload_select" && (
           <>
-            <div className="flex-1 overflow-y-auto">
             <div className="px-6 pt-5 pb-2">
-              {/* Pending-status indicator */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 mb-3">
-                <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 animate-pulse" />
-                <span className="text-xs font-semibold text-amber-700">
-                  Status will change to{" "}
-                  <span className={`inline-flex px-1.5 py-0.5 rounded-full font-bold capitalize text-[10px] ml-0.5 ${STATUS_STYLE[status] ?? "bg-slate-100 text-slate-600"}`}>
-                    {status}
-                  </span>{" "}
-                  — only confirmed when you upload
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${statusStyle[newStatus] ?? "bg-slate-100 text-slate-600"}`}>
+                  {newStatus}
                 </span>
+                <span className="text-xs text-slate-500">status saved successfully</span>
               </div>
-              <p className="text-sm font-bold text-slate-800">Select documents to upload</p>
+              <p className="text-sm font-bold text-slate-800 mt-2">Upload new documents?</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Choose which documents to attach to this status change. The status is saved the moment you upload.
+                Select which documents to upload for this status change. They will be added to the customer&apos;s history.
               </p>
             </div>
 
             <div className="px-6 py-4 space-y-2">
-              {(() => {
-                const resolvedDate = statusDateMode === "auto"
-                  ? new Date().toISOString().split("T")[0]
-                  : statusDate;
-                const escheatYear = (status === "escheat" && resolvedDate)
-                  ? new Date(resolvedDate).getFullYear()
-                  : null;
-                const privacyNotRequired = status === "escheat" && escheatYear !== null && escheatYear <= 2021;
-                return [
-                  { key: "sigcard", label: "Signature Card",  desc: "Front & Back" },
-                  { key: "nais",    label: "NAIS",            desc: "Front & Back" },
-                  ...(!privacyNotRequired ? [{ key: "privacy", label: "Data Privacy", desc: "Front & Back" }] : []),
-                  { key: "other",   label: "Other Documents", desc: "Any additional files" },
-                ];
-              })().map(({ key, label, desc }) => (
+              {[
+                { key: "sigcard", label: "Signature Card", desc: "Front & Back" },
+                { key: "nais",    label: "NAIS",           desc: "Front & Back" },
+                { key: "privacy", label: "Data Privacy",   desc: "Front & Back" },
+                { key: "other",   label: "Other Documents",desc: "Any additional files" },
+              ].map(({ key, label, desc }) => (
                 <button
                   key={key}
                   onClick={() => toggleUploadType(key)}
@@ -2015,20 +1904,15 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
                 </button>
               ))}
             </div>
-            </div>{/* end flex-1 overflow-y-auto */}
 
-            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-              <button
-                onClick={handleSaveWithoutDocs}
-                disabled={saving}
-                className="text-xs font-semibold text-slate-400 hover:text-red-600 transition-colors disabled:opacity-50">
-                {saving ? "Saving…" : "Save without documents"}
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
+              <button onClick={onClose}
+                className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">
+                Skip for now
               </button>
-              <button
-                onClick={handleGoToUpload}
-                disabled={!Object.values(uploadTypes).some(Boolean)}
-                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 disabled:opacity-40 disabled:shadow-none transition-all">
-                Proceed to Upload
+              <button onClick={handleGoToUpload}
+                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 transition-all">
+                {Object.values(uploadTypes).some(Boolean) ? "Go to Upload" : "Done"}
               </button>
             </div>
           </>
@@ -2036,7 +1920,7 @@ const EditStatusModal = ({ customer, onClose, onSaved, basePath = "/user" }) => 
 
         {/* Footer for select step */}
         {step === "select" && (
-          <div className="flex justify-end px-6 py-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+          <div className="flex justify-end px-6 py-4 border-t border-slate-100 bg-slate-50">
             <button onClick={onClose}
               className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
               Cancel
@@ -2055,7 +1939,6 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { hasPermission, user } = useAuth();
-  const appConfig = useAppConfig();
   const canEdit = hasPermission('edit-customers');
 
   const initialTab = onlyTab ?? (searchParams.get("tab") ?? defaultTab);
@@ -2069,7 +1952,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [accountTypeFilter, setAccountTypeFilter] = useState("all");
   const [riskLevelFilter, setRiskLevelFilter]     = useState("all");
   const [branchFilter, setBranchFilter]           = useState("all");
-  const [sortDir, setSortDir]             = useState(null); // null = latest first (backend order)
+  const [sortDir, setSortDir]             = useState("asc");
   const [page, setPage]                   = useState(1);
   const [totalPages, setTotalPages]       = useState(1);
   const [total, setTotal]                 = useState(0);
@@ -2091,23 +1974,18 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const searchContainerRef                        = useRef(null);
   const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
 
-  // ── Fetch branch options for the branch filter ────────────────────────────
+  // ── Fetch branch + children for branch filter (manager & cashier) ─────────
   useEffect(() => {
-    api.get("/branches", { params: { per_page: 100 } }).then(({ data }) => {
+    if (!branchScoped || !user?.branch_id) return;
+    api.get("/branches").then(({ data }) => {
       const all = data.data ?? [];
-      if (branchScoped) {
-        if (!user?.branch_id) return;
-        const children = all.filter((b) => b.parent_id === user.branch_id);
-        if (children.length === 0) return; // no children → no dropdown
-        const mother = all.find((b) => b.id === user.branch_id);
-        setBranchOptions([
-          { id: mother?.id ?? user.branch_id, branch_name: (mother?.branch_name ?? "My Branch") + " (Mother)" },
-          ...children,
-        ]);
-      } else {
-        // Admin / unrestricted view — show all operational branches (exclude Head Office)
-        setBranchOptions(all.filter((b) => !b.is_head_office));
-      }
+      const children = all.filter((b) => b.parent_id === user.branch_id);
+      if (children.length === 0) return; // no children → no dropdown
+      const mother = all.find((b) => b.id === user.branch_id);
+      setBranchOptions([
+        { id: mother?.id ?? user.branch_id, branch_name: (mother?.branch_name ?? "My Branch") + " (Mother)" },
+        ...children,
+      ]);
     }).catch(() => {});
   }, [branchScoped, user?.branch_id]);
 
@@ -2120,16 +1998,14 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
       if (statusFilter !== "all")     params.status       = statusFilter;
       if (accountTypeFilter !== "all") params.account_type = accountTypeFilter;
       if (riskLevelFilter !== "all")  params.risk_level   = riskLevelFilter;
-      if (branchFilter !== "all") params.branch_id = branchFilter;
+      if (branchScoped && branchFilter !== "all") params.branch_id = branchFilter;
 
       const { data } = await api.get("/customers", { params });
 
-      const items = sortDir
-        ? [...(data.data ?? [])].sort((a, b) => {
-            const cmp = (a.full_name ?? "").localeCompare(b.full_name ?? "");
-            return sortDir === "asc" ? cmp : -cmp;
-          })
-        : (data.data ?? []);
+      const items = [...(data.data ?? [])].sort((a, b) => {
+        const cmp = (a.full_name ?? "").localeCompare(b.full_name ?? "");
+        return sortDir === "asc" ? cmp : -cmp;
+      });
 
       setCustomers(items);
       setTotalPages(data.last_page ?? 1);
@@ -2217,7 +2093,6 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
               customer={editStatusCustomer}
               onClose={() => setEditStatusCustomer(null)}
               onSaved={fetchCustomers}
-              basePath={basePath}
             />
           )}
         </AnimatePresence>
@@ -2285,9 +2160,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
                   >
                     <option value="all">All Status</option>
-                    {appConfig.customer_statuses.map((s) => (
-                      <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                    ))}
+                    <option value="active">Active</option>
+                    <option value="reactivated">Reactivated</option>
+                    <option value="dormant">Dormant</option>
+                    <option value="escheat">Escheat</option>
+                    <option value="closed">Closed</option>
                   </select>
 
                   {/* Account Type */}
@@ -2297,9 +2174,9 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
                   >
                     <option value="all">All Account Types</option>
-                    {appConfig.account_types.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
+                    <option value="Regular">Regular</option>
+                    <option value="Joint">Joint</option>
+                    <option value="Corporate">Corporate</option>
                   </select>
 
                   {/* Risk Level */}
@@ -2309,13 +2186,13 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     className="px-4 py-3 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
                   >
                     <option value="all">All Risk Levels</option>
-                    {appConfig.risk_levels.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
+                    <option value="Low Risk">Low Risk</option>
+                    <option value="Medium Risk">Medium Risk</option>
+                    <option value="High Risk">High Risk</option>
                   </select>
 
-                  {/* Branch — admin sees all branches; manager/cashier see children only */}
-                  {branchOptions.length > 0 && (
+                  {/* Branch — manager & cashier, only when they have child branches */}
+                  {branchScoped && branchOptions.length > 0 && (
                     <select
                       value={branchFilter}
                       onChange={(e) => setBranchFilter(e.target.value)}
@@ -2329,10 +2206,10 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   )}
 
                   <button
-                    onClick={() => setSortDir((d) => d === null ? "asc" : d === "asc" ? "desc" : null)}
+                    onClick={() => setSortDir((d) => d === "asc" ? "desc" : "asc")}
                     className="px-5 py-3 text-sm font-semibold border-2 border-slate-200 rounded-xl text-slate-700 hover:border-blue-400 hover:bg-blue-50 transition-all"
                   >
-                    {sortDir === "asc" ? "↑ A–Z" : sortDir === "desc" ? "↓ Z–A" : "🕐 Latest"}
+                    {sortDir === "asc" ? "↑ A–Z" : "↓ Z–A"}
                   </button>
                   <button
                     onClick={fetchCustomers}
@@ -2390,12 +2267,12 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                             <div className="flex items-center gap-2">
                               <div className="w-7 h-7 rounded-full flex-shrink-0 overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-[10px]">
                                 {c.photo
-                                  ? <img src={storageUrl(c.photo)} alt={c.full_name} className="w-full h-full object-cover" />
+                                  ? <img src={storageUrl(c.photo)} alt={c.full_names} className="w-full h-full object-cover" />
                                   : initials(c)
                                 }
                               </div>
                               <div className="min-w-0">
-                                <span className="text-xs font-semibold text-slate-900 block truncate">{formatDisplayName(c)}</span>
+                                <span className="text-xs font-semibold text-slate-900 block truncate">{c.full_name ?? "—"}</span>
                                 {c.account_type === "Joint" && c.holders?.length > 0 && (
                                   <span className="text-[10px] text-slate-400 truncate block">
                                     + {c.holders.map((h) => `${h.lastname} ${h.firstname}`).join(", ")}
@@ -2410,13 +2287,13 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                           </td>
                           {/* Account Type */}
                           <td className="px-4 py-2.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${ACCOUNT_STYLE[c.account_type] ?? "bg-slate-100 text-slate-600"}`}>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${accountStyle[c.account_type] ?? "bg-slate-100 text-slate-600"}`}>
                               {c.account_type ?? "—"}
                             </span>
                           </td>
                           {/* Risk Level */}
                           <td className="px-4 py-2.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${RISK_STYLE[c.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${riskStyle[c.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
                               {c.risk_level ?? "—"}
                             </span>
                           </td>
@@ -2425,7 +2302,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                             {(c.accounts?.length ?? 0) > 0 ? (
                               <span className="text-[10px] text-slate-400 font-medium">{c.accounts.length + 1} accounts</span>
                             ) : (
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[c.status] ?? "bg-slate-100 text-slate-500"}`}>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
                                 {c.status ?? "—"}
                               </span>
                             )}
@@ -2614,7 +2491,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                       {c.account_no ? `Acct: ${c.account_no} · ` : ""}{c.branch?.branch_name ?? "No Branch"} · {c.account_type}
                                     </p>
                                   </div>
-                                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${STATUS_STYLE[c.status] ?? "bg-slate-100 text-slate-500"}`}>
+                                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
                                     {c.status}
                                   </span>
                                   <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />

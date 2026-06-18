@@ -272,7 +272,7 @@ A green checkmark will appear once each photo is selected. Click **Next**.
 
 #### Step 7 — Upload the NAIS (Optional)
 
-NAIS is the **National Account Information Sheet**. It is the form where the customer's basic ID and personal info is recorded.
+NAIS is the **New Account Information Sheet**. It is the form where the customer's basic ID and personal info is recorded.
 
 - If the customer signed a NAIS form, upload the **front and back** images here.
 - If you do not have a NAIS form, you can **skip this step** by clicking **Next**.

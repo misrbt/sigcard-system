@@ -9,7 +9,9 @@ import {
   MdBusiness,
   MdLocationOn,
   MdChevronRight,
+  MdArrowUpward,
 } from "react-icons/md";
+import Swal from "sweetalert2";
 import Button from "../../components/ui/Button";
 import { adminService } from "../../services/adminService";
 
@@ -122,6 +124,29 @@ const DataManagement = () => {
       setError(err.response?.data?.message ?? "Failed to save changes.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePromote = async (child, parentName) => {
+    const result = await Swal.fire({
+      title: "Promote to Mother Branch?",
+      html: `<strong>${child.branch_name}</strong> will become an independent Mother Branch.<br/><br/>It will no longer be under <strong>${parentName}</strong>. You may also want to rename it afterward.`,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonColor: "#1877F2",
+      confirmButtonText: "Yes, Promote",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      setError("");
+      setSuccess("");
+      await adminService.updateBranchParent(child.id, null);
+      setSuccess(`"${child.branch_name}" has been promoted to an independent Mother Branch.`);
+      setTimeout(() => setSuccess(""), 4000);
+      await fetchHierarchy();
+    } catch (err) {
+      setError(err.response?.data?.message ?? "Failed to promote branch.");
     }
   };
 
@@ -396,6 +421,13 @@ const DataManagement = () => {
                             <span className="ml-auto text-xs font-semibold text-purple-600 whitespace-nowrap">
                               Branch Lite
                             </span>
+                            <button
+                              onClick={() => handlePromote(child, mb.branch_name)}
+                              className="p-1 text-gray-400 hover:text-amber-600 hover:bg-amber-100 rounded transition-colors flex-shrink-0"
+                              title="Promote to Mother Branch"
+                            >
+                              <MdArrowUpward className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
                       ))}
