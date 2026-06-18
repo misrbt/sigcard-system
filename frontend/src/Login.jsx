@@ -248,8 +248,8 @@ const Login = () => {
 
   if (setupMFA.required) {
     return (
-      <div className="flex flex-col w-full min-h-screen bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
+      <div className="flex flex-col w-full h-screen overflow-hidden bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -362,8 +362,8 @@ const Login = () => {
 
   if (twoFactor.required) {
     return (
-      <div className="flex flex-col w-full min-h-screen bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
+      <div className="flex flex-col w-full h-screen overflow-hidden bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -433,8 +433,8 @@ const Login = () => {
 
   if (forcePasswordChange) {
     return (
-      <div className="flex flex-col w-full min-h-screen bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
+      <div className="flex flex-col w-full h-screen overflow-hidden bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -524,7 +524,7 @@ const Login = () => {
   }
 
   return (
-    <div className="flex flex-col w-full min-h-screen bg-white">
+    <div className="flex flex-col w-full h-screen overflow-hidden bg-white">
       {/* SVG clip-path — quadratic bezier, stays within element bounds */}
       <svg width="0" height="0" className="absolute">
         <defs>
@@ -535,32 +535,31 @@ const Login = () => {
       </svg>
 
       {/* Top header bar */}
-      <div className="hidden md:flex gap-3 px-6 py-3 md:flex-col lg:flex-row lg:items-center lg:justify-between bg-[#051637]">
-        <div>
-          <p className="text-[clamp(1.2rem,3vw,2.2rem)] font-semibold tracking-[0.35em] text-white">
-            RBT BANK INC, <span className="text-[clamp(0.55rem,1.2vw,0.75rem)] tracking-[0.25em] text-white/70">(A Rural Bank of Talisayan, Misamis Oriental)</span>
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 text-right sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex flex-col">
-            <p className="text-2xl font-semibold text-white">{formattedTime}</p>
-            <p className="text-sm text-white/70">{formattedDate}</p>
+      <div className="hidden md:flex items-center justify-between px-6 py-3 bg-[#051637] flex-shrink-0">
+        <p className="text-sm font-semibold tracking-[0.3em] text-white lg:text-base lg:tracking-[0.35em]">
+          RBT BANK INC.
+          <span className="ml-2 hidden text-xs tracking-[0.2em] text-white/60 lg:inline">(A Rural Bank of Talisayan, Misamis Oriental)</span>
+        </p>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <p className="text-base font-semibold text-white">{formattedTime}</p>
+            <p className="text-xs text-white/60">{formattedDate}</p>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 text-xs font-medium tracking-wider uppercase border rounded-full border-white/25 bg-white/5">
+          <div className="flex items-center gap-1.5 px-4 py-1.5 text-xs border rounded-full border-white/25 bg-white/5">
             <span className="text-white/80">EN / PH</span>
           </div>
         </div>
       </div>
 
       {/* Body — flush full-width flex row, no outer padding */}
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left panel ── */}
         <motion.div
           initial={{ opacity: 0, x: -40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="relative hidden md:flex w-[52%] flex-shrink-0 flex-col justify-center bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff] px-10 py-10 pr-20 text-white lg:px-14 lg:pr-28"
+          className="relative hidden md:flex w-[52%] flex-shrink-0 flex-col justify-center overflow-hidden bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff] px-6 py-4 pr-14 text-white lg:px-14 lg:py-8 lg:pr-28"
           style={{ clipPath: "url(#leftPanelClip)" }}
         >
           {/* Background layers */}
@@ -588,7 +587,7 @@ const Login = () => {
           </div>
 
           {/* Content card */}
-          <div className="relative z-10 flex flex-col gap-6 rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-[0_30px_80px_rgba(3,8,20,0.5)] backdrop-blur-md lg:p-8">
+          <div className="relative z-10 flex flex-col gap-3 rounded-[28px] border border-white/10 bg-white/5 p-4 shadow-[0_30px_80px_rgba(3,8,20,0.5)] backdrop-blur-md lg:gap-6 lg:p-8">
             {/* Section label */}
             <div className="flex items-center gap-2">
               <span className="inline-flex h-1.5 w-6 rounded-full bg-sky-400/80" />
@@ -613,7 +612,7 @@ const Login = () => {
                 <img
                   src={logoSrc}
                   alt={`${app_abbreviation} Logo`}
-                  className="relative z-10 h-32 w-auto object-contain"
+                  className="relative z-10 h-20 w-auto object-contain lg:h-32"
                 />
               </div>
 
@@ -670,25 +669,25 @@ const Login = () => {
           initial={{ opacity: 0, x: 40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="flex flex-1 flex-col items-center justify-center bg-white px-6 py-10"
+          className="flex flex-1 flex-col items-center justify-center overflow-y-auto bg-white px-4 py-3 sm:px-6 sm:py-5 lg:py-8"
         >
-          <div className="w-full max-w-md space-y-4">
+          <div className="w-full max-w-md space-y-3 sm:space-y-4">
             {/* Logo + brand — mobile only */}
-            <div className="flex flex-col items-center gap-2 md:hidden">
-              <img src={logo} alt="DIGICUR Logo" className="h-20 w-auto object-contain" />
+            <div className="flex flex-col items-center gap-1.5 md:hidden">
+              <img src={logo} alt="DIGICUR Logo" className="h-14 w-auto object-contain" />
               <div className="text-center">
-                <p className="text-lg font-semibold tracking-[0.25em] text-slate-900">RBT BANK INC.</p>
-                <p className="text-[10px] tracking-[0.4em] text-slate-500">(A Rural Bank of Talisayan, Misamis Oriental)</p>
+                <p className="text-sm font-semibold tracking-[0.2em] text-slate-900">RBT BANK INC.</p>
+                <p className="text-[9px] tracking-[0.3em] text-slate-500">(A Rural Bank of Talisayan, Misamis Oriental)</p>
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-slate-100 bg-white p-6 shadow-[0_8px_40px_rgba(15,23,42,0.08)]">
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="space-y-1">
+            <div className="rounded-[24px] border border-slate-100 bg-white p-4 sm:p-5 md:p-6 shadow-[0_8px_40px_rgba(15,23,42,0.08)]">
+              <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4 lg:space-y-5">
+                <div className="space-y-0.5">
                   <p className="text-xs uppercase tracking-[0.4em] text-slate-400">
                     Access credentials
                   </p>
-                  <h3 className="text-2xl font-semibold text-slate-900">Sign in</h3>
+                  <h3 className="text-xl sm:text-2xl font-semibold text-slate-900">Sign in</h3>
                 </div>
 
                 {fromSessionExpired && !apiError.message && (

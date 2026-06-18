@@ -3,7 +3,7 @@ import Swal from 'sweetalert2';
 import {
   MdAdd, MdEdit, MdDelete, MdSearch, MdRefresh,
   MdBusiness, MdPeople, MdPersonSearch, MdAccountTree,
-  MdExpandMore, MdExpandLess, MdArrowForward,
+  MdExpandMore, MdExpandLess, MdArrowForward, MdArrowUpward,
 } from 'react-icons/md';
 import { adminService } from '../../services/adminService';
 import Modal from '../../components/common/Modal';
@@ -196,6 +196,26 @@ const BranchManagement = () => {
       fetchBranches();
     } catch (err) {
       Swal.fire('Error', err.response?.data?.message || 'Failed to delete branch.', 'error');
+    }
+  };
+
+  const handlePromote = async (branch, motherName) => {
+    const result = await Swal.fire({
+      title: 'Promote to Mother Branch?',
+      html: `<strong>${branch.branch_name}</strong> will become an independent Mother Branch.<br/><br/>It will no longer be under <strong>${motherName}</strong>. You may also want to rename it afterward to remove "BLU" from its name.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#1877F2',
+      confirmButtonText: 'Yes, Promote',
+      cancelButtonText: 'Cancel',
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await adminService.updateBranchParent(branch.id, null);
+      Swal.fire('Promoted!', `"${branch.branch_name}" is now an independent Mother Branch.`, 'success');
+      fetchBranches();
+    } catch (err) {
+      Swal.fire('Error', err.response?.data?.message || 'Failed to promote branch.', 'error');
     }
   };
 
@@ -405,6 +425,9 @@ const BranchManagement = () => {
                                 <div className="flex gap-1">
                                   <button onClick={() => openEdit(childFull || child)} className="p-1.5 text-gray-400 hover:text-[#1877F2] hover:bg-blue-50 rounded transition-colors" title="Edit">
                                     <MdEdit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button onClick={() => handlePromote(child, mother.branch_name)} className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors" title="Promote to Mother Branch">
+                                    <MdArrowUpward className="w-3.5 h-3.5" />
                                   </button>
                                   <button onClick={() => handleDelete(child)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete">
                                     <MdDelete className="w-3.5 h-3.5" />
