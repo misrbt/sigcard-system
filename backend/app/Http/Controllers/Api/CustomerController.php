@@ -694,15 +694,22 @@ class CustomerController extends Controller
                 $versionedName = $baseName.'_v'.now()->format('Ymd_His').'.jpg';
                 $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
 
-                if (Storage::disk('public')->exists($existing->file_path)) {
-                    Storage::disk('public')->move($existing->file_path, $versionedPath);
-                }
+                $moved = Storage::disk('public')->exists($existing->file_path)
+                    && Storage::disk('public')->move($existing->file_path, $versionedPath);
 
                 $existing->update([
                     'is_current' => false,
-                    'file_path' => $versionedPath,
-                    'file_name' => $versionedName,
+                    'file_path' => $moved ? $versionedPath : $existing->file_path,
+                    'file_name' => $moved ? $versionedName : $existing->file_name,
                 ]);
+
+                if (! $moved) {
+                    Log::warning('replaceDocument: archive move skipped, old file missing at expected path', [
+                        'customer_id' => $customer->id,
+                        'document_id' => $existing->id,
+                        'expected_path' => $existing->getOriginal('file_path'),
+                    ]);
+                }
 
                 // Demote any other stale is_current duplicates for the same
                 // type + person_index (guards against prior data inconsistency).
@@ -1318,15 +1325,22 @@ class CustomerController extends Controller
             $versionedName = $pathInfo['filename'].'_v'.now()->format('Ymd_His').'.jpg';
             $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
 
-            if (Storage::disk('public')->exists($doc->file_path)) {
-                Storage::disk('public')->move($doc->file_path, $versionedPath);
-            }
+            $moved = Storage::disk('public')->exists($doc->file_path)
+                && Storage::disk('public')->move($doc->file_path, $versionedPath);
 
             $doc->update([
                 'is_current' => false,
-                'file_path' => $versionedPath,
-                'file_name' => $versionedName,
+                'file_path' => $moved ? $versionedPath : $doc->file_path,
+                'file_name' => $moved ? $versionedName : $doc->file_name,
             ]);
+
+            if (! $moved) {
+                Log::warning('archiveAndReplaceDocGroup: archive move skipped, old file missing at expected path', [
+                    'customer_id' => $customer->id,
+                    'document_id' => $doc->id,
+                    'expected_path' => $doc->getOriginal('file_path'),
+                ]);
+            }
 
             activity()
                 ->causedBy(Auth::user())
