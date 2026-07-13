@@ -1974,7 +1974,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const searchContainerRef                        = useRef(null);
   const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
 
-  const isAdminView = basePath === "/admin";
+  const showAllBranchesFilter = basePath === "/admin" || basePath === "/compliance";
 
   // ── Fetch branch + children for branch filter (manager & cashier) ─────────
   useEffect(() => {
@@ -1991,14 +1991,14 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
     }).catch(() => {});
   }, [branchScoped, user?.branch_id]);
 
-  // ── Fetch all branches for branch filter (admin) — excludes Head Office ───
+  // ── Fetch all branches for branch filter (admin & compliance) — excludes Head Office ───
   useEffect(() => {
-    if (!isAdminView) return;
+    if (!showAllBranchesFilter) return;
     api.get("/branches").then(({ data }) => {
       const all = data.data ?? [];
       setBranchOptions(all.filter((b) => !b.is_head_office && b.brcode !== "00"));
     }).catch(() => {});
-  }, [isAdminView]);
+  }, [showAllBranchesFilter]);
 
   // ── Fetch table data ───────────────────────────────────────────────────────
   const fetchCustomers = useCallback(async () => {
@@ -2009,7 +2009,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
       if (statusFilter !== "all")     params.status       = statusFilter;
       if (accountTypeFilter !== "all") params.account_type = accountTypeFilter;
       if (riskLevelFilter !== "all")  params.risk_level   = riskLevelFilter;
-      if ((branchScoped || isAdminView) && branchFilter !== "all") params.branch_id = branchFilter;
+      if ((branchScoped || showAllBranchesFilter) && branchFilter !== "all") params.branch_id = branchFilter;
 
       const { data } = await api.get("/customers", { params });
 
@@ -2026,7 +2026,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
     } finally {
       setLoading(false);
     }
-  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, isAdminView]);
+  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, showAllBranchesFilter]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
   useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter]);
@@ -2202,8 +2202,8 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     <option value="High Risk">High Risk</option>
                   </select>
 
-                  {/* Branch — manager & cashier (only when they have child branches), and admin (all branches except Head Office) */}
-                  {(branchScoped || isAdminView) && branchOptions.length > 0 && (
+                  {/* Branch — manager & cashier (only when they have child branches), and admin/compliance (all branches except Head Office) */}
+                  {(branchScoped || showAllBranchesFilter) && branchOptions.length > 0 && (
                     <select
                       value={branchFilter}
                       onChange={(e) => setBranchFilter(e.target.value)}
