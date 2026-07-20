@@ -1114,14 +1114,10 @@ const CustomerView = ({ basePath = '/user' }) => {
     const imgs = [];
     let startIdx = 0;
 
-    // When customer has multiple accounts (non-Joint), filter to active account tab
-    const hasMultiAccounts = customer?.account_type !== "Joint" && (customer?.accounts?.length ?? 0) >= 1;
-    const currentDocsList = latestLogWithDocs
-      ? (customer.documents ?? []).filter((d) => d.status_log_id === latestLogWithDocs.id)
-      : (customer.documents ?? []).filter((d) => !d.account_status);
-    const viewDocs = hasMultiAccounts
-      ? currentDocsList.filter((d) => d.person_index === activeAcctIdx)
-      : currentDocsList;
+    // Reuse the same current/latest-status-group filtered list the thumbnails use
+    // (docsForSection already excludes archived is_current=false docs and scopes to
+    // the active account tab), so the full-size viewer never shows a stale replaced document.
+    const viewDocs = docsForSection;
 
     const persons = [...new Set(
       viewDocs
