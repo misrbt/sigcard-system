@@ -1298,8 +1298,8 @@ const CustomerView = ({ basePath = '/user' }) => {
     ? latestLogForAcct
       ? (latestLogForAcct.documents ?? []).filter((d) => d.is_current !== false && d.person_index === activeAcctIdx)
       : legacyForAcct
-        ? legacyForAcct.docs.filter((d) => d.person_index === activeAcctIdx)
-        : initialDocs.filter((d) => d.person_index === activeAcctIdx)
+        ? legacyForAcct.docs.filter((d) => d.is_current !== false && d.person_index === activeAcctIdx)
+        : initialDocs.filter((d) => d.is_current !== false && d.person_index === activeAcctIdx)
     : docs;
 
   // Per-account status label shown in the Documents section header
