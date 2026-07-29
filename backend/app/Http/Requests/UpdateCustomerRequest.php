@@ -62,9 +62,19 @@ class UpdateCustomerRequest extends FormRequest
             'privacyPairs.*.back' => 'sometimes|image|max:10240',
 
             // Optional additional documents — keyed by person/account index (1-based)
+            // Accepts images (jpg/png/gif/webp), PDFs, and common office documents (Word, Excel)
             'otherDocs' => 'nullable|array',
             'otherDocs.*' => 'nullable',
-            'otherDocs.*.*' => 'nullable|image|max:10240',
+            'otherDocs.*.*' => [
+                'nullable',
+                'max:10240',
+                'mimetypes:image/jpeg,image/jpg,image/png,image/gif,image/webp,'
+                    . 'application/pdf,'
+                    . 'application/msword,'
+                    . 'application/vnd.openxmlformats-officedocument.wordprocessingml.document,'
+                    . 'application/vnd.ms-excel,'
+                    . 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ],
         ];
     }
 
@@ -86,7 +96,8 @@ class UpdateCustomerRequest extends FormRequest
             'additionalPersons.*.risk_level.in' => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
 
             '*.image' => 'File must be an image.',
-            '*.max' => 'Image size must not exceed 10MB.',
+            '*.mimetypes' => 'File must be an image, PDF, or common document type (Word, Excel).',
+            '*.max' => 'File size must not exceed 10MB.',
         ];
     }
 }

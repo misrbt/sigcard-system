@@ -33,6 +33,29 @@ const storageUrl = (path, version = null) => {
 
 const customerId = (id) => `C-${String(id).padStart(4, "0")}`;
 
+// Detect if a file path/name or File object is an image
+const isImageFile = (fileOrPath) => {
+  if (!fileOrPath) return false;
+  const name = typeof fileOrPath === "string" ? fileOrPath : (fileOrPath.name ?? "");
+  return /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(name);
+};
+const isPdfFile = (fileOrPath) => {
+  if (!fileOrPath) return false;
+  const name = typeof fileOrPath === "string" ? fileOrPath : (fileOrPath.name ?? "");
+  const mime = typeof fileOrPath === "string" ? "" : (fileOrPath.type ?? "");
+  return /\.pdf$/i.test(name) || mime === "application/pdf";
+};
+
+// Accepted MIME types for other supporting documents
+const OTHER_DOC_ACCEPT = [
+  "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+].join(",");
+
 const STATUS_CFG = {
   active:      { pill: "bg-emerald-100 text-emerald-700 border border-emerald-200", dot: "bg-emerald-500" },
   dormant:     { pill: "bg-yellow-100 text-yellow-700 border border-yellow-200",    dot: "bg-yellow-500"  },
@@ -1620,26 +1643,56 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                     {latestOtherDocs.length > 0 && (
                       <div>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Current Files</p>
-                        <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
-                          {latestOtherDocs.map((doc) => (
-                            <div key={doc.id} className="relative aspect-square rounded-xl overflow-hidden border-2 border-slate-200 bg-slate-50 group">
-                              <img src={storageUrl(doc.file_path, doc.updated_at ?? doc.created_at ?? doc.id)} alt={doc.file_name} className="w-full h-full object-contain" />
-                              <div className="absolute inset-x-0 bottom-0 bg-black/50 py-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <p className="text-[8px] text-white truncate">{doc.file_name}</p>
+                        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+                          {latestOtherDocs.map((doc) => {
+                            const url = storageUrl(doc.file_path, doc.updated_at ?? doc.created_at ?? doc.id);
+                            const imgFile = isImageFile(doc.file_path ?? doc.file_name ?? "");
+                            const pdfFile = isPdfFile(doc.file_path ?? doc.file_name ?? "");
+                            return (
+                              <div key={doc.id} className="relative aspect-square rounded-xl overflow-hidden border-2 border-slate-200 bg-slate-50 group flex flex-col items-center justify-center">
+                                {imgFile ? (
+                                  <img src={url} alt={doc.file_name} className="w-full h-full object-contain" />
+                                ) : pdfFile ? (
+                                  <div className="flex flex-col items-center justify-center h-full w-full gap-1 px-1">
+                                    <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                                      <span className="text-red-600 text-[10px] font-extrabold">PDF</span>
+                                    </div>
+                                    <p className="text-[8px] text-slate-500 text-center truncate w-full px-1">{doc.file_name}</p>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center h-full w-full gap-1 px-1">
+                                    <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center">
+                                      <HiOutlineDocumentText className="w-5 h-5 text-slate-500" />
+                                    </div>
+                                    <p className="text-[8px] text-slate-500 text-center truncate w-full px-1">{doc.file_name}</p>
+                                  </div>
+                                )}
+                                {/* Hover overlay with filename */}
+                                <div className="absolute inset-x-0 bottom-0 bg-black/60 py-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <p className="text-[8px] text-white truncate">{doc.file_name}</p>
+                                </div>
+                                {/* View link for PDFs and docs */}
+                                {!imgFile && url && (
+                                  <a href={url} target="_blank" rel="noopener noreferrer"
+                                    className="absolute inset-0 z-10"
+                                    title={`Open ${doc.file_name}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                )}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRemoveOtherDoc(doc); }}
+                                  disabled={removingDocId === doc.id}
+                                  className="absolute top-0.5 right-0.5 z-20 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-600 transition-all disabled:opacity-60 shadow"
+                                  title="Remove this document"
+                                >
+                                  {removingDocId === doc.id
+                                    ? <span className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin block" />
+                                    : <HiOutlineX className="w-3 h-3" />
+                                  }
+                                </button>
                               </div>
-                              <button
-                                onClick={() => handleRemoveOtherDoc(doc)}
-                                disabled={removingDocId === doc.id}
-                                className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-600 transition-all disabled:opacity-60 shadow"
-                                title="Remove this document"
-                              >
-                                {removingDocId === doc.id
-                                  ? <span className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin block" />
-                                  : <HiOutlineX className="w-3 h-3" />
-                                }
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1684,17 +1737,40 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                     {/* Queued new */}
                     {newOtherFiles.length > 0 && (
                       <div>
-                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-3">Queued for Upload</p>
-                        <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
-                          {newOtherFiles.map((file, i) => (
-                            <motion.div key={i} initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }}
-                              className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-300 bg-slate-50">
-                              <img src={URL.createObjectURL(file)} alt="New" className="w-full h-full object-contain" />
-                              <div className="absolute top-0.5 left-0.5 bg-blue-600 text-white text-[8px] font-bold px-1 py-0.5 rounded-sm">NEW</div>
-                              <button onClick={() => setNewOtherFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                                className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center hover:bg-red-600 transition-colors">×</button>
-                            </motion.div>
-                          ))}
+                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-3">Queued for Upload ({newOtherFiles.length})</p>
+                        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+                          {newOtherFiles.map((file, i) => {
+                            const imgFile = isImageFile(file);
+                            const pdfFile = isPdfFile(file);
+                            return (
+                              <motion.div key={i} initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }}
+                                className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-300 bg-slate-50 flex flex-col items-center justify-center">
+                                {imgFile ? (
+                                  <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-contain" />
+                                ) : pdfFile ? (
+                                  <div className="flex flex-col items-center justify-center h-full w-full gap-1 px-1">
+                                    <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                                      <span className="text-red-600 text-[10px] font-extrabold">PDF</span>
+                                    </div>
+                                    <p className="text-[8px] text-slate-500 text-center truncate w-full px-1">{file.name}</p>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center h-full w-full gap-1 px-1">
+                                    <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center">
+                                      <HiOutlineDocumentText className="w-5 h-5 text-slate-500" />
+                                    </div>
+                                    <p className="text-[8px] text-slate-500 text-center truncate w-full px-1">{file.name}</p>
+                                  </div>
+                                )}
+                                <div className="absolute top-0.5 left-0.5 bg-blue-600 text-white text-[8px] font-bold px-1 py-0.5 rounded-sm z-10">NEW</div>
+                                <button
+                                  onClick={() => setNewOtherFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                                  className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center hover:bg-red-600 transition-colors shadow"
+                                  title="Remove"
+                                >×</button>
+                              </motion.div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1703,18 +1779,22 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                     <button onClick={() => otherInputRef.current?.click()}
                       className="w-full py-5 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center gap-2 text-slate-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/40 transition-all group">
                       <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
-                        <HiOutlinePhotograph className="w-5 h-5" />
+                        <HiOutlineDocumentText className="w-5 h-5" />
                       </div>
                       <span className="text-sm font-semibold">Add Documents</span>
-                      <span className="text-xs">JPEG, PNG · max 10 MB each</span>
+                      <span className="text-xs">Images, PDF, Word, Excel · max 10 MB each</span>
                     </button>
                   </div>
                     );
                   })()}
 
-                  <input ref={otherInputRef} type="file" accept="image/jpeg,image/jpg,image/png"
+                  <input ref={otherInputRef} type="file" accept={OTHER_DOC_ACCEPT}
                     multiple className="hidden"
-                    onChange={(e) => { setNewOtherFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      e.target.value = "";
+                      if (picked.length) setNewOtherFiles((prev) => [...prev, ...picked]);
+                    }} />
                 </div>
             </div>
 
