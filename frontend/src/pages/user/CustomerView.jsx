@@ -49,8 +49,8 @@ const UPLOAD_TYPE_MAP = {
 };
 
 const docLabel = {
-  sigcard_front:  "Sigcard Front",
-  sigcard_back:   "Sigcard Back",
+  sigcard_front:  "SIGCARD",
+  sigcard_back:   "Risk Profiling",
   nais_front:     "NAIS Front",
   nais_back:      "NAIS Back",
   privacy_front:  "Data Privacy Front",
@@ -232,7 +232,7 @@ const HIST_STATUS_COLORS = {
 };
 
 const HIST_DOC_LABELS = {
-  sigcard_front: "Sigcard Front", sigcard_back: "Sigcard Back",
+  sigcard_front: "SIGCARD", sigcard_back: "Risk Profiling",
   nais_front: "NAIS Front", nais_back: "NAIS Back",
   privacy_front: "Data Privacy Front", privacy_back: "Data Privacy Back",
   other: "Other Document",
@@ -1967,7 +1967,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                 <div className="space-y-1.5">
                                   <p className="text-xs font-semibold text-slate-500">Front — Shared</p>
                                   <div className="w-1/2 pr-1.5">
-                                    <DocImageDropZone compact label="Sigcard Front"
+                                    <DocImageDropZone compact label="SIGCARD"
                                       file={nonItfSigcardFront}
                                       onChange={setNonItfSigcardFront} />
                                   </div>
@@ -2006,7 +2006,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                   <div className={`grid gap-3 ${corpSigcardFronts.length === 1 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
                                     {corpSigcardFronts.map((file, i) => (
                                       <DocImageDropZone key={i} compact
-                                        label={corpSigcardFronts.length > 1 ? `Front ${i + 1}` : "Sigcard Front"}
+                                        label={corpSigcardFronts.length > 1 ? `Front ${i + 1}` : "SIGCARD"}
                                         file={file}
                                         onChange={(f) => setCorpSigcardFronts((prev) => { const a = [...prev]; a[i] = f; return a; })} />
                                     ))}
@@ -2086,7 +2086,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                   <div className="space-y-2">
                                     <div className="flex items-center gap-2">
                                       <div className="w-5 h-5 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-[10px]">2</div>
-                                      <p className="text-xs font-semibold text-slate-500">2nd Person — Sigcard Front</p>
+                                      <p className="text-xs font-semibold text-slate-500">2nd Person — SIGCARD</p>
                                       <button type="button" onClick={() => { setItfHasSecondFront(false); setItfSecondFront(null); }}
                                         className="ml-auto text-xs font-semibold text-red-500 hover:text-red-600 transition-colors">Remove</button>
                                     </div>
