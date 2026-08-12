@@ -11,6 +11,7 @@ import CashierRoutes from "./router/cashier.jsx";
 const NotFound    = lazy(() => import("./NotFound.jsx"));
 const Maintenance = lazy(() => import("./Maintenance.jsx"));
 const Unauthorized = lazy(() => import("./pages/shared/Unauthorized.jsx"));
+const Support     = lazy(() => import("./pages/support/Support.jsx"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -57,6 +58,9 @@ function CrisChen() {
 
         {/* Unauthorized */}
         <Route path="/unauthorized" element={<Unauthorized />} />
+
+        {/* Support */}
+        <Route path="/support" element={<Support />} />
 
         {/* 404 Not Found */}
         <Route path="*" element={<NotFound />} />

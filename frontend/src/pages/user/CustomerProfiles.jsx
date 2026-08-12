@@ -29,6 +29,7 @@ import { MdFingerprint } from "react-icons/md";
 import Swal from "sweetalert2";
 import api from "../../services/api";
 import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
+import { clearUploadResolved } from "../../utils/pendingStatusStorage";
 
 const PAGE_SIZE = 10;
 
@@ -1584,7 +1585,7 @@ const STATUS_CONFIG = {
   closed:      { label: "Closed",      desc: "Account has been permanently closed.",        icon: "✕", ring: "ring-red-400",    bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500"    },
 };
 
-const EditStatusModal = ({ customer, onClose, onSaved }) => {
+const EditStatusModal = ({ customer, onClose }) => {
   const navigate = useNavigate();
 
   // Build all accounts: primary first, then additional
@@ -1601,9 +1602,7 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
   const [step, setStep]               = useState(isMulti ? "select" : "pick");
   const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
   const [status, setStatus]           = useState(isMulti ? null : (customer.status ?? "active"));
-  const [saving, setSaving]           = useState(false);
   const [newStatus, setNewStatus]     = useState(null);
-  const [statusLogId, setStatusLogId] = useState(null);
   const [uploadTypes, setUploadTypes] = useState({ sigcard: false, nais: false, privacy: false, other: false });
 
   const handleSelectAcct = (acct) => {
@@ -1647,46 +1646,23 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
       if (!confirm.isConfirmed) return;
     }
 
-    setSaving(true);
-    try {
-      let res;
-      if (selectedAcct.type === "primary") {
-        res = await api.put(`/customers/${customer.id}`, { status });
-      } else {
-        res = await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, { status });
-      }
-      onSaved();
-
-      if (status === "escheat") {
-        await Swal.fire({
-          icon: "success",
-          title: "Status Updated",
-          text: "Account has been marked as Escheat.",
-          confirmButtonColor: "#ea580c",
-          timer: 2000,
-          timerProgressBar: true,
-        });
-        onClose();
-        return;
-      }
-
-      setNewStatus(status);
-      setStatusLogId(res.data?.status_log_id ?? null);
-      setStep("upload_select");
-    } catch (err) {
-      const msg = err?.response?.data?.message ?? "Something went wrong.";
-      Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
-    } finally {
-      setSaving(false);
-    }
+    // No status is written to the database yet, for any status — it only gets saved
+    // once the required documents are uploaded (atomically, together, on the upload panel).
+    setNewStatus(status);
+    setStep("upload_select");
   };
 
   const handleGoToUpload = () => {
     const chosen = Object.entries(uploadTypes).filter(([, v]) => v).map(([k]) => k);
     onClose();
     if (chosen.length > 0) {
-      const params = new URLSearchParams({ upload: chosen.join(","), newStatus });
-      if (statusLogId) params.set("statusLogId", statusLogId);
+      // Status not saved yet — backend applies the status change and the uploaded
+      // documents together in a single transaction, only once the upload succeeds.
+      // This is a fresh pending change, so a stale "already resolved" flag from an
+      // earlier status change on this same customer shouldn't suppress it.
+      clearUploadResolved(customer.id);
+      const params = new URLSearchParams({ upload: chosen.join(","), pendingStatus: newStatus });
+      if (selectedAcct.type === "additional") params.set("pendingAcctId", selectedAcct.id);
       navigate(`/user/customers/${customer.id}/view?${params.toString()}`);
     }
   };
@@ -1848,9 +1824,9 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
                   className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
                   Cancel
                 </button>
-                <button onClick={handleSave} disabled={saving || isUnchanged || isEscheat}
+                <button onClick={handleSave} disabled={isUnchanged || isEscheat}
                   className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow transition-all disabled:opacity-50 disabled:shadow-none bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90">
-                  {saving ? "Saving…" : "Confirm Update"}
+                  Continue
                 </button>
               </div>
             </div>
@@ -1865,11 +1841,11 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${statusStyle[newStatus] ?? "bg-slate-100 text-slate-600"}`}>
                   {newStatus}
                 </span>
-                <span className="text-xs text-slate-500">status saved successfully</span>
+                <span className="text-xs text-slate-500">not saved yet</span>
               </div>
-              <p className="text-sm font-bold text-slate-800 mt-2">Upload new documents?</p>
+              <p className="text-sm font-bold text-slate-800 mt-2">Upload supporting documents</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Select which documents to upload for this status change. They will be added to the customer&apos;s history.
+                Select which documents to upload. The account will only be marked <strong className="capitalize">{newStatus}</strong> once these documents are uploaded successfully.
               </p>
             </div>
 
@@ -1908,11 +1884,11 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
             <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
               <button onClick={onClose}
                 className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">
-                Skip for now
+                Cancel
               </button>
-              <button onClick={handleGoToUpload}
-                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 transition-all">
-                {Object.values(uploadTypes).some(Boolean) ? "Go to Upload" : "Done"}
+              <button onClick={handleGoToUpload} disabled={!Object.values(uploadTypes).some(Boolean)}
+                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 transition-all disabled:opacity-50 disabled:shadow-none">
+                Continue to Upload
               </button>
             </div>
           </>

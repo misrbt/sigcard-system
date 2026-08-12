@@ -28,6 +28,14 @@ import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
+import { setNavigationGuard } from "../../utils/navigationGuard";
+import {
+  getPendingStatusChange,
+  savePendingStatusChange,
+  clearPendingStatusChange,
+  markUploadResolved,
+  isUploadResolved,
+} from "../../utils/pendingStatusStorage";
 
 // ── Helpers / constants ───────────────────────────────────────────────────────
 const storageUrl = (path) => {
@@ -753,8 +761,19 @@ const CustomerView = ({ basePath = '/user' }) => {
   const pendingStatusDateParam = searchParams.get("pendingStatusDate");
   const pendingAcctIdParam   = searchParams.get("pendingAcctId");
 
+  // A stale "back button" history entry can still carry the old upload/pendingStatus
+  // params after that same change was already saved or cancelled — ignore it rather
+  // than reopening a finished panel.
+  const isStaleResolvedUpload = !!(pendingStatusParam && uploadParam) && isUploadResolved(id);
+
   // True when the status change hasn't been saved yet — upload commits everything atomically
-  const isPendingUpload = !!(pendingStatusParam && uploadParam);
+  const isPendingUpload = !!(pendingStatusParam && uploadParam) && !isStaleResolvedUpload;
+
+  // Scrub the stale params from the URL so refreshing or navigating from here doesn't
+  // keep re-triggering this check.
+  useEffect(() => {
+    if (isStaleResolvedUpload) setSearchParams({}, { replace: true });
+  }, [isStaleResolvedUpload, setSearchParams]);
 
   // Unified display values (pending takes precedence over legacy saved)
   const activeStatusParam   = pendingStatusParam ?? newStatusParam;
@@ -765,17 +784,20 @@ const CustomerView = ({ basePath = '/user' }) => {
     : null;
   const privacyNotRequired = activeStatusParam === "escheat" && escheatYear !== null && escheatYear <= 2021;
 
-  // Intercept the browser back button when a status change is pending (popstate works with BrowserRouter)
-  // Intercept the browser back button while a status change is pending.
-  // We capture the current URL so we can push back to it after the popstate fires.
+  // Intercept the browser back button while a status change is pending (popstate works with BrowserRouter).
+  //
+  // React Router keeps its own popstate listener (registered at app startup, so it always
+  // runs before ours) that re-renders to the previous route — and unmount tears our listener
+  // down — before our handler would get a chance to run. To avoid that race, we push a
+  // duplicate history entry up front: the first "back" press then lands on an identical URL,
+  // so React Router sees no location change and this component never unmounts, giving us a
+  // safe moment to confirm before actually leaving.
   useEffect(() => {
     if (!isPendingUpload) return;
 
-    const currentUrl = window.location.href;
+    window.history.pushState(null, "", window.location.href);
 
     const handlePopState = () => {
-      // The browser has already moved back — push this page's URL back to stay here
-      window.history.pushState(null, "", currentUrl);
       Swal.fire({
         icon: "warning",
         title: "Leave without uploading?",
@@ -788,9 +810,12 @@ const CustomerView = ({ basePath = '/user' }) => {
         reverseButtons: true,
       }).then((result) => {
         if (result.isConfirmed) {
-          // User chose to leave — remove guard and go back past the entry we re-pushed
+          // User chose to leave — remove the guard and go back past the buffer entry
           window.removeEventListener("popstate", handlePopState);
           window.history.back();
+        } else {
+          // Staying — re-arm the buffer so the next back press is caught too
+          window.history.pushState(null, "", window.location.href);
         }
       });
     };
@@ -798,6 +823,45 @@ const CustomerView = ({ basePath = '/user' }) => {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [isPendingUpload, pendingStatusParam]);
+
+  // Remember an in-progress status change on this device so it can be resumed later,
+  // even after the tab is closed or the user signs out.
+  useEffect(() => {
+    if (!isPendingUpload) return;
+    savePendingStatusChange(id, {
+      upload: uploadParam,
+      pendingStatus: pendingStatusParam,
+      pendingStatusDate: pendingStatusDateParam || undefined,
+      pendingAcctId: pendingAcctIdParam || undefined,
+    });
+  }, [id, isPendingUpload, uploadParam, pendingStatusParam, pendingStatusDateParam, pendingAcctIdParam]);
+
+  // Offer to resume an unfinished status change left over from a previous visit.
+  useEffect(() => {
+    if (uploadParam) return; // already viewing the upload panel — nothing to resume into
+    const pending = getPendingStatusChange(id);
+    if (!pending) return;
+
+    Swal.fire({
+      icon: "info",
+      title: "Unfinished status change",
+      html: `<p style="font-size:14px;color:#374151;">This customer has an unfinished status change to <strong style="text-transform:capitalize">${pending.pendingStatus}</strong> waiting on supporting documents.</p><p style="margin-top:8px;font-size:12px;color:#6b7280;">The status was never saved — resume the upload to finish it.</p>`,
+      showCancelButton: true,
+      confirmButtonText: "Resume Upload",
+      cancelButtonText: "Stay on this page",
+      confirmButtonColor: "#2563eb",
+      cancelButtonColor: "#6b7280",
+      reverseButtons: true,
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      const params = new URLSearchParams({ upload: pending.upload, pendingStatus: pending.pendingStatus });
+      if (pending.pendingStatusDate) params.set("pendingStatusDate", pending.pendingStatusDate);
+      if (pending.pendingAcctId) params.set("pendingAcctId", pending.pendingAcctId);
+      setSearchParams(params, { replace: true });
+    });
+    // Only re-check when navigating to a different customer or arriving fresh (no upload param).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, uploadParam]);
 
   const [activeAcctIdx, setActiveAcctIdx] = useState(1);
 
@@ -861,6 +925,35 @@ const CustomerView = ({ basePath = '/user' }) => {
     setPerPersonCorpBacks({});
   };
 
+  // Used by in-page navigation buttons (Edit Docs, Add Account) so they warn before
+  // leaving an unfinished status change, same as the browser back button does.
+  const confirmLeaveIfPending = async () => {
+    if (!isPendingUpload) return true;
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Leave without uploading?",
+      html: `<p style="font-size:14px;color:#374151;">The account status change to <strong style="text-transform:capitalize">${pendingStatusParam}</strong> will <strong>not be saved</strong> if you leave now.</p><p style="margin-top:8px;font-size:12px;color:#6b7280;">Stay on this page to finish uploading the supporting documents.</p>`,
+      showCancelButton: true,
+      confirmButtonText: "Leave anyway",
+      cancelButtonText: "Stay & upload",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#2563eb",
+      reverseButtons: true,
+    });
+    return result.isConfirmed;
+  };
+
+  // Let the nav bars (Home/Upload/Customer Profiles/Logout) ask before navigating away
+  // from an unfinished status change, same confirmation the back button uses. The ref
+  // keeps the registered guard pointed at the latest closure without re-registering it
+  // on every render.
+  const confirmLeaveIfPendingRef = useRef(confirmLeaveIfPending);
+  confirmLeaveIfPendingRef.current = confirmLeaveIfPending;
+  useEffect(() => {
+    setNavigationGuard(() => confirmLeaveIfPendingRef.current());
+    return () => setNavigationGuard(null);
+  }, []);
+
   const resetUploadPanel = async () => {
     if (isPendingUpload) {
       const result = await Swal.fire({
@@ -875,6 +968,8 @@ const CustomerView = ({ basePath = '/user' }) => {
         reverseButtons: true,
       });
       if (!result.isConfirmed) return;
+      clearPendingStatusChange(id);
+      markUploadResolved(id);
     }
     clearUploadPanel();
   };
@@ -1051,6 +1146,10 @@ const CustomerView = ({ basePath = '/user' }) => {
 
       const { data: uploadData } = await api.post(`/customers/${id}/upload-status-document`, fd, { headers: { "Content-Type": "multipart/form-data" } });
 
+      if (wasAtomicSave) {
+        clearPendingStatusChange(id);
+        markUploadResolved(id);
+      }
       clearUploadPanel();
       if (uploadData?.customer) {
         setCustomer(uploadData.customer);
@@ -1463,7 +1562,9 @@ const CustomerView = ({ basePath = '/user' }) => {
                 <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
                   {canEdit && (
                     <button
-                      onClick={() => navigate(`${basePath}/customers/${customer.id}/edit`)}
+                      onClick={async () => {
+                        if (await confirmLeaveIfPending()) navigate(`${basePath}/customers/${customer.id}/edit`);
+                      }}
                       className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-semibold transition-colors"
                     >
                       <HiOutlinePencilAlt className="w-4 h-4" />
@@ -1472,7 +1573,9 @@ const CustomerView = ({ basePath = '/user' }) => {
                   )}
                   {canCreate && (
                     <button
-                      onClick={() => navigate(`${basePath}/customers/${id}/add-account`)}
+                      onClick={async () => {
+                        if (await confirmLeaveIfPending()) navigate(`${basePath}/customers/${id}/add-account`);
+                      }}
                       className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
                     >
                       <HiOutlinePlus className="w-4 h-4" />
@@ -1893,6 +1996,16 @@ const CustomerView = ({ basePath = '/user' }) => {
               {uploadParam && activeStatusParam && canEdit && (() => {
                 const uploadsSelected = uploadParam.split(",").filter(Boolean);
 
+                // Multiple photos per document side (sigcard/NAIS) are only needed when closing
+                // an account (e.g. archival copies). Every other status gets one photo per side,
+                // same as initial enrollment.
+                const isClosingUpload = activeStatusParam === "closed";
+                const renderDocSlot = (label, files, onChangeFiles) =>
+                  isClosingUpload
+                    ? <MultiFileDropZone label={label} files={files} onChange={onChangeFiles} />
+                    : <DocImageDropZone compact label={label} file={files[0] ?? null}
+                        onChange={(f) => onChangeFiles(f ? [f] : [])} />;
+
                 const docFilesCount = Object.values(docUploadFiles).reduce(
                   (sum, v) => sum + (Array.isArray(v) ? v.length : (v ? 1 : 0)),
                   0
@@ -2070,12 +2183,10 @@ const CustomerView = ({ basePath = '/user' }) => {
                               <div key="sigcard" className="space-y-3">
                                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card — Shared</p>
                                 <div className="grid grid-cols-2 gap-3">
-                                  <MultiFileDropZone label="SIGCARD (Shared)"
-                                    files={scFronts}
-                                    onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files }))} />
-                                  <MultiFileDropZone label="Risk Profiling (Shared)"
-                                    files={scBacks}
-                                    onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files }))} />
+                                  {renderDocSlot("SIGCARD (Shared)", scFronts,
+                                    (files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files })))}
+                                  {renderDocSlot("Risk Profiling (Shared)", scBacks,
+                                    (files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files })))}
                                 </div>
                                 {!itfHasSecondFront ? (
                                   <button type="button" onClick={() => setItfHasSecondFront(true)}
@@ -2101,19 +2212,17 @@ const CustomerView = ({ basePath = '/user' }) => {
                             );
                           }
 
-                          // Regular: simple front + back, multiple images allowed per side
+                          // Regular: simple front + back — multiple images per side only when closing
                           const scFronts = docUploadFiles["sigcard_front"] ?? [];
                           const scBacks  = docUploadFiles["sigcard_back"]  ?? [];
                           return (
                             <div key="sigcard" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <MultiFileDropZone label="SIGCARD"
-                                  files={scFronts}
-                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files }))} />
-                                <MultiFileDropZone label="Risk Profiling"
-                                  files={scBacks}
-                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files }))} />
+                                {renderDocSlot("SIGCARD", scFronts,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files })))}
+                                {renderDocSlot("Risk Profiling", scBacks,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files })))}
                               </div>
                             </div>
                           );
@@ -2127,12 +2236,10 @@ const CustomerView = ({ basePath = '/user' }) => {
                             <div key="nais" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">NAIS</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <MultiFileDropZone label="NAIS Front"
-                                  files={nFronts}
-                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, nais_front: files }))} />
-                                <MultiFileDropZone label="NAIS Back"
-                                  files={nBacks}
-                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, nais_back: files }))} />
+                                {renderDocSlot("NAIS Front", nFronts,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, nais_front: files })))}
+                                {renderDocSlot("NAIS Back", nBacks,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, nais_back: files })))}
                               </div>
                             </div>
                           );

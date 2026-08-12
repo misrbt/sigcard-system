@@ -249,7 +249,7 @@ const Home = () => {
 
   const statCards = summary ? [
     { label: "Total Customers",  value: summary.total_customers, color: "cyan",    path: canView ? "/user/customers" : null,       icon: HiOutlineUsers        },
-    { label: "Total Documents",  value: summary.total_documents, color: "teal",    path: null,                                     icon: HiOutlineDocumentText },
+    { label: "Total Documents",  value: summary.total_documents, color: "teal",    path: canView ? "/user/customers" : null,       icon: HiOutlineDocumentText },
     { label: "Today's Uploads",  value: summary.today_uploads,   color: "orange",  path: canView ? "/user/customers" : null,       icon: HiOutlineCloudUpload  },
     { label: "Active Customers", value: summary.active,          color: "emerald", path: canView ? "/user/status-tracking" : null, icon: HiOutlineCheckCircle  },
   ] : [];
