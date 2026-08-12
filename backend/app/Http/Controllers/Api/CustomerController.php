@@ -1102,11 +1102,19 @@ class CustomerController extends Controller
                 : $index + 1;
 
             if (! empty($pair['front'])) {
-                $this->uploadDocument($customer, $pair['front'], $frontType, $personIndex, $accountStatus, $statusLogId);
+                $frontFiles = is_array($pair['front']) ? $pair['front'] : [$pair['front']];
+                $frontTotal = count($frontFiles);
+                foreach (array_values($frontFiles) as $i => $frontFile) {
+                    $this->uploadDocument($customer, $frontFile, $frontType, $personIndex, $accountStatus, $statusLogId, $i + 1, $frontTotal);
+                }
             }
 
             if (! empty($pair['back'])) {
-                $this->uploadDocument($customer, $pair['back'], $backType, $personIndex, $accountStatus, $statusLogId);
+                $backFiles = is_array($pair['back']) ? $pair['back'] : [$pair['back']];
+                $backTotal = count($backFiles);
+                foreach (array_values($backFiles) as $i => $backFile) {
+                    $this->uploadDocument($customer, $backFile, $backType, $personIndex, $accountStatus, $statusLogId, $i + 1, $backTotal);
+                }
             }
         }
     }
@@ -1133,7 +1141,9 @@ class CustomerController extends Controller
         string $documentType,
         int $personIndex,
         ?string $accountStatus = null,
-        ?int $statusLogId = null
+        ?int $statusLogId = null,
+        int $sequence = 1,
+        int $total = 1
     ): CustomerDocument {
         // ── Optimise image ───────────────────────────────────────────────────
         $image = $this->imageManager()->read($file->getRealPath());
@@ -1150,7 +1160,7 @@ class CustomerController extends Controller
         if ($accountStatus) {
             $directory .= '/'.$this->sanitizeName(strtoupper($accountStatus));
         }
-        $filename = $this->buildFilename($documentType, $personIndex, $file);
+        $filename = $this->buildFilename($documentType, $personIndex, $file, $sequence, $total);
         $path = "{$directory}/{$filename}";
 
         Storage::disk('public')->put($path, (string) $encoded);
@@ -1249,7 +1259,7 @@ class CustomerController extends Controller
      * For joint/multi-person accounts, person index > 1 is appended.
      * Other documents keep their original sanitised name with a UUID suffix.
      */
-    private function buildFilename(string $documentType, int $personIndex, UploadedFile $file): string
+    private function buildFilename(string $documentType, int $personIndex, UploadedFile $file, int $sequence = 1, int $total = 1): string
     {
         $nameMap = [
             'sigcard_front' => 'SIGCARD - FRONT',
@@ -1262,9 +1272,10 @@ class CustomerController extends Controller
 
         if (isset($nameMap[$documentType])) {
             $base = $nameMap[$documentType];
-            $suffix = $personIndex > 1 ? " - PERSON {$personIndex}" : '';
+            $personSuffix = $personIndex > 1 ? " - PERSON {$personIndex}" : '';
+            $sequenceSuffix = $total > 1 ? " ({$sequence})" : '';
 
-            return $base.$suffix.'.jpg';
+            return $base.$personSuffix.$sequenceSuffix.'.jpg';
         }
 
         // Other documents — keep original name, add UUID to avoid collisions.
