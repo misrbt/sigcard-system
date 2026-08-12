@@ -1042,14 +1042,14 @@ const CustomerView = ({ basePath = '/user' }) => {
             naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
           }
         }
-        // Privacy: single file per side (unchanged)
+        // Privacy: multiple files per side
         if (uploadsSelected.includes("privacy")) {
-          const f = docUploadFiles["privacy_front"];
-          const b = docUploadFiles["privacy_back"];
-          if (f || b) {
+          const privacyFronts = docUploadFiles["privacy_front"] ?? [];
+          const privacyBacks  = docUploadFiles["privacy_back"]  ?? [];
+          if (privacyFronts.length || privacyBacks.length) {
             fd.append("privacyPairs[0][person_index]", activeAcctIdx);
-            if (f) fd.append("privacyPairs[0][front]", f);
-            if (b) fd.append("privacyPairs[0][back]",  b);
+            privacyFronts.forEach((f) => fd.append("privacyPairs[0][front][]", f));
+            privacyBacks.forEach((f) => fd.append("privacyPairs[0][back][]", f));
           }
         }
 
@@ -1084,19 +1084,19 @@ const CustomerView = ({ basePath = '/user' }) => {
             naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
           }
         }
-        // Privacy: single file per side (unchanged)
+        // Privacy: multiple files per side
         if (uploadsSelected.includes("privacy")) {
-          const f = docUploadFiles["privacy_front"];
-          const b = docUploadFiles["privacy_back"];
-          if (f || b) {
+          const privacyFronts = docUploadFiles["privacy_front"] ?? [];
+          const privacyBacks  = docUploadFiles["privacy_back"]  ?? [];
+          if (privacyFronts.length || privacyBacks.length) {
             fd.append("privacyPairs[0][person_index]", activeAcctIdx);
-            if (f) fd.append("privacyPairs[0][front]", f);
-            if (b) fd.append("privacyPairs[0][back]",  b);
+            privacyFronts.forEach((f) => fd.append("privacyPairs[0][front][]", f));
+            privacyBacks.forEach((f) => fd.append("privacyPairs[0][back][]", f));
           }
         }
 
       } else {
-        // Regular + Joint ITF: Sigcard & NAIS multi-file, Privacy single-file
+        // Regular + Joint ITF: Sigcard, NAIS & Privacy multi-file
         const personIdx = isItfUpload ? 1 : activeAcctIdx;
 
         if (uploadsSelected.includes("sigcard")) {
@@ -1118,12 +1118,12 @@ const CustomerView = ({ basePath = '/user' }) => {
           }
         }
         if (uploadsSelected.includes("privacy")) {
-          const f = docUploadFiles["privacy_front"];
-          const b = docUploadFiles["privacy_back"];
-          if (f || b) {
+          const privacyFronts = docUploadFiles["privacy_front"] ?? [];
+          const privacyBacks  = docUploadFiles["privacy_back"]  ?? [];
+          if (privacyFronts.length || privacyBacks.length) {
             fd.append("privacyPairs[0][person_index]", personIdx);
-            if (f) fd.append("privacyPairs[0][front]", f);
-            if (b) fd.append("privacyPairs[0][back]",  b);
+            privacyFronts.forEach((f) => fd.append("privacyPairs[0][front][]", f));
+            privacyBacks.forEach((f) => fd.append("privacyPairs[0][back][]", f));
           }
         }
         // ITF optional 2nd person sigcard front
@@ -2249,18 +2249,16 @@ const CustomerView = ({ basePath = '/user' }) => {
                         if (uploadType === "privacy") {
                           // Data Privacy was only implemented in 2022; skip for escheat accounts dated ≤ 2021
                           if (privacyNotRequired) return null;
-                          const pFront = docUploadFiles["privacy_front"] ?? null;
-                          const pBack  = docUploadFiles["privacy_back"]  ?? null;
+                          const pFronts = docUploadFiles["privacy_front"] ?? [];
+                          const pBacks  = docUploadFiles["privacy_back"]  ?? [];
                           return (
                             <div key="privacy" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Data Privacy</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <DocImageDropZone compact label="Privacy Front"
-                                  file={pFront}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, privacy_front: f ?? undefined }))} />
-                                <DocImageDropZone compact label="Privacy Back"
-                                  file={pBack}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, privacy_back: f ?? undefined }))} />
+                                {renderDocSlot("Privacy Front", pFronts,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, privacy_front: files })))}
+                                {renderDocSlot("Privacy Back", pBacks,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, privacy_back: files })))}
                               </div>
                             </div>
                           );
