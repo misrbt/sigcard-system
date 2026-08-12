@@ -2063,18 +2063,18 @@ const CustomerView = ({ basePath = '/user' }) => {
 
                           // Joint ITF: shared front+back + optional 2nd person front
                           if (isITF) {
-                            const scFront = docUploadFiles["sigcard_front"] ?? null;
-                            const scBack  = docUploadFiles["sigcard_back"]  ?? null;
+                            const scFronts = docUploadFiles["sigcard_front"] ?? [];
+                            const scBacks  = docUploadFiles["sigcard_back"]  ?? [];
                             return (
                               <div key="sigcard" className="space-y-3">
                                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card — Shared</p>
                                 <div className="grid grid-cols-2 gap-3">
-                                  <DocImageDropZone compact label="Sigcard Front (Shared)"
-                                    file={scFront}
-                                    onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_front: f ?? undefined }))} />
-                                  <DocImageDropZone compact label="Sigcard Back (Shared)"
-                                    file={scBack}
-                                    onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_back: f ?? undefined }))} />
+                                  <MultiFileDropZone label="SIGCARD (Shared)"
+                                    files={scFronts}
+                                    onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files }))} />
+                                  <MultiFileDropZone label="Risk Profiling (Shared)"
+                                    files={scBacks}
+                                    onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files }))} />
                                 </div>
                                 {!itfHasSecondFront ? (
                                   <button type="button" onClick={() => setItfHasSecondFront(true)}
@@ -2100,59 +2100,39 @@ const CustomerView = ({ basePath = '/user' }) => {
                             );
                           }
 
-                          // Regular: simple front + back
-                          const scFront = docUploadFiles["sigcard_front"] ?? null;
-                          const scBack  = docUploadFiles["sigcard_back"]  ?? null;
+                          // Regular: simple front + back, multiple images allowed per side
+                          const scFronts = docUploadFiles["sigcard_front"] ?? [];
+                          const scBacks  = docUploadFiles["sigcard_back"]  ?? [];
                           return (
                             <div key="sigcard" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <DocImageDropZone compact label="Sigcard Front"
-                                  file={scFront}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_front: f ?? undefined }))} />
-                                <DocImageDropZone compact label="Sigcard Back"
-                                  file={scBack}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_back: f ?? undefined }))} />
+                                <MultiFileDropZone label="SIGCARD"
+                                  files={scFronts}
+                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files }))} />
+                                <MultiFileDropZone label="Risk Profiling"
+                                  files={scBacks}
+                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files }))} />
                               </div>
-                              {(scFront || scBack) && (
-                                <div className="flex justify-center">
-                                  <button type="button"
-                                    onClick={() => { const src = scFront ?? scBack; setDocUploadFiles((p) => ({ ...p, sigcard_front: src, sigcard_back: src })); }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-blue-600 border border-blue-200 rounded-lg bg-white hover:bg-blue-50 transition-colors shadow-sm">
-                                    <HiOutlinePhotograph className="w-3.5 h-3.5 flex-shrink-0" />
-                                    Use same image for both sides
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           );
                         }
 
                         // ── NAIS ─────────────────────────────────────────────
                         if (uploadType === "nais") {
-                          const nFront = docUploadFiles["nais_front"] ?? null;
-                          const nBack  = docUploadFiles["nais_back"]  ?? null;
+                          const nFronts = docUploadFiles["nais_front"] ?? [];
+                          const nBacks  = docUploadFiles["nais_back"]  ?? [];
                           return (
                             <div key="nais" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">NAIS</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <DocImageDropZone compact label="NAIS Front"
-                                  file={nFront}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, nais_front: f ?? undefined }))} />
-                                <DocImageDropZone compact label="NAIS Back"
-                                  file={nBack}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, nais_back: f ?? undefined }))} />
+                                <MultiFileDropZone label="NAIS Front"
+                                  files={nFronts}
+                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, nais_front: files }))} />
+                                <MultiFileDropZone label="NAIS Back"
+                                  files={nBacks}
+                                  onChange={(files) => setDocUploadFiles((p) => ({ ...p, nais_back: files }))} />
                               </div>
-                              {(nFront || nBack) && (
-                                <div className="flex justify-center">
-                                  <button type="button"
-                                    onClick={() => { const src = nFront ?? nBack; setDocUploadFiles((p) => ({ ...p, nais_front: src, nais_back: src })); }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-blue-600 border border-blue-200 rounded-lg bg-white hover:bg-blue-50 transition-colors shadow-sm">
-                                    <HiOutlinePhotograph className="w-3.5 h-3.5 flex-shrink-0" />
-                                    Use same image for both sides
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           );
                         }
