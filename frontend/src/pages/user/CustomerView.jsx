@@ -1165,11 +1165,12 @@ const CustomerView = ({ basePath = '/user' }) => {
         (persons.length ? persons : [1]).forEach((p) => {
           ["front", "back"].forEach((side) => {
             const type = sec[side];
-            const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
-            if (doc) {
-              if (startType === type && startPerson === p) startIdx = imgs.length;
-              imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
-            }
+            const sideDocs = viewDocs.filter((d) => d.document_type === type && d.person_index === p);
+            sideDocs.forEach((doc, i) => {
+              if (startType === type && startPerson === p && i === 0) startIdx = imgs.length;
+              const label = sideDocs.length > 1 ? `${docLabel[type] ?? type} (${i + 1})` : (docLabel[type] ?? type);
+              imgs.push({ src: storageUrl(doc.file_path), label, person: persons.length > 1 ? p : null });
+            });
           });
         });
       }
@@ -2371,9 +2372,9 @@ const CustomerView = ({ basePath = '/user' }) => {
                       /* ── Per-person doc rendering (non-shared) ── */
                       <div className="space-y-3">
                         {(persons.length ? persons : [1]).map((p) => {
-                          const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
-                          const backDoc  = docsForSection.find((d) => d.document_type === sec.back  && d.person_index === p);
-                          if (!frontDoc && !backDoc) return null;
+                          const frontDocs = docsForSection.filter((d) => d.document_type === sec.front && d.person_index === p);
+                          const backDocs  = docsForSection.filter((d) => d.document_type === sec.back  && d.person_index === p);
+                          if (!frontDocs.length && !backDocs.length) return null;
                           return (
                             <div key={p}>
                               {isJoint && persons.length > 1 && (
@@ -2382,29 +2383,35 @@ const CustomerView = ({ basePath = '/user' }) => {
                                 </p>
                               )}
                               <div className="grid grid-cols-2 gap-3">
-                                {[{ doc: frontDoc, type: sec.front, lbl: "Front" }, { doc: backDoc, type: sec.back, lbl: "Back" }].map(({ doc, type, lbl }) => (
+                                {[{ docs: frontDocs, type: sec.front, lbl: "Front" }, { docs: backDocs, type: sec.back, lbl: "Back" }].map(({ docs: sideDocs, type, lbl }) => (
                                   <div key={lbl}>
-                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
-                                    {doc ? (
-                                      <>
-                                        <button
-                                          onClick={() => openViewer(type, p)}
-                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
-                                        >
-                                          <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
-                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
-                                            </div>
+                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">
+                                      {lbl}{sideDocs.length > 1 ? ` (${sideDocs.length})` : ""}
+                                    </p>
+                                    {sideDocs.length ? (
+                                      <div className={`grid gap-2 ${sideDocs.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                                        {sideDocs.map((doc, i) => (
+                                          <div key={doc.id}>
+                                            <button
+                                              onClick={() => openViewerByPath(doc.file_path)}
+                                              className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
+                                            >
+                                              <img src={storageUrl(doc.file_path)} alt={`${lbl} ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                                <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                                  <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                                </div>
+                                              </div>
+                                            </button>
+                                            {type === "sigcard_front" && doc.has_thumbmark === false && (
+                                              <div className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
+                                                <MdFingerprint className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                                <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">No thumbmark</span>
+                                              </div>
+                                            )}
                                           </div>
-                                        </button>
-                                        {type === "sigcard_front" && doc.has_thumbmark === false && (
-                                          <div className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
-                                            <MdFingerprint className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                                            <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">No thumbmark</span>
-                                          </div>
-                                        )}
-                                      </>
+                                        ))}
+                                      </div>
                                     ) : (
                                       <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
                                         <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
