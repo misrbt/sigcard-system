@@ -1135,7 +1135,7 @@ const UploadSigcard = () => {
                     <p className="text-xs font-medium text-slate-400">Sigcard {pairIdx + 1}</p>
                   )}
                   <div className="grid gap-6 md:grid-cols-2">
-                    <DocImageDropZone label="Sigcard Front" shape="landscape" file={pair.front} onChange={(f) => setItfPairSide("sigcard", pairIdx, "front", f)} />
+                    <DocImageDropZone label="SIGCARD" shape="landscape" file={pair.front} onChange={(f) => setItfPairSide("sigcard", pairIdx, "front", f)} />
                     <DocImageDropZone label="Risk Profiling"                  file={pair.back}  onChange={(f) => setItfPairSide("sigcard", pairIdx, "back",  f)} />
                   </div>
                 </div>
@@ -1159,7 +1159,7 @@ const UploadSigcard = () => {
                     </button>
                   </div>
                   <DocImageDropZone
-                    label="Sigcard Front 2"
+                    label="SIGCARD 2"
                     shape="landscape"
                     file={secondJointFront}
                     onChange={(f) => setSecondJointFront(f)}
@@ -1207,7 +1207,7 @@ const UploadSigcard = () => {
             <div className="space-y-8">
               {/* Sigcard Front — single shared, full-width */}
               <DocImageDropZone
-                label="Sigcard Front (Shared)"
+                label="SIGCARD (Shared)"
                 shape="landscape"
                 file={files.sigcardPairs[0]?.front}
                 onChange={(f) => setPairFile("sigcardPairs", 0, "front", f)}
@@ -1232,7 +1232,7 @@ const UploadSigcard = () => {
                     </button>
                   </div>
                   <DocImageDropZone
-                    label="Sigcard Front 2"
+                    label="SIGCARD 2"
                     shape="landscape"
                     file={secondJointFront}
                     onChange={(f) => setSecondJointFront(f)}
@@ -1281,7 +1281,7 @@ const UploadSigcard = () => {
                 <p className="text-xs text-amber-700 font-medium">Sole Proprietorship — upload one sigcard front and one risk profiling back.</p>
               </div>
               <div className="grid gap-6 md:grid-cols-2">
-                <DocImageDropZone label="Sigcard Front" shape="landscape" file={files.sigcardPairs[0]?.front}
+                <DocImageDropZone label="SIGCARD" shape="landscape" file={files.sigcardPairs[0]?.front}
                   onChange={(f) => setPairFile("sigcardPairs", 0, "front", f)} />
                 <DocImageDropZone label="Risk Profiling" file={files.sigcardPairs[0]?.back}
                   onChange={(f) => setPairFile("sigcardPairs", 0, "back", f)} />
@@ -1314,10 +1314,10 @@ const UploadSigcard = () => {
                       </div>
                     )}
                     {corpSigFronts.length > 1 && (
-                      <p className="text-xs font-medium text-slate-400">Sigcard Front {idx + 1}</p>
+                      <p className="text-xs font-medium text-slate-400">SIGCARD {idx + 1}</p>
                     )}
                     <DocImageDropZone
-                      label={corpSigFronts.length === 1 ? "Sigcard Front" : `Sigcard Front ${idx + 1}`}
+                      label={corpSigFronts.length === 1 ? "SIGCARD" : `SIGCARD ${idx + 1}`}
                       shape="landscape"
                       file={file}
                       onChange={(f) => setCorpSigFronts((prev) => prev.map((x, i) => i === idx ? f : x))}
@@ -1328,7 +1328,7 @@ const UploadSigcard = () => {
                   <button type="button" onClick={() => setCorpSigFronts((prev) => [...prev, null])}
                     className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-slate-600 border-2 border-dashed border-slate-300 rounded-xl hover:border-slate-500 hover:bg-slate-50 transition-all">
                     <HiOutlinePlus className="w-3.5 h-3.5" />
-                    Add Another Sigcard Front
+                    Add Another SIGCARD
                   </button>
                 )}
               </div>
@@ -1372,7 +1372,7 @@ const UploadSigcard = () => {
             ]
           : undefined;
         return <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.sigcardPairs}
-          frontLabel="Sigcard Front" backLabel="Risk Profiling"
+          frontLabel="SIGCARD" backLabel="Risk Profiling"
           frontShape="landscape"
           onSetFile={(i, s, f) => setPairFile("sigcardPairs", i, s, f)}
           sectionLabels={sectionLabels} />;

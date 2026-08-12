@@ -53,8 +53,8 @@ const accountStyle = {
 };
 
 const docLabel = {
-  sigcard_front:  "Sigcard Front",
-  sigcard_back:   "Sigcard Back",
+  sigcard_front:  "SIGCARD",
+  sigcard_back:   "Risk Profiling",
   nais_front:     "NAIS Front",
   nais_back:      "NAIS Back",
   privacy_front:  "Data Privacy Front",

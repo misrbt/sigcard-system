@@ -387,9 +387,9 @@ const AddAccount = ({ basePath = "/user" }) => {
       case "sigcard":
         return (
           <div className="grid gap-8 md:grid-cols-2">
-            <DropZone label="Sigcard Front" file={sigcardPair.front}
+            <DropZone label="SIGCARD" file={sigcardPair.front}
               onSelect={(f) => setSigcardPair((p) => ({ ...p, front: f[0] }))} />
-            <DropZone label="Sigcard Back"  file={sigcardPair.back}
+            <DropZone label="Risk Profiling"  file={sigcardPair.back}
               onSelect={(f) => setSigcardPair((p) => ({ ...p, back: f[0] }))} />
           </div>
         );

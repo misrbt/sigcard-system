@@ -1077,7 +1077,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                     <div className="px-5 py-5 space-y-6">
                       {/* ── Shared Fronts (person_index=1) ── */}
                       <div className="space-y-3">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sigcard Front (Shared)</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">SIGCARD (Shared)</p>
                         {editableFronts.map((frontDoc, pairIdx) => {
                           const frontKey = frontDoc ? `${group.front}__${frontDoc.id}` : `${group.front}__1__p${pairIdx}`;
                           return (
@@ -1164,7 +1164,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                           }))}
                             className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all">
                             <HiOutlinePlus className="w-3.5 h-3.5" />
-                            Add Another Sigcard Front
+                            Add Another SIGCARD
                           </button>
                         )}
                       </div>

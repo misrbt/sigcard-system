@@ -316,8 +316,8 @@ const AddAccountModal = ({ customer, isOpen, onClose, onSuccess }) => {
               <div className="space-y-4">
                 <p className="text-xs text-slate-500">Upload front and back images of the signature card.</p>
                 <div className="grid grid-cols-2 gap-4">
-                  <DropZone label="Sigcard Front" file={sigcard.front} onSelect={(f) => setSigcard((p) => ({ ...p, front: f }))} />
-                  <DropZone label="Sigcard Back"  file={sigcard.back}  onSelect={(f) => setSigcard((p) => ({ ...p, back:  f }))} />
+                  <DropZone label="SIGCARD" file={sigcard.front} onSelect={(f) => setSigcard((p) => ({ ...p, front: f }))} />
+                  <DropZone label="Risk Profiling"  file={sigcard.back}  onSelect={(f) => setSigcard((p) => ({ ...p, back:  f }))} />
                 </div>
               </div>
             )}
