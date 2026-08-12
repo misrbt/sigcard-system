@@ -890,7 +890,7 @@ const CustomerView = ({ basePath = '/user' }) => {
     const isCorpUpload   = acctType === "Corporate" && customer.corporate_sub_type !== "Sole Proprietorship";
 
     const hasFiles =
-      Object.values(docUploadFiles).some(Boolean)
+      Object.values(docUploadFiles).some((v) => (Array.isArray(v) ? v.length > 0 : Boolean(v)))
       || otherUploadFiles.length > 0
       || nonItfSigcardFront !== null
       || Object.values(perPersonSigcardBacks).some(Boolean)
@@ -937,18 +937,24 @@ const CustomerView = ({ basePath = '/user' }) => {
               }
             });
         }
-        // NAIS + Privacy: simple front/back per account
-        for (const { key, pKey, frontKey, backKey } of [
-          { key: "nais",    pKey: "naisPairs",    frontKey: "nais_front",    backKey: "nais_back"    },
-          { key: "privacy", pKey: "privacyPairs", frontKey: "privacy_front", backKey: "privacy_back" },
-        ]) {
-          if (!uploadsSelected.includes(key)) continue;
-          const f = docUploadFiles[frontKey];
-          const b = docUploadFiles[backKey];
+        // NAIS: multiple files per side
+        if (uploadsSelected.includes("nais")) {
+          const naisFronts = docUploadFiles["nais_front"] ?? [];
+          const naisBacks  = docUploadFiles["nais_back"]  ?? [];
+          if (naisFronts.length || naisBacks.length) {
+            fd.append("naisPairs[0][person_index]", activeAcctIdx);
+            naisFronts.forEach((f) => fd.append("naisPairs[0][front][]", f));
+            naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
+          }
+        }
+        // Privacy: single file per side (unchanged)
+        if (uploadsSelected.includes("privacy")) {
+          const f = docUploadFiles["privacy_front"];
+          const b = docUploadFiles["privacy_back"];
           if (f || b) {
-            fd.append(`${pKey}[0][person_index]`, activeAcctIdx);
-            if (f) fd.append(`${pKey}[0][front]`, f);
-            if (b) fd.append(`${pKey}[0][back]`,  b);
+            fd.append("privacyPairs[0][person_index]", activeAcctIdx);
+            if (f) fd.append("privacyPairs[0][front]", f);
+            if (b) fd.append("privacyPairs[0][back]",  b);
           }
         }
 
@@ -973,35 +979,56 @@ const CustomerView = ({ basePath = '/user' }) => {
               }
             });
         }
-        // NAIS + Privacy: simple front/back per account
-        for (const { key, pKey, frontKey, backKey } of [
-          { key: "nais",    pKey: "naisPairs",    frontKey: "nais_front",    backKey: "nais_back"    },
-          { key: "privacy", pKey: "privacyPairs", frontKey: "privacy_front", backKey: "privacy_back" },
-        ]) {
-          if (!uploadsSelected.includes(key)) continue;
-          const f = docUploadFiles[frontKey];
-          const b = docUploadFiles[backKey];
+        // NAIS: multiple files per side
+        if (uploadsSelected.includes("nais")) {
+          const naisFronts = docUploadFiles["nais_front"] ?? [];
+          const naisBacks  = docUploadFiles["nais_back"]  ?? [];
+          if (naisFronts.length || naisBacks.length) {
+            fd.append("naisPairs[0][person_index]", activeAcctIdx);
+            naisFronts.forEach((f) => fd.append("naisPairs[0][front][]", f));
+            naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
+          }
+        }
+        // Privacy: single file per side (unchanged)
+        if (uploadsSelected.includes("privacy")) {
+          const f = docUploadFiles["privacy_front"];
+          const b = docUploadFiles["privacy_back"];
           if (f || b) {
-            fd.append(`${pKey}[0][person_index]`, activeAcctIdx);
-            if (f) fd.append(`${pKey}[0][front]`, f);
-            if (b) fd.append(`${pKey}[0][back]`,  b);
+            fd.append("privacyPairs[0][person_index]", activeAcctIdx);
+            if (f) fd.append("privacyPairs[0][front]", f);
+            if (b) fd.append("privacyPairs[0][back]",  b);
           }
         }
 
       } else {
-        // Regular + Joint ITF: simple front/back for each selected doc type
-        for (const { key, pKey, frontKey, backKey } of [
-          { key: "sigcard", pKey: "sigcardPairs", frontKey: "sigcard_front", backKey: "sigcard_back" },
-          { key: "nais",    pKey: "naisPairs",    frontKey: "nais_front",    backKey: "nais_back"    },
-          { key: "privacy", pKey: "privacyPairs", frontKey: "privacy_front", backKey: "privacy_back" },
-        ]) {
-          if (!uploadsSelected.includes(key)) continue;
-          const f = docUploadFiles[frontKey];
-          const b = docUploadFiles[backKey];
+        // Regular + Joint ITF: Sigcard & NAIS multi-file, Privacy single-file
+        const personIdx = isItfUpload ? 1 : activeAcctIdx;
+
+        if (uploadsSelected.includes("sigcard")) {
+          const scFronts = docUploadFiles["sigcard_front"] ?? [];
+          const scBacks  = docUploadFiles["sigcard_back"]  ?? [];
+          if (scFronts.length || scBacks.length) {
+            fd.append("sigcardPairs[0][person_index]", personIdx);
+            scFronts.forEach((f) => fd.append("sigcardPairs[0][front][]", f));
+            scBacks.forEach((f) => fd.append("sigcardPairs[0][back][]", f));
+          }
+        }
+        if (uploadsSelected.includes("nais")) {
+          const naisFronts = docUploadFiles["nais_front"] ?? [];
+          const naisBacks  = docUploadFiles["nais_back"]  ?? [];
+          if (naisFronts.length || naisBacks.length) {
+            fd.append("naisPairs[0][person_index]", personIdx);
+            naisFronts.forEach((f) => fd.append("naisPairs[0][front][]", f));
+            naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
+          }
+        }
+        if (uploadsSelected.includes("privacy")) {
+          const f = docUploadFiles["privacy_front"];
+          const b = docUploadFiles["privacy_back"];
           if (f || b) {
-            fd.append(`${pKey}[0][person_index]`, isItfUpload ? 1 : activeAcctIdx);
-            if (f) fd.append(`${pKey}[0][front]`, f);
-            if (b) fd.append(`${pKey}[0][back]`,  b);
+            fd.append("privacyPairs[0][person_index]", personIdx);
+            if (f) fd.append("privacyPairs[0][front]", f);
+            if (b) fd.append("privacyPairs[0][back]",  b);
           }
         }
         // ITF optional 2nd person sigcard front
@@ -1865,8 +1892,11 @@ const CustomerView = ({ basePath = '/user' }) => {
               {uploadParam && activeStatusParam && canEdit && (() => {
                 const uploadsSelected = uploadParam.split(",").filter(Boolean);
 
-                const stagedCount = [
-                  ...Object.values(docUploadFiles).filter(Boolean),
+                const docFilesCount = Object.values(docUploadFiles).reduce(
+                  (sum, v) => sum + (Array.isArray(v) ? v.length : (v ? 1 : 0)),
+                  0
+                );
+                const stagedCount = docFilesCount + [
                   ...otherUploadFiles,
                   nonItfSigcardFront,
                   ...Object.values(perPersonSigcardBacks).filter(Boolean),
