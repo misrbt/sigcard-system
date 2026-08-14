@@ -29,11 +29,15 @@ const Login = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lockoutCountdown, setLockoutCountdown] = useState(0);
 
-  // Force password change state
+  // Force password change state (post-auth — admin reset the password on an existing session)
   const [forcePasswordChange, setForcePasswordChange] = useState(false);
   const [forcePwdForm, setForcePwdForm] = useState({ current_password: '', new_password: '', new_password_confirmation: '' });
   const [forcePwdErrors, setForcePwdErrors] = useState({});
   const [forcePwdLoading, setForcePwdLoading] = useState(false);
+
+  // Force password change step during login (step 1, before any 2FA step —
+  // temporary_token based, no auth token exists yet)
+  const [forcePwdRequired, setForcePwdRequired] = useState({ required: false, temporaryToken: '' });
 
   // 2FA verify step (user already has 2FA set up)
   const [twoFactor, setTwoFactor] = useState({ required: false, temporaryToken: '' });
@@ -42,6 +46,13 @@ const Login = () => {
   // 2FA forced setup step (system requires 2FA, user hasn't enrolled yet)
   const [setupMFA, setSetupMFA] = useState({ required: false, temporaryToken: '', secret: '', qrCodeUrl: '' });
   const [setupOtp, setSetupOtp] = useState('');
+
+  // Recovery code shown once (user was exempted from 2FA by an admin)
+  const [recoveryIssued, setRecoveryIssued] = useState({ required: false, temporaryToken: '', code: '' });
+
+  // Recovery code entry step (user was exempted, code already shown previously)
+  const [recoveryRequired, setRecoveryRequired] = useState({ required: false, temporaryToken: '' });
+  const [recoveryCode, setRecoveryCode] = useState('');
 
   const formattedTime = currentTime.toLocaleTimeString("en-US", {
     hour: "2-digit",
@@ -126,6 +137,49 @@ const Login = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Routes a login-step response (from initial login, or from the forced
+  // password-change step) to whichever screen comes next: forced password
+  // change, 2FA verify/setup, or recovery-code issue/verify. Password change
+  // always takes priority — it's resolved server-side before 2FA is ever
+  // considered, so this only needs to fan out to the remaining statuses.
+  const handleAuthStepResult = (data) => {
+    if (data?.status === 'password_change_required') {
+      setForcePwdRequired({ required: true, temporaryToken: data.temporary_token });
+      return true;
+    }
+
+    if (data?.status === 'two_factor_required') {
+      setTwoFactor({ required: true, temporaryToken: data.temporary_token });
+      return true;
+    }
+
+    if (data?.status === 'setup_two_factor_required') {
+      setSetupMFA({
+        required: true,
+        temporaryToken: data.temporary_token,
+        secret: data.secret,
+        qrCodeUrl: data.qr_code_url,
+      });
+      return true;
+    }
+
+    if (data?.status === 'recovery_code_issued') {
+      setRecoveryIssued({
+        required: true,
+        temporaryToken: data.temporary_token,
+        code: data.recovery_code,
+      });
+      return true;
+    }
+
+    if (data?.status === 'recovery_code_required') {
+      setRecoveryRequired({ required: true, temporaryToken: data.temporary_token });
+      return true;
+    }
+
+    return false;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -147,18 +201,7 @@ const Login = () => {
         remember_me: rememberMe,
       });
 
-      if (result?.data?.status === 'two_factor_required') {
-        setTwoFactor({ required: true, temporaryToken: result.data.temporary_token });
-        return;
-      }
-
-      if (result?.data?.status === 'setup_two_factor_required') {
-        setSetupMFA({
-          required: true,
-          temporaryToken: result.data.temporary_token,
-          secret: result.data.secret,
-          qrCodeUrl: result.data.qr_code_url,
-        });
+      if (handleAuthStepResult(result?.data)) {
         return;
       }
     } catch (error) {
@@ -220,6 +263,120 @@ const Login = () => {
       setForcePwdLoading(false);
     }
   };
+
+  const handleForcePwdChangeEarly = async (e) => {
+    e.preventDefault();
+    setForcePwdErrors({});
+
+    if (forcePwdForm.new_password !== forcePwdForm.new_password_confirmation) {
+      setForcePwdErrors({ new_password_confirmation: 'Passwords do not match' });
+      return;
+    }
+
+    setForcePwdLoading(true);
+    try {
+      const res = await api.post('/auth/force-password-change', {
+        temporary_token: forcePwdRequired.temporaryToken,
+        current_password: forcePwdForm.current_password,
+        new_password: forcePwdForm.new_password,
+        new_password_confirmation: forcePwdForm.new_password_confirmation,
+      });
+      setForcePwdForm({ current_password: '', new_password: '', new_password_confirmation: '' });
+      setForcePwdRequired({ required: false, temporaryToken: '' });
+      handleAuthStepResult(res.data.data);
+    } catch (err) {
+      const errs = err.response?.data?.errors || {};
+      const general = err.response?.data?.message;
+      setForcePwdErrors(Object.keys(errs).length ? errs : { general });
+    } finally {
+      setForcePwdLoading(false);
+    }
+  };
+
+  if (forcePwdRequired.required) {
+    return (
+      <div className="flex flex-col w-full h-screen overflow-hidden bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md"
+          >
+            <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
+              <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
+                <img src={logoSrc} alt="Logo" className="h-10 w-auto object-contain" />
+                <div>
+                  <p className="text-white font-bold text-base tracking-widest">{app_abbreviation}</p>
+                  <p className="text-blue-300 text-xs tracking-widest">{app_name}</p>
+                </div>
+              </div>
+
+              <div className="px-6 py-6 space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Password Change Required</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Your password must be changed before you can continue. Enter your current password and choose a new one.
+                  </p>
+                </div>
+
+                <form onSubmit={handleForcePwdChangeEarly} className="space-y-4">
+                  {forcePwdErrors.general && (
+                    <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                      {forcePwdErrors.general}
+                    </div>
+                  )}
+
+                  <Input
+                    label="Current Password"
+                    name="current_password"
+                    showPasswordToggle
+                    value={forcePwdForm.current_password}
+                    onChange={(e) => setForcePwdForm((p) => ({ ...p, current_password: e.target.value }))}
+                    error={forcePwdErrors.current_password?.[0] || forcePwdErrors.current_password}
+                    required
+                  />
+                  <Input
+                    label="New Password"
+                    name="new_password"
+                    showPasswordToggle
+                    value={forcePwdForm.new_password}
+                    onChange={(e) => setForcePwdForm((p) => ({ ...p, new_password: e.target.value }))}
+                    error={forcePwdErrors.new_password?.[0] || forcePwdErrors.new_password}
+                    required
+                  />
+                  <Input
+                    label="Confirm New Password"
+                    name="new_password_confirmation"
+                    showPasswordToggle
+                    value={forcePwdForm.new_password_confirmation}
+                    onChange={(e) => setForcePwdForm((p) => ({ ...p, new_password_confirmation: e.target.value }))}
+                    error={forcePwdErrors.new_password_confirmation}
+                    required
+                  />
+
+                  <p className="text-xs text-gray-400">
+                    Password must be at least 6 characters with uppercase, lowercase, number, and special character.
+                  </p>
+
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={forcePwdLoading}
+                    className="!bg-[#1877F2] hover:!bg-[#0f4fc5]"
+                  >
+                    {forcePwdLoading ? 'Saving...' : 'Set New Password'}
+                  </Button>
+                </form>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
 
   const handleSetup2FA = async (e) => {
     e.preventDefault();
@@ -322,6 +479,174 @@ const Login = () => {
                   <button
                     type="button"
                     onClick={() => { setSetupMFA({ required: false, temporaryToken: '', secret: '', qrCodeUrl: '' }); setSetupOtp(''); }}
+                    className="w-full text-sm text-gray-500 hover:text-gray-700 text-center"
+                  >
+                    Back to login
+                  </button>
+                </form>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  const handleConfirmRecoveryCode = async () => {
+    setLoading(true);
+    setApiError({ message: '', type: '' });
+    try {
+      const res = await api.post('/auth/confirm-recovery-code', {
+        temporary_token: recoveryIssued.temporaryToken,
+      });
+      const data = res.data.data;
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      await fetchUser();
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Something went wrong. Please try again.';
+      setApiError({ message: msg, type: 'generic' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (recoveryIssued.required) {
+    return (
+      <div className="flex flex-col w-full h-screen overflow-hidden bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md"
+          >
+            <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
+              <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
+                <img src={logoSrc} alt="Logo" className="h-10 w-auto object-contain" />
+                <div>
+                  <p className="text-white font-bold text-base tracking-widest">{app_abbreviation}</p>
+                  <p className="text-blue-300 text-xs tracking-widest">{app_name}</p>
+                </div>
+              </div>
+              <div className="px-6 py-6 space-y-4">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Save Your Recovery Code</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Your account does not require an authenticator app. Write down this recovery code and keep it somewhere safe — you will need it every time you log in from now on. It will not be shown again.
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-gray-50 border border-gray-200 px-4 py-4 text-center">
+                  <p className="text-lg font-mono font-bold text-gray-800 tracking-widest break-all">{recoveryIssued.code}</p>
+                </div>
+
+                {apiError.message && (
+                  <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                    {apiError.message}
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  loading={loading}
+                  onClick={handleConfirmRecoveryCode}
+                  className="!bg-[#1877F2] hover:!bg-[#0f4fc5]"
+                >
+                  {loading ? 'Signing in...' : "I've saved it — Sign In"}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  const handleVerifyRecoveryCode = async (e) => {
+    e.preventDefault();
+    if (!recoveryCode.trim()) return;
+    setLoading(true);
+    setApiError({ message: '', type: '' });
+    try {
+      const res = await api.post('/auth/verify-recovery-code', {
+        temporary_token: recoveryRequired.temporaryToken,
+        recovery_code: recoveryCode.trim(),
+      });
+      const data = res.data.data;
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      await fetchUser();
+    } catch (err) {
+      const msg =
+        err.response?.data?.errors?.recovery_code?.[0] ||
+        err.response?.data?.message ||
+        'Invalid recovery code. Please try again.';
+      setApiError({ message: msg, type: 'generic' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (recoveryRequired.required) {
+    return (
+      <div className="flex flex-col w-full h-screen overflow-hidden bg-gradient-to-br from-[#010713] via-[#053161] to-[#18a6ff]">
+        <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md"
+          >
+            <div className="rounded-2xl bg-white shadow-2xl overflow-hidden">
+              <div className="bg-gradient-to-r from-[#01060f] via-[#05173a] to-[#020a1d] px-6 py-5 flex items-center gap-3">
+                <img src={logoSrc} alt="Logo" className="h-10 w-auto object-contain" />
+                <div>
+                  <p className="text-white font-bold text-base tracking-widest">{app_abbreviation}</p>
+                  <p className="text-blue-300 text-xs tracking-widest">{app_name}</p>
+                </div>
+              </div>
+              <div className="px-6 py-6 space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Recovery Code Required</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Enter the recovery code you saved when your account was set up without an authenticator app.
+                  </p>
+                </div>
+                <form onSubmit={handleVerifyRecoveryCode} className="space-y-4">
+                  {apiError.message && (
+                    <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                      {apiError.message}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Recovery Code</label>
+                    <input
+                      type="text"
+                      value={recoveryCode}
+                      onChange={(e) => setRecoveryCode(e.target.value.toUpperCase())}
+                      className="w-full px-4 py-3 text-center text-lg font-mono font-bold tracking-widest border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                      placeholder="XXXX-XXXX-XXXX"
+                      autoFocus
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={loading}
+                    disabled={!recoveryCode.trim()}
+                    className="!bg-[#1877F2] hover:!bg-[#0f4fc5]"
+                  >
+                    {loading ? 'Verifying...' : 'Sign In'}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setRecoveryRequired({ required: false, temporaryToken: '' }); setRecoveryCode(''); }}
                     className="w-full text-sm text-gray-500 hover:text-gray-700 text-center"
                   >
                     Back to login
@@ -457,12 +782,6 @@ const Login = () => {
                   <p className="text-sm text-gray-500 mt-1">
                     Your password has been reset by an administrator. Please enter the temporary password and choose a new one to continue.
                   </p>
-                </div>
-
-                {/* Temp password hint */}
-                <div className="px-4 py-3 rounded-xl bg-blue-50 border border-blue-100">
-                  <p className="text-xs text-blue-600 font-medium">Your temporary password is:</p>
-                  <p className="text-lg font-bold text-[#1877F2] tracking-widest mt-0.5">abc_123</p>
                 </div>
 
                 <form onSubmit={handleForcePwdChange} className="space-y-4">

@@ -29,6 +29,9 @@ Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register'])->middleware(['role:admin']);
     Route::post('/verify-2fa', [AuthController::class, 'verifyTwoFactor']);
     Route::post('/setup-2fa', [AuthController::class, 'setupTwoFactor']);
+    Route::post('/force-password-change', [AuthController::class, 'forcePasswordChange']);
+    Route::post('/confirm-recovery-code', [AuthController::class, 'confirmRecoveryCode']);
+    Route::post('/verify-recovery-code', [AuthController::class, 'verifyRecoveryCode']);
 
     Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
@@ -75,6 +78,8 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::post('/users/{user}/clear-force-password-change', [AdminController::class, 'clearForcePasswordChange']);
         Route::post('/users/{user}/restore-login-access', [AdminController::class, 'restoreLoginAccess']);
         Route::post('/users/{user}/reset-2fa', [AdminController::class, 'resetUser2FA']);
+        Route::post('/users/{user}/require-2fa', [AdminController::class, 'requireTwoFactor']);
+        Route::post('/users/{user}/require-2fa/disable', [AdminController::class, 'disableTwoFactorRequirement']);
 
         Route::get('/roles', [AdminController::class, 'getAllRoles']);
         Route::post('/roles', [AdminController::class, 'createRole']);

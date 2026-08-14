@@ -20,6 +20,8 @@ export const adminService = {
   clearForcePasswordChange: (id) => api.post(`/admin/users/${id}/clear-force-password-change`),
   restoreLoginAccess: (id) => api.post(`/admin/users/${id}/restore-login-access`),
   resetUser2FA: (id) => api.post(`/admin/users/${id}/reset-2fa`),
+  requireTwoFactor: (id) => api.post(`/admin/users/${id}/require-2fa`),
+  disableTwoFactorRequirement: (id) => api.post(`/admin/users/${id}/require-2fa/disable`),
 
   // Roles
   getRoles: () => api.get('/admin/roles'),

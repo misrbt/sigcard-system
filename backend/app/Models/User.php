@@ -36,6 +36,8 @@ class User extends Authenticatable
         'two_factor_enabled',
         'two_factor_secret',
         'two_factor_recovery_codes',
+        'require_two_factor',
+        'recovery_code_hash',
         'force_password_change',
         'account_expires_at',
         'session_id',
@@ -45,6 +47,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'recovery_code_hash',
     ];
 
     protected $appends = ['full_name'];
@@ -61,6 +64,7 @@ class User extends Authenticatable
             'account_expires_at' => 'datetime',
             'session_expires_at' => 'datetime',
             'two_factor_enabled' => 'boolean',
+            'require_two_factor' => 'boolean',
             'force_password_change' => 'boolean',
             'failed_login_attempts' => 'integer',
         ];

@@ -875,6 +875,70 @@ class AdminController extends Controller
         }
     }
 
+    /**
+     * Re-require two-factor authentication (authenticator app) for a user,
+     * reversing a prior admin exemption. Clears any recovery code.
+     */
+    public function requireTwoFactor(User $user): JsonResponse
+    {
+        $this->authorize('edit-users');
+
+        try {
+            $user->update([
+                'require_two_factor' => true,
+                'recovery_code_hash' => null,
+            ]);
+            Cache::forget("pending_recovery_code_{$user->id}");
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties(['action' => 'require_2fa_enabled_by_admin'])
+                ->log('Admin required two-factor authentication for user');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Two-factor authentication is now required for this user.',
+                'data' => ['require_two_factor' => true],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error requiring 2FA: '.$e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Failed to update 2FA requirement.'], 500);
+        }
+    }
+
+    /**
+     * Exempt a user from the two-factor authentication requirement.
+     * Issues (or regenerates) a static recovery code, shown to the user
+     * once at their next login in place of an authenticator code.
+     */
+    public function disableTwoFactorRequirement(User $user): JsonResponse
+    {
+        $this->authorize('edit-users');
+
+        try {
+            BSPAuthService::issueRecoveryCode($user);
+            $user->update(['require_two_factor' => false]);
+
+            activity()
+                ->causedBy(auth()->user())
+                ->performedOn($user)
+                ->withProperties(['action' => 'require_2fa_disabled_by_admin'])
+                ->log('Admin exempted user from two-factor authentication (recovery code issued)');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Two-factor authentication is no longer required. A recovery code will be shown to the user at their next login.',
+                'data' => ['require_two_factor' => false],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error disabling 2FA requirement: '.$e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Failed to update 2FA requirement.'], 500);
+        }
+    }
+
     // =============================================
     // ROLE MANAGEMENT METHODS
     // =============================================

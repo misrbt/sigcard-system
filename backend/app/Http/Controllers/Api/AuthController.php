@@ -167,6 +167,167 @@ class AuthController extends Controller
     }
 
     /**
+     * Complete a forced password change (step 2 for 'password_change_required').
+     * Runs before any 2FA step so a user is never asked to bind an
+     * authenticator app to a password they're about to replace.
+     */
+    public function forcePasswordChange(Request $request): JsonResponse
+    {
+        $request->validate([
+            'temporary_token' => 'required|string',
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|confirmed',
+        ]);
+
+        $user = $this->bspAuthService->resolveForcePasswordChangeToken($request->temporary_token);
+
+        if (! $user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification session expired. Please log in again.',
+                'errors' => ['temporary_token' => ['Session expired.']],
+            ], 422);
+        }
+
+        if (! Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Current password is incorrect',
+                'errors' => ['current_password' => ['Current password is incorrect']],
+            ], 422);
+        }
+
+        $passwordErrors = $this->bspAuthService->validatePasswordComplexity($request->new_password);
+        if (! empty($passwordErrors)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'New password does not meet BSP complexity requirements',
+                'errors' => ['new_password' => $passwordErrors],
+                'bsp_compliance' => ['password_policy_enforced' => true],
+            ], 422);
+        }
+
+        if (Hash::check($request->new_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'New password must be different from current password',
+                'errors' => ['new_password' => ['New password must be different from current password']],
+            ], 422);
+        }
+
+        $result = $this->bspAuthService->completeForcedPasswordChange(
+            $user,
+            $request->temporary_token,
+            $request->new_password,
+            $request
+        );
+
+        activity()->causedBy($user)->log('Password changed (forced, before 2FA)');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password updated successfully.',
+            'data' => $result,
+            'bsp_compliance' => ['audit_logged' => true, 'password_policy_enforced' => true],
+        ], 200);
+    }
+
+    /**
+     * Complete login for a user who was shown a fresh recovery code
+     * (step 2 for 'recovery_code_issued'). No code re-entry needed —
+     * this just confirms they acknowledged saving it.
+     */
+    public function confirmRecoveryCode(Request $request): JsonResponse
+    {
+        $request->validate([
+            'temporary_token' => 'required|string',
+        ]);
+
+        $userId = Cache::get("confirm_recovery_token_{$request->temporary_token}");
+
+        if (! $userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification session expired. Please log in again.',
+                'errors' => ['temporary_token' => ['Session expired.']],
+            ], 422);
+        }
+
+        $user = User::find($userId);
+
+        if (! $user) {
+            return response()->json(['success' => false, 'message' => 'User not found.'], 422);
+        }
+
+        Cache::forget("confirm_recovery_token_{$request->temporary_token}");
+        Cache::forget("pending_recovery_code_{$user->id}");
+
+        activity()->causedBy($user)->log('Recovery code acknowledged by user');
+
+        $result = $this->bspAuthService->completeAuthentication($user, $request);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Recovery code saved. Welcome!',
+            'data' => $result,
+            'bsp_compliance' => ['audit_logged' => true],
+        ], 200);
+    }
+
+    /**
+     * Complete login for a user entering their recovery code
+     * (step 2 for 'recovery_code_required').
+     */
+    public function verifyRecoveryCode(Request $request): JsonResponse
+    {
+        $request->validate([
+            'temporary_token' => 'required|string',
+            'recovery_code' => 'required|string',
+        ]);
+
+        $userId = Cache::get("verify_recovery_token_{$request->temporary_token}");
+
+        if (! $userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification session expired. Please log in again.',
+                'errors' => ['temporary_token' => ['Session expired.']],
+            ], 422);
+        }
+
+        $user = User::find($userId);
+
+        if (! $user || ! $user->recovery_code_hash) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Recovery code is not configured for this account.',
+            ], 422);
+        }
+
+        if (! Hash::check($request->recovery_code, $user->recovery_code_hash)) {
+            $user->incrementFailedLoginAttempts();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid recovery code.',
+                'errors' => ['recovery_code' => ['Invalid recovery code.']],
+                'bsp_compliance' => ['mfa_failed' => true, 'audit_logged' => true],
+            ], 422);
+        }
+
+        Cache::forget("verify_recovery_token_{$request->temporary_token}");
+
+        $result = $this->bspAuthService->completeAuthentication($user, $request);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Signed in successfully.',
+            'data' => $result,
+            'bsp_compliance' => ['mfa_verified' => true, 'audit_logged' => true],
+        ], 200);
+    }
+
+    /**
      * Register new user (admin only with BSP compliance)
      */
     public function register(Request $request): JsonResponse

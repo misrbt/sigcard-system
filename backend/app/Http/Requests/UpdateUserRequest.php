@@ -39,7 +39,6 @@ class UpdateUserRequest extends FormRequest
             'status' => ['sometimes', 'in:active,inactive,suspended'],
             'roles' => ['sometimes', 'array'],
             'roles.*' => ['exists:roles,name'],
-            'two_factor_enabled' => ['sometimes', 'boolean'],
             'account_expires_at' => ['nullable', 'date', 'after:today'],
             'force_password_change' => ['sometimes', 'boolean'],
         ];

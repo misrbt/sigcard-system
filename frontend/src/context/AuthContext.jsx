@@ -155,8 +155,16 @@ export const AuthProvider = ({ children }) => {
     const response = await api.post('/auth/login', credentials);
     const data = response.data.data;
 
-    // 2FA step required — return early without setting auth state
-    if (data?.status === 'two_factor_required' || data?.status === 'setup_two_factor_required') {
+    // Multi-step login (password change, 2FA, recovery code) — no token yet,
+    // return early without touching auth state.
+    const pendingStatuses = [
+      'password_change_required',
+      'two_factor_required',
+      'setup_two_factor_required',
+      'recovery_code_issued',
+      'recovery_code_required',
+    ];
+    if (pendingStatuses.includes(data?.status)) {
       return response.data;
     }
 

@@ -83,6 +83,9 @@ class BSPAuthService
             'otp_code' => 'nullable|string|size:6',
             'device_id' => 'required|string',
         ]);
+        // recovery_code is intentionally not part of this initial validate() —
+        // it is only ever submitted to the separate /auth/verify-recovery-code
+        // endpoint, mirroring how otp_code is submitted to /auth/verify-2fa.
 
         // Rate limiting check (BSP requirement: prevent brute force)
         $this->checkRateLimit($request);
@@ -126,20 +129,86 @@ class BSPAuthService
             ]);
         }
 
-        $systemRequires2FA = (bool) Cache::get('system_setting_require_two_factor', false);
-
-        // Only challenge 2FA when system-wide setting is ON AND user has 2FA enrolled
-        if ($systemRequires2FA && $user->two_factor_enabled) {
-            return $this->handleTwoFactorAuthentication($user, $request, $credentials);
+        // A forced password change (first login on a temp/admin-reset password)
+        // must happen before any 2FA step — scanning a QR code or entering a
+        // recovery code while still on a password the user is about to replace
+        // doesn't make sense, and ties the 2FA secret's issuance to a session
+        // that's about to be superseded anyway.
+        if ($user->force_password_change) {
+            return $this->handleForcePasswordChangeRequired($user);
         }
 
-        // System-wide 2FA required but user hasn't enrolled yet — force setup
-        if ($systemRequires2FA && ! $user->two_factor_enabled) {
+        return $this->resolveNextAuthStep($user, $request, $credentials);
+    }
+
+    /**
+     * Decide the next login step for a user who has passed credential and
+     * forced-password-change checks: 2FA challenge, forced 2FA setup, or
+     * recovery-code login for users exempted from 2FA.
+     */
+    private function resolveNextAuthStep(User $user, Request $request, array $credentials = []): array
+    {
+        $systemRequires2FA = (bool) Cache::get('system_setting_require_two_factor', false);
+        $requires2FA = $systemRequires2FA || (bool) $user->require_two_factor;
+
+        if ($requires2FA) {
+            if ($user->two_factor_enabled) {
+                return $this->handleTwoFactorAuthentication($user, $request, $credentials);
+            }
+
+            // 2FA required but user hasn't enrolled yet — force setup
             return $this->handleTwoFactorSetupRequired($user);
         }
 
-        // Complete authentication
-        return $this->completeAuthentication($user, $request);
+        // Not required to use an authenticator app — the user was exempted by an
+        // admin, so they authenticate with a static recovery code instead.
+        return $this->handleRecoveryCodeLogin($user);
+    }
+
+    /**
+     * Force a password change before allowing the user to proceed to 2FA or
+     * a completed login. Mirrors the existing temporary-token pattern used by
+     * the 2FA setup/verify and recovery-code flows.
+     */
+    private function handleForcePasswordChangeRequired(User $user): array
+    {
+        $token = hash('sha256', $user->id.now()->timestamp.random_bytes(32));
+        Cache::put("force_pwd_token_{$token}", $user->id, now()->addMinutes(10));
+
+        return [
+            'status' => 'password_change_required',
+            'message' => 'Your password must be changed before you can continue.',
+            'temporary_token' => $token,
+        ];
+    }
+
+    /**
+     * Resolve the "force_pwd_token_*" cache key to a user (public so the
+     * controller can validate current/new password before committing).
+     */
+    public function resolveForcePasswordChangeToken(string $temporaryToken): ?User
+    {
+        $userId = Cache::get("force_pwd_token_{$temporaryToken}");
+
+        return $userId ? User::find($userId) : null;
+    }
+
+    /**
+     * Complete a forced password change and resolve the next login step.
+     */
+    public function completeForcedPasswordChange(User $user, string $temporaryToken, string $newPassword, Request $request): array
+    {
+        Cache::forget("force_pwd_token_{$temporaryToken}");
+
+        $expiryDays = self::getPasswordExpiryDays();
+        $user->update([
+            'password' => Hash::make($newPassword),
+            'password_changed_at' => now(),
+            'password_expires_at' => $expiryDays > 0 ? now()->addDays($expiryDays) : null,
+            'force_password_change' => false,
+        ]);
+
+        return $this->resolveNextAuthStep($user, $request);
     }
 
     /**
@@ -411,6 +480,61 @@ class BSPAuthService
         Cache::put("temp_2fa_token_{$token}", $user->id, now()->addMinutes(10));
 
         return $token;
+    }
+
+    /**
+     * Log a user in via recovery code instead of an authenticator app
+     * (used when an admin has exempted them from the 2FA requirement).
+     */
+    private function handleRecoveryCodeLogin(User $user): array
+    {
+        $pendingCode = Cache::get("pending_recovery_code_{$user->id}");
+
+        // Defensive fallback: require_two_factor is false but no code was ever
+        // issued (e.g. legacy/seeded data) — issue one now instead of dead-ending.
+        if (! $pendingCode && ! $user->recovery_code_hash) {
+            $pendingCode = self::issueRecoveryCode($user);
+        }
+
+        if ($pendingCode) {
+            $token = hash('sha256', $user->id.now()->timestamp.random_bytes(32));
+            Cache::put("confirm_recovery_token_{$token}", $user->id, now()->addMinutes(10));
+
+            return [
+                'status' => 'recovery_code_issued',
+                'message' => 'Your account does not require an authenticator app. Save this recovery code somewhere safe — you will need it to log in from now on.',
+                'recovery_code' => $pendingCode,
+                'temporary_token' => $token,
+            ];
+        }
+
+        $token = hash('sha256', $user->id.now()->timestamp.random_bytes(32));
+        Cache::put("verify_recovery_token_{$token}", $user->id, now()->addMinutes(10));
+
+        return [
+            'status' => 'recovery_code_required',
+            'message' => 'Recovery code required',
+            'temporary_token' => $token,
+        ];
+    }
+
+    /**
+     * Generate a fresh recovery code for a user, hash it for storage, and
+     * stage the plaintext for one-time display at their next login.
+     */
+    public static function issueRecoveryCode(User $user): string
+    {
+        $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // excludes ambiguous 0/O/1/I
+        $raw = '';
+        for ($i = 0; $i < 12; $i++) {
+            $raw .= $chars[random_int(0, strlen($chars) - 1)];
+        }
+        $code = implode('-', str_split($raw, 4));
+
+        $user->update(['recovery_code_hash' => Hash::make($code)]);
+        Cache::put("pending_recovery_code_{$user->id}", $code, now()->addDays(30));
+
+        return $code;
     }
 
     /**
