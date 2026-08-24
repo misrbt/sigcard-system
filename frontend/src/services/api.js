@@ -21,17 +21,8 @@ export const getCsrfCookie = async () => {
   });
 };
 
-// Attach Bearer token to every request
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+// The auth token lives in an httpOnly cookie (set by the backend) and is sent
+// automatically via withCredentials — no Authorization header to attach here.
 
 // 401 handling is done in AuthContext (which ejects/re-adds its own interceptor)
 // so we only reject here – no hard redirect that would fight with React Router
@@ -51,7 +42,6 @@ api.interceptors.response.use(
 
       // Non-admin: clear session so /login shows the form instead of auto-redirecting
       // to a dashboard that would 503 again.
-      localStorage.removeItem('authToken');
       localStorage.removeItem('user');
       window.location.replace('/maintenance');
     }

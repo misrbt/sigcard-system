@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,14 +26,59 @@ class AuthController extends Controller
     ) {}
 
     /**
+     * Attach the bearer token as an httpOnly cookie instead of returning it
+     * in the JSON body — keeps it out of JavaScript-accessible storage.
+     */
+    private function attachTokenCookie(JsonResponse $response, ?string $token, ?int $minutes = null): JsonResponse
+    {
+        if (! $token) {
+            return $response;
+        }
+
+        $minutes ??= (int) config('sanctum.expiration', 30);
+
+        return $response->cookie(
+            'digicur_token',
+            $token,
+            $minutes,
+            '/',
+            null,
+            ! app()->environment(['local', 'testing']),
+            true,
+            true,
+            'Strict'
+        );
+    }
+
+    /**
+     * Clear the auth cookie (logout).
+     */
+    private function clearTokenCookie(JsonResponse $response): JsonResponse
+    {
+        return $response->cookie(
+            'digicur_token',
+            null,
+            -1,
+            '/',
+            null,
+            ! app()->environment(['local', 'testing']),
+            true,
+            true,
+            'Strict'
+        );
+    }
+
+    /**
      * Authenticate user with BSP compliance
      */
     public function login(Request $request): JsonResponse
     {
         try {
             $result = $this->bspAuthService->authenticate($request);
+            $token = $result['token'] ?? null;
+            unset($result['token']);
 
-            return response()->json([
+            $response = response()->json([
                 'success' => true,
                 'message' => 'Authentication successful',
                 'data' => $result,
@@ -43,6 +89,8 @@ class AuthController extends Controller
                     'risk_assessment_passed' => true,
                 ],
             ], 200);
+
+            return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
 
         } catch (ValidationException $e) {
             return response()->json([
@@ -103,13 +151,17 @@ class AuthController extends Controller
         Cache::forget("temp_2fa_token_{$request->temporary_token}");
 
         $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Two-factor authentication successful.',
             'data' => $result,
             'bsp_compliance' => ['mfa_verified' => true, 'audit_logged' => true],
         ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
     }
 
     /**
@@ -157,13 +209,17 @@ class AuthController extends Controller
         activity()->causedBy($user)->log('Two-factor authentication enrolled (system-required)');
 
         $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Two-factor authentication enrolled. Welcome!',
             'data' => $result,
             'bsp_compliance' => ['mfa_enrolled' => true, 'mfa_verified' => true, 'audit_logged' => true],
         ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
     }
 
     /**
@@ -221,15 +277,19 @@ class AuthController extends Controller
             $request->new_password,
             $request
         );
+        $token = $result['token'] ?? null;
+        unset($result['token']);
 
         activity()->causedBy($user)->log('Password changed (forced, before 2FA)');
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Password updated successfully.',
             'data' => $result,
             'bsp_compliance' => ['audit_logged' => true, 'password_policy_enforced' => true],
         ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
     }
 
     /**
@@ -265,13 +325,17 @@ class AuthController extends Controller
         activity()->causedBy($user)->log('Recovery code acknowledged by user');
 
         $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Recovery code saved. Welcome!',
             'data' => $result,
             'bsp_compliance' => ['audit_logged' => true],
         ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
     }
 
     /**
@@ -318,13 +382,17 @@ class AuthController extends Controller
         Cache::forget("verify_recovery_token_{$request->temporary_token}");
 
         $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Signed in successfully.',
             'data' => $result,
             'bsp_compliance' => ['mfa_verified' => true, 'audit_logged' => true],
         ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
     }
 
     /**
@@ -459,7 +527,7 @@ class AuthController extends Controller
     {
         $this->bspAuthService->logout($request);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Logged out successfully',
             'bsp_compliance' => [
@@ -468,6 +536,8 @@ class AuthController extends Controller
                 'audit_logged' => true,
             ],
         ]);
+
+        return $this->clearTokenCookie($response);
     }
 
     /**
@@ -477,7 +547,12 @@ class AuthController extends Controller
     {
         $request->validate([
             'current_password' => 'required|string',
-            'new_password' => 'required|string|min:6|confirmed',
+            'new_password' => [
+                'required',
+                'string',
+                'confirmed',
+                Password::min(12)->letters()->mixedCase()->numbers()->symbols()->uncompromised(),
+            ],
         ]);
 
         $user = $request->user();
@@ -679,6 +754,7 @@ class AuthController extends Controller
     public function refreshToken(Request $request): JsonResponse
     {
         $user = $request->user();
+        $minutes = (int) config('sanctum.expiration', 30);
 
         // Revoke current token
         $request->user()->currentAccessToken()->delete();
@@ -687,24 +763,25 @@ class AuthController extends Controller
         $token = $user->createToken(
             'auth-token',
             ['*'],
-            now()->addMinutes((int) config('sanctum.expiration', 30))
+            now()->addMinutes($minutes)
         );
 
         $user->update([
-            'session_expires_at' => now()->addMinutes((int) config('sanctum.expiration', 30)),
+            'session_expires_at' => now()->addMinutes($minutes),
         ]);
 
         activity()
             ->causedBy($user)
             ->log('Token refreshed');
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'data' => [
-                'token' => $token->plainTextToken,
                 'expires_at' => $token->accessToken->expires_at,
             ],
         ]);
+
+        return $this->attachTokenCookie($response, $token->plainTextToken, $minutes);
     }
 
     /**

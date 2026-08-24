@@ -21,10 +21,14 @@ export const AuthProvider = ({ children }) => {
   const refreshTimer = useRef(null);
   const lastActivity = useRef(Date.now());
   const sessionTimeoutRef = useRef(30 * 60 * 1000); // default 30 min; updated from server after login
+  // Synchronous guard against the logout race: clearAuth() sets isAuthenticated
+  // to false via React state (async), but Login.jsx's redirect effect can run
+  // before that state update flushes. This ref is readable immediately.
+  const justLoggedOut = useRef(false);
 
   // ── clear auth state ────────────────────────────────────────
   const clearAuth = useCallback(() => {
-    localStorage.removeItem('authToken');
+    justLoggedOut.current = true;
     localStorage.removeItem('user');
     setUser(null);
     setRoles([]);
@@ -41,10 +45,11 @@ export const AuthProvider = ({ children }) => {
 
     clearTimeout(inactivityTimer.current);
 
-    if (!localStorage.getItem('authToken')) return;
-
     inactivityTimer.current = setTimeout(() => {
       setSessionExpired(true);
+      // The auth token now lives in an httpOnly cookie the client can't clear
+      // itself, so an idle timeout must tell the server to end the session too.
+      api.post('/auth/logout').catch(() => {});
       clearAuth();
     }, sessionTimeoutRef.current);
   }, [clearAuth]);
@@ -52,14 +57,7 @@ export const AuthProvider = ({ children }) => {
   // ── token refresh ───────────────────────────────────────────
   const refreshToken = useCallback(async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      if (!token) return;
-
-      const res = await api.post('/auth/refresh-token');
-      const newToken = res.data?.data?.token;
-      if (newToken) {
-        localStorage.setItem('authToken', newToken);
-      }
+      await api.post('/auth/refresh-token');
     } catch (err) {
       // Only force logout on 401 – the response interceptor already handles this.
       // Any other error (network, 500, etc.) should NOT end the session; just skip
@@ -93,15 +91,10 @@ export const AuthProvider = ({ children }) => {
   // ── fetch user on mount / verify token ──────────────────────
   const fetchUser = useCallback(async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
       const response = await api.get('/auth/me');
       const data = response.data.data;
 
+      justLoggedOut.current = false;
       setUser(data.user);
       setRoles(data.roles || []);
       setPermissions(data.permissions || []);
@@ -168,7 +161,6 @@ export const AuthProvider = ({ children }) => {
       return response.data;
     }
 
-    localStorage.setItem('authToken', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
 
     await fetchUser();
@@ -221,6 +213,7 @@ export const AuthProvider = ({ children }) => {
         hasPermission,
         getPrimaryRole,
         fetchUser,
+        justLoggedOutRef: justLoggedOut,
       }}
     >
       {children}

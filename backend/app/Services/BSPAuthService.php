@@ -26,7 +26,7 @@ class BSPAuthService
 {
     const MAX_LOGIN_ATTEMPTS = 5;
 
-    const LOCKOUT_DURATION = 30; // seconds
+    const LOCKOUT_DURATION = 1800; // seconds (30 minutes) — matches BSP-advertised default
 
     const PASSWORD_EXPIRY_DAYS = 90;
 
@@ -770,9 +770,9 @@ class BSPAuthService
     {
         $errors = [];
 
-        // Minimum 6 characters
-        if (strlen($password) < 6) {
-            $errors[] = 'Password must be at least 6 characters long';
+        // Minimum 12 characters (BSP requirement)
+        if (strlen($password) < 12) {
+            $errors[] = 'Password must be at least 12 characters long (BSP requirement)';
         }
 
         // Must contain uppercase letter

@@ -14,7 +14,7 @@ import logo from "./assets/images/logos.png";
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, login, isAuthenticated, getPrimaryRole, fetchUser } = useAuth();
+  const { user, login, isAuthenticated, getPrimaryRole, fetchUser, justLoggedOutRef } = useAuth();
   const { app_abbreviation, app_name, app_logo_url } = useAppConfig();
   const logoSrc = app_logo_url || logo;
   const fromSessionExpired = location.state?.sessionExpired;
@@ -105,7 +105,7 @@ const Login = () => {
 
   // Redirect if already authenticated — skip if force password change is pending
   useEffect(() => {
-    if (isAuthenticated && localStorage.getItem("authToken")) {
+    if (isAuthenticated && !justLoggedOutRef.current) {
       if (user?.force_password_change) {
         setForcePasswordChange(true);
       } else {
@@ -389,7 +389,6 @@ const Login = () => {
         otp_code: setupOtp,
       });
       const data = res.data.data;
-      localStorage.setItem('authToken', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       await fetchUser();
     } catch (err) {
@@ -500,7 +499,6 @@ const Login = () => {
         temporary_token: recoveryIssued.temporaryToken,
       });
       const data = res.data.data;
-      localStorage.setItem('authToken', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       await fetchUser();
     } catch (err) {
@@ -577,7 +575,6 @@ const Login = () => {
         recovery_code: recoveryCode.trim(),
       });
       const data = res.data.data;
-      localStorage.setItem('authToken', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       await fetchUser();
     } catch (err) {
@@ -671,7 +668,6 @@ const Login = () => {
         otp_code: otpCode,
       });
       const data = res.data.data;
-      localStorage.setItem('authToken', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       await fetchUser();
     } catch (err) {

@@ -93,7 +93,8 @@ const initialFiles = {
 };
 
 const initialItfFiles = () => ({
-  sigcard:  [emptyPair()],    // shared — one front/back pair by default
+  sigcardFronts:  [null],     // shared — Signature Card images, independent list
+  riskProfilings: [null],     // shared — Risk Profiling images, independent list
   nais:     [emptyPair()],
   privacy:  [emptyPair()],
   otherDocs: [[]],
@@ -284,7 +285,6 @@ const UploadSigcard = () => {
   const [corpSigBacks,         setCorpSigBacks]          = useState([null, null]);
   const [hasSecondJointFront,  setHasSecondJointFront]   = useState(false);
   const [secondJointFront,     setSecondJointFront]      = useState(null);
-  const [itfExtraRiskProfilings, setItfExtraRiskProfilings] = useState([]); // additional risk profiling backs for ITF
   const [isSubmitting,         setIsSubmitting]         = useState(false);
   const [uploadProgress,     setUploadProgress]     = useState(0);
   const [submitPhase,        setSubmitPhase]        = useState("idle");
@@ -464,6 +464,23 @@ const UploadSigcard = () => {
     setItfFiles((prev) => ({ ...prev, [docKey]: prev[docKey].filter((_, i) => i !== pairIdx) }));
   };
 
+  // ITF file helpers (independent single-file lists — Sigcard fronts, Risk Profiling)
+  const setItfSingle = (docKey, idx, file) => {
+    setItfFiles((prev) => {
+      const updated = [...prev[docKey]];
+      updated[idx] = file;
+      return { ...prev, [docKey]: updated };
+    });
+  };
+
+  const addItfSingle = (docKey) => {
+    setItfFiles((prev) => ({ ...prev, [docKey]: [...prev[docKey], null] }));
+  };
+
+  const removeItfSingleAt = (docKey, idx) => {
+    setItfFiles((prev) => ({ ...prev, [docKey]: prev[docKey].filter((_, i) => i !== idx) }));
+  };
+
   const isStepValid = useMemo(() => {
     const currentKey = activeSteps[step]?.key;
     switch (currentKey) {
@@ -489,7 +506,7 @@ const UploadSigcard = () => {
           (a.status === "active" || !!a.statusDate)
         );
       case "sigcard":
-        if (isITF) return itfFiles.sigcard.every((p) => p.front || p.back);
+        if (isITF) return itfFiles.sigcardFronts.every((f) => !!f) && itfFiles.riskProfilings.every((f) => !!f);
         if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back);
         if (isSoleProprietorship) return !!files.sigcardPairs[0]?.front && !!files.sigcardPairs[0]?.back;
         if (isCorporate) return corpSigFronts.every((f) => f !== null) && corpSigBacks.every((f) => f !== null);
@@ -557,7 +574,19 @@ const UploadSigcard = () => {
           fd.append(`additionalPersons[${i}][suffix]`,     p.suffix);
         });
 
-        for (const [docKey, fdKey] of [["sigcard", "sigcardPairs"], ["nais", "naisPairs"], ["privacy", "privacyPairs"]]) {
+        // Sigcard: Signature Card and Risk Profiling are independent lists, sent as sigcardPairs[i][front]/[back]
+        itfFiles.sigcardFronts.forEach((f, i) => {
+          if (f) fd.append(`sigcardPairs[${i}][front]`, f);
+          fd.append(`sigcardPairs[${i}][person_index]`, 1);
+        });
+        itfFiles.riskProfilings.forEach((f, i) => {
+          if (!f) return;
+          const idx = itfFiles.sigcardFronts.length + i;
+          fd.append(`sigcardPairs[${idx}][back]`, f);
+          fd.append(`sigcardPairs[${idx}][person_index]`, 1);
+        });
+
+        for (const [docKey, fdKey] of [["nais", "naisPairs"], ["privacy", "privacyPairs"]]) {
           itfFiles[docKey].forEach((pair, i) => {
             if (!pair.front && !pair.back) return;
             if (pair.front) fd.append(`${fdKey}[${i}][front]`, pair.front);
@@ -567,20 +596,6 @@ const UploadSigcard = () => {
         }
 
         (itfFiles.otherDocs[0] ?? []).forEach((f) => fd.append(`otherDocs[1][]`, f));
-
-        if (hasSecondJointFront && secondJointFront) {
-          const nextIdx = itfFiles.sigcard.length;
-          fd.append(`sigcardPairs[${nextIdx}][front]`, secondJointFront);
-          fd.append(`sigcardPairs[${nextIdx}][person_index]`, 2);
-        }
-
-        // Extra risk profiling backs (ITF only)
-        itfExtraRiskProfilings.forEach((file, i) => {
-          if (!file) return;
-          const idx = itfFiles.sigcard.length + (hasSecondJointFront ? 1 : 0) + i;
-          fd.append(`sigcardPairs[${idx}][back]`, file);
-          fd.append(`sigcardPairs[${idx}][person_index]`, 1);
-        });
       } else {
         if (isNonITF || isCorporate) {
           additionalPersons.forEach((p, i) => {
@@ -1119,80 +1134,62 @@ const UploadSigcard = () => {
       case "sigcard": {
         if (isITF) {
           return (
-            <div className="space-y-5">
-              <p className="text-xs text-slate-400">Upload the shared sigcard for this joint account.</p>
-              {itfFiles.sigcard.map((pair, pairIdx) => (
-                <div key={pairIdx} className="space-y-2">
-                  {itfFiles.sigcard.length > 1 && pairIdx >= 1 && (
-                    <div className="flex justify-end">
-                      <button type="button" onClick={() => removeItfPairAt("sigcard", pairIdx)}
-                        className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
-                        <HiOutlineX className="w-3.5 h-3.5" /> Remove
-                      </button>
-                    </div>
-                  )}
-                  {itfFiles.sigcard.length > 1 && (
-                    <p className="text-xs font-medium text-slate-400">Sigcard {pairIdx + 1}</p>
-                  )}
-                  <div className="grid gap-6 md:grid-cols-2">
-                    <DocImageDropZone label="SIGCARD" shape="landscape" file={pair.front} onChange={(f) => setItfPairSide("sigcard", pairIdx, "front", f)} />
-                    <DocImageDropZone label="Risk Profiling"                  file={pair.back}  onChange={(f) => setItfPairSide("sigcard", pairIdx, "back",  f)} />
-                  </div>
+            <div className="space-y-8">
+              <div className="space-y-5">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">Signature Card</p>
+                  <p className="text-xs text-slate-400">Add one signature card image per signatory on this joint account.</p>
                 </div>
-              ))}
-              {/* Second sigcard front prompt */}
-              {!hasSecondJointFront ? (
-                <button type="button"
-                  onClick={() => setHasSecondJointFront(true)}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-3 text-xs font-semibold text-indigo-600 border-2 border-dashed border-indigo-300 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all">
+                {itfFiles.sigcardFronts.map((file, idx) => (
+                  <div key={idx} className="space-y-2">
+                    {itfFiles.sigcardFronts.length > 1 && idx >= 1 && (
+                      <div className="flex justify-end">
+                        <button type="button" onClick={() => removeItfSingleAt("sigcardFronts", idx)}
+                          className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                          <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                        </button>
+                      </div>
+                    )}
+                    {itfFiles.sigcardFronts.length > 1 && (
+                      <p className="text-xs font-medium text-slate-400">Sigcard {idx + 1}</p>
+                    )}
+                    <DocImageDropZone label="SIGCARD" shape="landscape" file={file} onChange={(f) => setItfSingle("sigcardFronts", idx, f)} />
+                  </div>
+                ))}
+                <button type="button" onClick={() => addItfSingle("sigcardFronts")}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all">
                   <HiOutlinePlus className="w-3.5 h-3.5" />
-                  Does this joint account have a second signature card front?
+                  Add Sigcard
                 </button>
-              ) : (
-                <div className="space-y-3 rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-indigo-700">Second Signature Card Front</p>
-                    <button type="button"
-                      onClick={() => { setHasSecondJointFront(false); setSecondJointFront(null); }}
-                      className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
-                      <HiOutlineX className="w-3.5 h-3.5" /> Remove
-                    </button>
-                  </div>
-                  <DocImageDropZone
-                    label="SIGCARD 2"
-                    shape="landscape"
-                    file={secondJointFront}
-                    onChange={(f) => setSecondJointFront(f)}
-                  />
-                </div>
-              )}
+              </div>
 
-              {/* Extra Risk Profiling entries */}
-              {itfExtraRiskProfilings.map((file, idx) => (
-                <div key={idx} className="space-y-2 rounded-2xl border-2 border-teal-200 bg-teal-50/50 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-teal-700">Risk Profiling {idx + 2}</p>
-                    <button type="button"
-                      onClick={() => setItfExtraRiskProfilings((prev) => prev.filter((_, i) => i !== idx))}
-                      className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
-                      <HiOutlineX className="w-3.5 h-3.5" /> Remove
-                    </button>
-                  </div>
-                  <DocImageDropZone
-                    label="Risk Profiling"
-                    file={file}
-                    onChange={(f) => setItfExtraRiskProfilings((prev) => prev.map((x, i) => i === idx ? f : x))}
-                  />
+              <div className="space-y-5">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">Risk Profiling</p>
+                  <p className="text-xs text-slate-400">Add one Risk Profiling image per signatory on this joint account.</p>
                 </div>
-              ))}
-
-              {/* Add another risk profiling button */}
-              <button type="button"
-                onClick={() => setItfExtraRiskProfilings((prev) => [...prev, null])}
-                className="flex items-center justify-center gap-2 w-full px-4 py-3 text-xs font-semibold text-teal-600 border-2 border-dashed border-teal-300 rounded-xl hover:border-teal-500 hover:bg-teal-50 transition-all">
-                <HiOutlinePlus className="w-3.5 h-3.5" />
-                Add Another Risk Profiling
-              </button>
+                {itfFiles.riskProfilings.map((file, idx) => (
+                  <div key={idx} className="space-y-2">
+                    {itfFiles.riskProfilings.length > 1 && idx >= 1 && (
+                      <div className="flex justify-end">
+                        <button type="button" onClick={() => removeItfSingleAt("riskProfilings", idx)}
+                          className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                          <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                        </button>
+                      </div>
+                    )}
+                    {itfFiles.riskProfilings.length > 1 && (
+                      <p className="text-xs font-medium text-slate-400">Risk Profiling {idx + 1}</p>
+                    )}
+                    <DocImageDropZone label="Risk Profiling" file={file} onChange={(f) => setItfSingle("riskProfilings", idx, f)} />
+                  </div>
+                ))}
+                <button type="button" onClick={() => addItfSingle("riskProfilings")}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-teal-600 border-2 border-dashed border-teal-300 rounded-xl hover:border-teal-500 hover:bg-teal-50 transition-all">
+                  <HiOutlinePlus className="w-3.5 h-3.5" />
+                  Add Risk Profiling
+                </button>
+              </div>
             </div>
           );
         }
@@ -1398,7 +1395,7 @@ const UploadSigcard = () => {
                   )}
                   <div className="grid gap-6 md:grid-cols-2">
                     <DocImageDropZone label="NAIS Front" file={pair.front} onChange={(f) => setItfPairSide("nais", pairIdx, "front", f)} />
-                    <DocImageDropZone label="NAIS Back"  file={pair.back}  onChange={(f) => setItfPairSide("nais", pairIdx, "back",  f)} />
+                    <DocImageDropZone label="NAIS Back (Optional)" file={pair.back}  onChange={(f) => setItfPairSide("nais", pairIdx, "back",  f)} />
                   </div>
                 </div>
               ))}

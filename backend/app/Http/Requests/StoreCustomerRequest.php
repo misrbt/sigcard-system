@@ -97,12 +97,12 @@ class StoreCustomerRequest extends FormRequest
             if ($accountType === 'Joint') {
                 $subType = $this->input('joint_sub_type');
 
-                // ITF: exactly 2 holders (primary + 1 additional)
+                // ITF: 2 or more holders (primary + 1 or more additional)
                 if ($subType === 'ITF') {
-                    if (count($this->input('additionalPersons', [])) !== 1) {
+                    if (count($this->input('additionalPersons', [])) < 1) {
                         $validator->errors()->add(
                             'additionalPersons',
-                            'ITF joint accounts require exactly 2 account holders.'
+                            'ITF joint accounts require at least 2 account holders.'
                         );
                     }
                 }

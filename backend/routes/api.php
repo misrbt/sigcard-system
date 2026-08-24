@@ -24,7 +24,7 @@ Route::get('/test', function () {
 Route::get('/config', [ConfigController::class, 'index']);
 
 // DIGICUR Authentication Routes
-Route::prefix('auth')->group(function () {
+Route::prefix('auth')->middleware(['throttle:10,1'])->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register'])->middleware(['role:admin']);
     Route::post('/verify-2fa', [AuthController::class, 'verifyTwoFactor']);
