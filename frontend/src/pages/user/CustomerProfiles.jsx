@@ -1928,6 +1928,14 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [accountTypeFilter, setAccountTypeFilter] = useState("all");
   const [riskLevelFilter, setRiskLevelFilter]     = useState("all");
   const [branchFilter, setBranchFilter]           = useState("all");
+
+  // Advanced filter — date opened / date uploaded, by month or custom range
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [dateFieldFilter, setDateFieldFilter]     = useState("opened"); // "opened" | "uploaded" | "status"
+  const [monthFilter, setMonthFilter]             = useState("");       // "YYYY-MM"
+  const [dateFromFilter, setDateFromFilter]       = useState("");
+  const [dateToFilter, setDateToFilter]           = useState("");
+  const hasAdvancedFilter = !!(monthFilter || dateFromFilter || dateToFilter);
   const [sortDir, setSortDir]             = useState("asc");
   const [page, setPage]                   = useState(1);
   const [totalPages, setTotalPages]       = useState(1);
@@ -1986,6 +1994,15 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
       if (accountTypeFilter !== "all") params.account_type = accountTypeFilter;
       if (riskLevelFilter !== "all")  params.risk_level   = riskLevelFilter;
       if ((branchScoped || showAllBranchesFilter) && branchFilter !== "all") params.branch_id = branchFilter;
+      if (hasAdvancedFilter) {
+        params.date_field = dateFieldFilter;
+        if (monthFilter) {
+          params.month = monthFilter;
+        } else {
+          if (dateFromFilter) params.date_from = dateFromFilter;
+          if (dateToFilter)   params.date_to   = dateToFilter;
+        }
+      }
 
       const { data } = await api.get("/customers", { params });
 
@@ -2002,10 +2019,10 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
     } finally {
       setLoading(false);
     }
-  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, showAllBranchesFilter]);
+  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, showAllBranchesFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, hasAdvancedFilter]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
-  useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter]);
+  useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
 
   // ── Quick search (live) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -2199,6 +2216,21 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     {sortDir === "asc" ? "↑ A–Z" : "↓ Z–A"}
                   </button>
                   <button
+                    onClick={() => setShowAdvancedFilter((v) => !v)}
+                    className={`flex items-center gap-1.5 px-5 py-3 text-sm font-semibold rounded-xl border-2 transition-all ${
+                      hasAdvancedFilter
+                        ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+                        : "border-slate-200 text-slate-700 hover:border-blue-400 hover:bg-blue-50"
+                    }`}
+                  >
+                    <HiOutlineCalendar className="w-4 h-4" />
+                    Advanced Filter
+                    {hasAdvancedFilter && (
+                      <span className="ml-0.5 w-2 h-2 rounded-full bg-white" />
+                    )}
+                    <HiOutlineChevronDown className={`w-4 h-4 transition-transform duration-200 ${showAdvancedFilter ? "rotate-180" : ""}`} />
+                  </button>
+                  <button
                     onClick={fetchCustomers}
                     className="px-4 py-3 border-2 border-slate-200 rounded-xl text-slate-600 hover:border-blue-400 hover:bg-blue-50 transition-all"
                     title="Refresh"
@@ -2207,6 +2239,102 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   </button>
                 </div>
               </div>
+
+              {/* Advanced Filter panel — filter by month or date range on Date Opened / Date Uploaded / Status Date */}
+              <AnimatePresence>
+                {showAdvancedFilter && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/40 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          Filter by Account Status and Date Opened, Date Uploaded, or Status Date
+                        </p>
+                        {hasAdvancedFilter && (
+                          <button
+                            onClick={() => { setMonthFilter(""); setDateFromFilter(""); setDateToFilter(""); }}
+                            className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-end gap-3">
+                        {/* Account status — same filter as the Status dropdown above, for convenience */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Account Status</label>
+                          <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="all">All Status</option>
+                            <option value="active">Active</option>
+                            <option value="reactivated">Reactivated</option>
+                            <option value="dormant">Dormant</option>
+                            <option value="escheat">Escheat</option>
+                            <option value="closed">Closed</option>
+                          </select>
+                        </div>
+
+                        {/* Which date field */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Date Type</label>
+                          <select
+                            value={dateFieldFilter}
+                            onChange={(e) => setDateFieldFilter(e.target.value)}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="opened">Date Opened</option>
+                            <option value="uploaded">Date Uploaded</option>
+                            <option value="status">Status Date (when status changed)</option>
+                          </select>
+                        </div>
+
+                        {/* Month picker */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Month</label>
+                          <input
+                            type="month"
+                            value={monthFilter}
+                            onChange={(e) => { setMonthFilter(e.target.value); if (e.target.value) { setDateFromFilter(""); setDateToFilter(""); } }}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <span className="text-xs text-slate-400 pb-2.5">or a custom range —</span>
+
+                        {/* From/To range */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">From</label>
+                          <input
+                            type="date"
+                            value={dateFromFilter}
+                            onChange={(e) => { setDateFromFilter(e.target.value); if (e.target.value) setMonthFilter(""); }}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">To</label>
+                          <input
+                            type="date"
+                            value={dateToFilter}
+                            onChange={(e) => { setDateToFilter(e.target.value); if (e.target.value) setMonthFilter(""); }}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Tip: set Account Status to Dormant, Active, or any status, and pick Status Date + a month to see exactly which accounts became that status in that month.
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Count */}
               <p className="text-sm text-slate-500 px-1">

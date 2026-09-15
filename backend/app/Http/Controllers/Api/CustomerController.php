@@ -81,6 +81,25 @@ class CustomerController extends Controller
             });
         }
 
+        $dateColumn = match ($request->date_field) {
+            'uploaded' => 'created_at',
+            'opened' => 'date_opened',
+            'status' => 'status_updated_at',
+            default => null,
+        };
+
+        if ($dateColumn && $request->filled('month')) {
+            $month = \Carbon\Carbon::parse($request->month.'-01');
+            $query->whereYear($dateColumn, $month->year)->whereMonth($dateColumn, $month->month);
+        } elseif ($dateColumn && ($request->filled('date_from') || $request->filled('date_to'))) {
+            if ($request->filled('date_from')) {
+                $query->whereDate($dateColumn, '>=', $request->date_from);
+            }
+            if ($request->filled('date_to')) {
+                $query->whereDate($dateColumn, '<=', $request->date_to);
+            }
+        }
+
         $customers = $query->latest('updated_at')->paginate($request->get('per_page', 15));
 
         return response()->json($customers);
