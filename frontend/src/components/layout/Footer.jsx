@@ -33,7 +33,14 @@ const Footer = () => {
               <span className="hidden text-gray-600 md:inline">|</span>
               <div className="flex items-center gap-2 tracking-normal">
                 <span className="text-gray-400">Designed &amp; Developed by</span>
-                <span className="font-semibold text-white">Augustin Maputol</span>
+                <a
+                  href="https://augustin-maps.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-white hover:text-blue-400 transition-colors"
+                >
+                  Augustin Maputol
+                </a>
               </div>
             </div>
           </div>

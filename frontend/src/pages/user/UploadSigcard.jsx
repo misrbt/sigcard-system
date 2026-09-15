@@ -723,7 +723,7 @@ const UploadSigcard = () => {
             <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
             <p className="text-sm text-slate-500">Select the joint account classification.</p>
             <div className="grid gap-4 sm:grid-cols-2">
-              {jointSubTypeConfig.map(({ value, label, description, icon: Icon, bg, border, ring, iconBg }) => {
+              {jointSubTypeConfig.map(({ value, label, icon: Icon, bg, border, ring, iconBg }) => {
                 const isSelected = formData.jointSubType === value;
                 return (
                   <motion.button key={value} type="button" whileTap={{ scale: 0.97 }}
@@ -735,15 +735,11 @@ const UploadSigcard = () => {
                     <div className={`p-4 rounded-2xl ${isSelected ? iconBg : "bg-slate-100"} transition-colors`}>
                       <Icon className={`w-8 h-8 ${isSelected ? "text-white" : "text-slate-500"}`} />
                     </div>
-                    <div>
-                      <p className={`text-base font-bold mb-1 ${isSelected ? "text-slate-900" : "text-slate-700"}`}>{label}</p>
-                      <p className="text-xs text-slate-400 leading-relaxed">{description}</p>
-                    </div>
+                    <p className={`text-base font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}>{label}</p>
                   </motion.button>
                 );
               })}
             </div>
-            <p className="text-xs text-center text-slate-400">Choose the joint type, then click Next to continue</p>
           </div>
         );
 
