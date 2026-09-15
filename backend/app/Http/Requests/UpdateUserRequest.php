@@ -29,7 +29,7 @@ class UpdateUserRequest extends FormRequest
             'password' => [
                 'sometimes',
                 'string',
-                Password::min(12)
+                Password::min(8)
                     ->letters()
                     ->mixedCase()
                     ->numbers()
@@ -52,7 +52,7 @@ class UpdateUserRequest extends FormRequest
         return [
             'email.unique' => 'This email address is already registered.',
             'username.unique' => 'This username is already taken.',
-            'password.min' => 'Password must be at least 12 characters long (BSP requirement).',
+            'password.min' => 'Password must be at least 8 characters long (BSP requirement).',
             'password.uncompromised' => 'This password has been compromised in a data breach.',
         ];
     }

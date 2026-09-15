@@ -406,7 +406,7 @@ class AuthController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:12',
+            'password' => 'required|string|min:8',
             'employee_id' => 'required|string|unique:users',
             'department' => 'required|string',
             'branch_code' => 'required|string',
@@ -551,7 +551,7 @@ class AuthController extends Controller
                 'required',
                 'string',
                 'confirmed',
-                Password::min(12)->letters()->mixedCase()->numbers()->symbols()->uncompromised(),
+                Password::min(8)->letters()->mixedCase()->numbers()->symbols()->uncompromised(),
             ],
         ]);
 

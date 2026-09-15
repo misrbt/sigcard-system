@@ -770,9 +770,9 @@ class BSPAuthService
     {
         $errors = [];
 
-        // Minimum 12 characters (BSP requirement)
-        if (strlen($password) < 12) {
-            $errors[] = 'Password must be at least 12 characters long (BSP requirement)';
+        // Minimum 8 characters (BSP requirement)
+        if (strlen($password) < 8) {
+            $errors[] = 'Password must be at least 8 characters long (BSP requirement)';
         }
 
         // Must contain uppercase letter

@@ -252,7 +252,7 @@ Route::get('/bsp/compliance-info', function () {
                 'password_expiry_days' => 90,
                 'session_timeout_minutes' => 30,
                 'max_concurrent_sessions' => 3,
-                'minimum_password_length' => 12,
+                'minimum_password_length' => 8,
             ],
         ],
     ]);
