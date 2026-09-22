@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AddCustomerAccountRequest;
+use App\Http\Requests\CheckCustomerNameRequest;
 use App\Http\Requests\StoreCustomerRequest;
 use App\Http\Requests\UpdateCustomerRequest;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDocument;
 use App\Models\CustomerHolder;
+use App\Models\User;
 use App\Services\ThumbmarkSearchService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -33,30 +36,7 @@ class CustomerController extends Controller
         $query = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts']);
         $authUser = Auth::user();
 
-        // Users see only their own branch.
-        // Cashiers and managers see their own branch plus any branch lite children.
-        // Admins see all branches unless they explicitly filter.
-        if ($authUser->hasRole('user')) {
-            $query->where('branch_id', $authUser->branch_id);
-        } elseif ($authUser->hasAnyRole(['cashier', 'manager'])) {
-            $branch = $authUser->branch()->with('children')->first();
-            $branchIds = collect([$authUser->branch_id]);
-
-            if ($branch) {
-                $branchIds = $branchIds->merge($branch->children->pluck('id'));
-            }
-
-            $allBranchIds = $branchIds->unique()->values();
-
-            // Allow filtering to a specific branch within the cashier/manager's scope
-            if ($request->has('branch_id') && $allBranchIds->contains((int) $request->branch_id)) {
-                $query->where('branch_id', $request->branch_id);
-            } else {
-                $query->whereIn('branch_id', $allBranchIds);
-            }
-        } elseif ($request->has('branch_id')) {
-            $query->where('branch_id', $request->branch_id);
-        }
+        $this->applyBranchScope($query, $request, $authUser);
 
         if ($request->has('status')) {
             $query->where('status', $request->status);
@@ -218,6 +198,71 @@ class CustomerController extends Controller
                 'message' => 'Unable to save the customer record. Please check your entries and try again. If the problem continues, contact your system administrator.',
             ], 500);
         }
+    }
+
+    /**
+     * Restrict a customer query to the branches the authenticated user is allowed to see.
+     *
+     * Users see only their own branch. Cashiers and managers see their own branch plus
+     * any branch lite children. Admins/compliance/audit see all branches unless they
+     * explicitly filter.
+     */
+    private function applyBranchScope(Builder $query, Request $request, User $authUser): void
+    {
+        if ($authUser->hasRole('user')) {
+            $query->where('branch_id', $authUser->branch_id);
+        } elseif ($authUser->hasAnyRole(['cashier', 'manager'])) {
+            $branch = $authUser->branch()->with('children')->first();
+            $branchIds = collect([$authUser->branch_id]);
+
+            if ($branch) {
+                $branchIds = $branchIds->merge($branch->children->pluck('id'));
+            }
+
+            $allBranchIds = $branchIds->unique()->values();
+
+            // Allow filtering to a specific branch within the cashier/manager's scope
+            if ($request->has('branch_id') && $allBranchIds->contains((int) $request->branch_id)) {
+                $query->where('branch_id', $request->branch_id);
+            } else {
+                $query->whereIn('branch_id', $allBranchIds);
+            }
+        } elseif ($request->has('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+    }
+
+    /**
+     * GET /api/customers/check-name
+     *
+     * Live duplicate-name check used by the Upload Signature Card wizard: while staff
+     * type a customer's name, flag whether a customer (or joint/corporate co-signatory)
+     * with the same first + last name already exists, so the same person isn't
+     * enrolled twice under a new sigcard record.
+     */
+    public function checkDuplicateName(CheckCustomerNameRequest $request): JsonResponse
+    {
+        $this->authorize('view-customers');
+
+        $firstname = Str::lower(trim($request->firstname));
+        $lastname = Str::lower(trim($request->lastname));
+
+        $query = Customer::query();
+        $this->applyBranchScope($query, $request, Auth::user());
+
+        $query->where(function (Builder $q) use ($firstname, $lastname) {
+            $q->where(function (Builder $nameQuery) use ($firstname, $lastname) {
+                $nameQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
+                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
+            })->orWhereHas('holders', function (Builder $holderQuery) use ($firstname, $lastname) {
+                $holderQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
+                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
+            });
+        });
+
+        return response()->json([
+            'exists' => $query->exists(),
+        ]);
     }
 
     public function show(Customer $customer): JsonResponse

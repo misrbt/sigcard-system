@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Swal from "sweetalert2";
 import api from "../../services/api";
@@ -13,6 +13,7 @@ import {
   HiOutlineX,
   HiOutlineCheckCircle,
   HiOutlinePhotograph,
+  HiOutlineExclamation,
 } from "react-icons/hi";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
@@ -139,27 +140,84 @@ const StatusPicker = ({ value, onChange, statuses = [] }) => (
   </div>
 );
 
-const NameGrid = ({ values, onChange }) => (
-  <div className="grid gap-4 sm:grid-cols-2">
-    {[
-      { key: "firstName",  label: "First Name",  req: true,  placeholder: "Enter first name" },
-      { key: "middleName", label: "Middle Name", req: false, placeholder: "Enter middle name" },
-      { key: "lastName",   label: "Last Name",   req: true,  placeholder: "Enter last name" },
-      { key: "suffix",     label: "Suffix",      req: false, placeholder: "Jr., Sr., III…" },
-    ].map(({ key, label, req, placeholder }) => (
-      <div key={key} className="space-y-1.5">
-        <label className="block text-xs font-semibold text-slate-600">
-          {label}{" "}
-          {req
-            ? <span className="text-red-500">*</span>
-            : <span className="font-normal text-slate-400">(Optional)</span>}
-        </label>
-        <input value={values[key]} onChange={(e) => onChange(key, toTitleCase(e.target.value))}
-          placeholder={placeholder} className={inputCls} />
+// Live duplicate-name check: while staff type a name here, ask the backend whether a
+// customer (or joint/corporate co-signatory) with the same first + last name already
+// exists, so the same person isn't enrolled twice under a new sigcard record.
+const useDuplicateNameCheck = (firstName, middleName, lastName) => {
+  const [exists, setExists] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    const first = firstName?.trim() ?? "";
+    const last = lastName?.trim() ?? "";
+
+    if (first.length < 2 || last.length < 2) {
+      requestIdRef.current += 1;
+      setExists(false);
+      setChecking(false);
+      return;
+    }
+
+    const requestId = ++requestIdRef.current;
+    setChecking(true);
+
+    const debounceId = setTimeout(async () => {
+      try {
+        const res = await api.get("/customers/check-name", {
+          params: { firstname: first, middlename: middleName?.trim() || undefined, lastname: last },
+        });
+        if (requestIdRef.current === requestId) setExists(!!res.data?.exists);
+      } catch {
+        if (requestIdRef.current === requestId) setExists(false);
+      } finally {
+        if (requestIdRef.current === requestId) setChecking(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceId);
+  }, [firstName, middleName, lastName]);
+
+  return { exists, checking };
+};
+
+const NameGrid = ({ values, onChange }) => {
+  const { exists: isDuplicate, checking: checkingDuplicate } =
+    useDuplicateNameCheck(values.firstName, values.middleName, values.lastName);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {[
+          { key: "firstName",  label: "First Name",  req: true,  placeholder: "Enter first name" },
+          { key: "middleName", label: "Middle Name", req: false, placeholder: "Enter middle name" },
+          { key: "lastName",   label: "Last Name",   req: true,  placeholder: "Enter last name" },
+          { key: "suffix",     label: "Suffix",      req: false, placeholder: "Jr., Sr., III…" },
+        ].map(({ key, label, req, placeholder }) => (
+          <div key={key} className="space-y-1.5">
+            <label className="block text-xs font-semibold text-slate-600">
+              {label}{" "}
+              {req
+                ? <span className="text-red-500">*</span>
+                : <span className="font-normal text-slate-400">(Optional)</span>}
+            </label>
+            <input value={values[key]} onChange={(e) => onChange(key, toTitleCase(e.target.value))}
+              placeholder={placeholder} className={inputCls} />
+          </div>
+        ))}
       </div>
-    ))}
-  </div>
-);
+      {checkingDuplicate && (
+        <p className="text-xs text-slate-400">Checking existing records…</p>
+      )}
+      {!checkingDuplicate && isDuplicate && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200">
+          <HiOutlineExclamation className="w-4 h-4 text-amber-500 flex-shrink-0" />
+          <p className="text-xs font-semibold text-amber-800">This client already exists</p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated }) => (
   <div className="grid grid-cols-2 gap-3">

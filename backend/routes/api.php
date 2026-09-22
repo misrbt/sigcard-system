@@ -178,6 +178,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
     // Customer read routes — compliance/audit see all; others are branch-restricted in controller
     Route::middleware(['role:user,manager,admin,cashier,compliance,audit'])->prefix('customers')->group(function () {
         Route::get('/', [CustomerController::class, 'index']);
+        Route::get('/check-name', [CustomerController::class, 'checkDuplicateName']);
         Route::get('/{customer}', [CustomerController::class, 'show']);
         Route::get('/{customer}/documents', [CustomerController::class, 'getDocuments']);
         Route::get('/{customer}/history', [CustomerController::class, 'history']);
