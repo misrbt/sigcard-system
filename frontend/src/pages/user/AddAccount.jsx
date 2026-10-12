@@ -9,6 +9,30 @@ import {
   HiOutlineArrowLeft,
 } from "react-icons/hi";
 
+const shrinkImage = (file) =>
+  new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 800 / img.width, 900 / img.height);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(url);
+          resolve(blob ? new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }) : file);
+        },
+        "image/jpeg",
+        0.8
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const RISK_LEVELS = ["Low Risk", "Medium Risk", "High Risk"];
 
@@ -260,14 +284,15 @@ const AddAccount = ({ basePath = "/user" }) => {
         if (accountInfo.dateUpdated) fd.append("date_updated", accountInfo.dateUpdated);
       }
 
-      if (sigcardPair.front)  fd.append("sigcardPairs[0][front]", sigcardPair.front);
-      if (sigcardPair.back)   fd.append("sigcardPairs[0][back]",  sigcardPair.back);
-      if (naisPair.front)     fd.append("naisPairs[0][front]",    naisPair.front);
-      if (naisPair.back)      fd.append("naisPairs[0][back]",     naisPair.back);
-      if (privacyPair.front)  fd.append("privacyPairs[0][front]", privacyPair.front);
-      if (privacyPair.back)   fd.append("privacyPairs[0][back]",  privacyPair.back);
-      otherDocs.forEach((f) => fd.append("otherDocs[]", f));
+      if (sigcardPair.front)  fd.append("sigcardPairs[0][front]", await shrinkImage(sigcardPair.front));
+      if (sigcardPair.back)   fd.append("sigcardPairs[0][back]",  await shrinkImage(sigcardPair.back));
+      if (naisPair.front)     fd.append("naisPairs[0][front]",    await shrinkImage(naisPair.front));
+      if (naisPair.back)      fd.append("naisPairs[0][back]",     await shrinkImage(naisPair.back));
+      if (privacyPair.front)  fd.append("privacyPairs[0][front]", await shrinkImage(privacyPair.front));
+      if (privacyPair.back)   fd.append("privacyPairs[0][back]",  await shrinkImage(privacyPair.back));
+      for (const f of otherDocs) fd.append("otherDocs[]", await shrinkImage(f));
       await api.post(`/customers/${id}/add-account`, fd, {
+        timeout: 300000,
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (e) => { if (e.total) setUploadProgress(Math.round((e.loaded / e.total) * 100)); },
       });
