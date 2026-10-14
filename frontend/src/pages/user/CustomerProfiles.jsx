@@ -1170,7 +1170,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
 // ── Skeleton row ────────────────────────────────────────────────────────────
 const SkeletonRow = () => (
   <tr className="animate-pulse">
-    {[...Array(6)].map((_, i) => (
+    {[...Array(7)].map((_, i) => (
       <td key={i} className="px-4 py-3">
         <div className="h-3 rounded-full bg-slate-200" style={{ width: `${60 + (i % 3) * 20}%` }} />
       </td>
@@ -2352,7 +2352,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
-                      {["Full Name", "Accounts", "Account Type", "Risk Level", "Status", "Date Added", "Action"].map((h) => (
+                      {["Full Name", "Accounts", "Account Type", "Risk Level", "Status", "Date Opened", "Date Added", "Action"].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600">
                           {h}
                         </th>
@@ -2365,7 +2365,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                       : customers.length === 0
                       ? (
                         <tr>
-                          <td colSpan={7} className="px-6 py-20 text-center">
+                          <td colSpan={8} className="px-6 py-20 text-center">
                             <div className="mx-auto w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                               <HiOutlineSearch className="w-8 h-8 text-slate-400" />
                             </div>
@@ -2427,7 +2427,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                               </span>
                             )}
                           </td>
-                          {/* Date */}
+                          {/* Date Opened */}
+                          <td className="px-4 py-2.5 text-[11px] text-slate-500">
+                            {c.date_opened ? formatDate(`${String(c.date_opened).substring(0, 10)}T00:00:00`) : "—"}
+                          </td>
+                          {/* Date Added */}
                           <td className="px-4 py-2.5 text-[11px] text-slate-500">
                             {formatDate(c.created_at)}
                           </td>
