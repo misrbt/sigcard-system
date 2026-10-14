@@ -148,6 +148,12 @@ class BSPAuthService
      */
     private function resolveNextAuthStep(User $user, Request $request, array $credentials = []): array
     {
+        if ($user->password_only_login) {
+            activity()->causedBy($user)->withProperties(['action' => 'password_only_login'])->log('Logged in with password only (admin exemption)');
+
+            return $this->completeAuthentication($user, $request);
+        }
+
         $systemRequires2FA = (bool) Cache::get('system_setting_require_two_factor', false);
         $requires2FA = $systemRequires2FA || (bool) $user->require_two_factor;
 
