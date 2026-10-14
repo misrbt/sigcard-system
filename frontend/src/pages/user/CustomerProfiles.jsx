@@ -2107,7 +2107,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
         </AnimatePresence>
       )}
 
-      <main className="flex flex-col flex-1 w-full max-w-7xl gap-3 px-4 pt-3 pb-6 mx-auto sm:px-6 lg:px-8">
+      <main className={`flex flex-col flex-1 w-full ${basePath === "/admin" ? "max-w-[110rem]" : "max-w-7xl"} gap-3 px-4 pt-3 pb-6 mx-auto sm:px-6 lg:px-8`}>
 
         {/* Header */}
         {onlyTab !== "quick" && (
