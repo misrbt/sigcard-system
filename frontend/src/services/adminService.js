@@ -49,6 +49,12 @@ export const adminService = {
   deleteBranch: (id) => api.delete(`/admin/branches/${id}`),
   updateBranchParent: (branchId, parentId) => api.put(`/admin/branches/${branchId}/parent`, { parent_id: parentId }),
 
+  // Branch data sharing (which branch's customers another branch can see)
+  getBranchShares: () => api.get('/admin/branch-shares'),
+  createBranchShare: (data) => api.post('/admin/branch-shares', data),
+  updateBranchShare: (id, data) => api.put(`/admin/branch-shares/${id}`, data),
+  deleteBranchShare: (id) => api.delete(`/admin/branch-shares/${id}`),
+
   // System Settings
   getSystemSettings: () => api.get('/admin/system-settings'),
   updateSystemSettings: (data) => api.put('/admin/system-settings', data),

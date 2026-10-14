@@ -7,6 +7,7 @@ use App\Http\Requests\AddCustomerAccountRequest;
 use App\Http\Requests\CheckCustomerNameRequest;
 use App\Http\Requests\StoreCustomerRequest;
 use App\Http\Requests\UpdateCustomerRequest;
+use App\Models\BranchDataShare;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDocument;
@@ -15,6 +16,7 @@ use App\Models\User;
 use App\Services\ThumbmarkSearchService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
@@ -81,6 +83,8 @@ class CustomerController extends Controller
         }
 
         $customers = $query->latest('updated_at')->paginate($request->get('per_page', 15));
+
+        $this->annotateSharedCustomers($customers->getCollection(), $authUser);
 
         return response()->json($customers);
     }
@@ -210,8 +214,35 @@ class CustomerController extends Controller
     private function applyBranchScope(Builder $query, Request $request, User $authUser): void
     {
         if ($authUser->hasRole('user')) {
-            $query->where('branch_id', $authUser->branch_id);
+            BranchDataShare::applyVisibility($query, [$authUser->branch_id]);
         } elseif ($authUser->hasAnyRole(['cashier', 'manager'])) {
+            $allBranchIds = $this->ownBranchIds($authUser);
+
+            // Allow filtering to a specific branch within the cashier/manager's scope
+            if ($request->has('branch_id') && $allBranchIds->contains((int) $request->branch_id)) {
+                $query->where('branch_id', $request->branch_id);
+            } else {
+                BranchDataShare::applyVisibility($query, $allBranchIds);
+            }
+        } elseif ($request->has('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+    }
+
+    /**
+     * Branches whose customers a user owns outright: users see their own branch,
+     * cashiers and managers also see their branch lite children. Null means the
+     * role is not branch-restricted (admin, compliance, audit).
+     *
+     * @return Collection<int, int>|null
+     */
+    private function ownBranchIds(User $authUser): ?Collection
+    {
+        if ($authUser->hasRole('user')) {
+            return collect([$authUser->branch_id]);
+        }
+
+        if ($authUser->hasAnyRole(['cashier', 'manager'])) {
             $branch = $authUser->branch()->with('children')->first();
             $branchIds = collect([$authUser->branch_id]);
 
@@ -219,16 +250,45 @@ class CustomerController extends Controller
                 $branchIds = $branchIds->merge($branch->children->pluck('id'));
             }
 
-            $allBranchIds = $branchIds->unique()->values();
+            return $branchIds->unique()->values();
+        }
 
-            // Allow filtering to a specific branch within the cashier/manager's scope
-            if ($request->has('branch_id') && $allBranchIds->contains((int) $request->branch_id)) {
-                $query->where('branch_id', $request->branch_id);
-            } else {
-                $query->whereIn('branch_id', $allBranchIds);
+        return null;
+    }
+
+    /**
+     * Mark customers that reached this viewer through a branch data share and, when the
+     * share excludes documents, hide their uploaded images/documents.
+     *
+     * @param  iterable<Customer>  $customers
+     */
+    private function annotateSharedCustomers(iterable $customers, User $authUser): void
+    {
+        $ownBranchIds = $this->ownBranchIds($authUser);
+
+        if ($ownBranchIds === null) {
+            return;
+        }
+
+        $shares = BranchDataShare::activeForTargets($ownBranchIds);
+
+        foreach ($customers as $customer) {
+            if ($ownBranchIds->contains((int) $customer->branch_id)) {
+                continue;
             }
-        } elseif ($request->has('branch_id')) {
-            $query->where('branch_id', $request->branch_id);
+
+            $share = $shares->first(fn (BranchDataShare $s) => $s->covers($customer));
+
+            if (! $share) {
+                continue;
+            }
+
+            $customer->setAttribute('is_shared', true);
+            $customer->setAttribute('shared_from_branch', $share->sourceBranch?->branch_name);
+
+            if (! $share->include_documents) {
+                $customer->setRelation('documents', collect());
+            }
         }
     }
 
@@ -280,7 +340,11 @@ class CustomerController extends Controller
             ])
             ->log('Customer sigcard record viewed');
 
-        return response()->json($customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']));
+        $customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']);
+
+        $this->annotateSharedCustomers([$customer], Auth::user());
+
+        return response()->json($customer);
     }
 
     public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
@@ -504,7 +568,11 @@ class CustomerController extends Controller
             ])
             ->log('Customer documents viewed');
 
-        return response()->json($customer->documents()->orderBy('person_index')->get());
+        $customer->setRelation('documents', $customer->documents()->orderBy('person_index')->get());
+
+        $this->annotateSharedCustomers([$customer], Auth::user());
+
+        return response()->json($customer->documents->values());
     }
 
     public function history(Customer $customer): JsonResponse

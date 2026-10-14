@@ -3,9 +3,10 @@ import Swal from 'sweetalert2';
 import {
   MdAdd, MdEdit, MdDelete, MdSearch, MdRefresh,
   MdBusiness, MdPeople, MdPersonSearch, MdAccountTree,
-  MdExpandMore, MdExpandLess, MdArrowForward, MdArrowUpward,
+  MdExpandMore, MdExpandLess, MdArrowForward, MdArrowUpward, MdShare,
 } from 'react-icons/md';
 import { adminService } from '../../services/adminService';
+import BranchDataSharing from './BranchDataSharing';
 import Modal from '../../components/common/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -102,7 +103,7 @@ const BranchManagement = () => {
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [expandedBranch, setExpandedBranch] = useState(null);
-  const [viewMode, setViewMode] = useState('hierarchy'); // 'hierarchy' | 'list'
+  const [viewMode, setViewMode] = useState('hierarchy'); // 'hierarchy' | 'list' | 'sharing'
 
   const fetchBranches = useCallback(async () => {
     setLoading(true);
@@ -304,6 +305,12 @@ const BranchManagement = () => {
           >
             <MdBusiness className="inline w-4 h-4 mr-1 -mt-0.5" /> List
           </button>
+          <button
+            onClick={() => setViewMode('sharing')}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'sharing' ? 'bg-white shadow text-[#1877F2] font-medium' : 'text-gray-600 hover:text-gray-900'}`}
+          >
+            <MdShare className="inline w-4 h-4 mr-1 -mt-0.5" /> Data Sharing
+          </button>
         </div>
       </div>
 
@@ -312,6 +319,8 @@ const BranchManagement = () => {
         <div className="flex items-center justify-center py-20">
           <div className="w-8 h-8 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin" />
         </div>
+      ) : viewMode === 'sharing' ? (
+        <BranchDataSharing branches={allBranchesList} />
       ) : viewMode === 'hierarchy' ? (
         /* ── Hierarchy View ── */
         <div className="space-y-4">

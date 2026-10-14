@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\BranchDataShareController;
 use App\Http\Controllers\Api\CashierController;
 use App\Http\Controllers\Api\ComplianceController;
 use App\Http\Controllers\Api\ConfigController;
@@ -111,6 +112,11 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::put('/branches/{branch}', [AdminController::class, 'updateBranch']);
         Route::delete('/branches/{branch}', [AdminController::class, 'deleteBranch']);
         Route::put('/branches/{branch}/parent', [AdminController::class, 'updateBranchParent']);
+
+        Route::get('/branch-shares', [BranchDataShareController::class, 'index']);
+        Route::post('/branch-shares', [BranchDataShareController::class, 'store']);
+        Route::put('/branch-shares/{share}', [BranchDataShareController::class, 'update']);
+        Route::delete('/branch-shares/{share}', [BranchDataShareController::class, 'destroy']);
     });
 
     // Manager Routes (includes some admin functions)

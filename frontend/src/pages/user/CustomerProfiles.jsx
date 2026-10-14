@@ -655,6 +655,11 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                   <span className="flex items-center gap-1">
                     <HiOutlineOfficeBuilding className="w-3.5 h-3.5" />
                     {customer.branch?.branch_name ?? "—"}
+                    {customer.is_shared && (
+                      <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 bg-indigo-50 rounded-full" title={`Shared from ${customer.shared_from_branch}`}>
+                        Shared
+                      </span>
+                    )}
                   </span>
                   {customer.account_no && (
                     <span className="flex items-center gap-1">
