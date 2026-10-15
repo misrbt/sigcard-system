@@ -1221,6 +1221,154 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                 );
               } // end corporate sigcard
 
+              // ── Joint Non-ITF: ceil(N/2) shared fronts + per-holder backs ───
+              if (isNonITF && (group.key === "sigcard" || group.key === "nais")) {
+                const totalPersons  = allPersons.length;
+                const frontCount    = Math.ceil(totalPersons / 2);
+                const existingFronts = getAllDocsOfType(group.front);
+                const latestFronts  = existingFronts.filter((d) => isLatestDoc(d));
+                const histFronts    = existingFronts.filter((d) => !isLatestDoc(d));
+                const displayFrontCount = Math.max(frontCount, latestFronts.length);
+                const hasAllFronts  = latestFronts.length >= frontCount;
+                const hasAnyBack    = allPersons.some((p) => getDoc(group.back, p.index) !== null);
+                const hasAllBacks   = allPersons.every((p) => getDoc(group.back, p.index) !== null);
+
+                // Build safe person_indexes for empty front slots (avoid collisions)
+                const usedFrontPIs  = new Set(latestFronts.map((d) => d.person_index));
+                const emptyFrontPIs = [];
+                let nextFrontPI     = 1;
+                for (let i = latestFronts.length; i < displayFrontCount; i++) {
+                  while (usedFrontPIs.has(nextFrontPI)) nextFrontPI++;
+                  emptyFrontPIs.push(nextFrontPI);
+                  usedFrontPIs.add(nextFrontPI);
+                  nextFrontPI++;
+                }
+
+                const jnHistKey    = `jn-${group.key}-fronts`;
+                const isJnHistOpen = histExpanded[jnHistKey] ?? false;
+
+                return (
+                  <div key={group.key} id={`section-${group.key}`} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${ac.bg}`}>
+                          <HiOutlineDocumentText className={`w-4 h-4 ${ac.icon}`} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-800">{group.label}</h3>
+                          <p className="text-[10px] text-slate-400">
+                            Joint Non-ITF — {frontCount} front{frontCount !== 1 ? "s" : ""} + {totalPersons} back{totalPersons !== 1 ? "s" : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        title={hasAllFronts && hasAllBacks ? "Complete" : latestFronts.length > 0 || hasAnyBack ? "Partial" : "Empty"}
+                        className={`w-2.5 h-2.5 rounded-full ${hasAllFronts && hasAllBacks ? "bg-emerald-400" : latestFronts.length > 0 || hasAnyBack ? "bg-amber-400" : "bg-slate-200"}`}
+                      />
+                    </div>
+
+                    <div className="px-5 py-5 space-y-6">
+                      {/* ── Shared Fronts ── */}
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          {group.key === "sigcard" ? "SIGCARD" : group.label.toUpperCase()} (Shared)
+                        </p>
+                        {Array.from({ length: displayFrontCount }).map((_, idx) => {
+                          const frontDoc = latestFronts[idx] ?? null;
+                          const emptyIdx = idx - latestFronts.length;
+                          const frontKey = frontDoc
+                            ? `${group.front}__${frontDoc.id}`
+                            : `${group.front}__${personKey(emptyFrontPIs[emptyIdx])}`;
+                          return (
+                            <div key={idx} className="space-y-2">
+                              {displayFrontCount > 1 && (
+                                <p className="text-xs font-medium text-slate-400">
+                                  {group.key === "sigcard" ? "Sigcard" : group.label} Front {idx + 1}
+                                </p>
+                              )}
+                              <div className="grid grid-cols-2 gap-4">
+                                <ImageCard
+                                  doc={frontDoc} side="Front" accent={group.accent}
+                                  readOnly={frontDoc ? !isLatestDoc(frontDoc) : false}
+                                  isDormant={isDormant}
+                                  preview={pending[frontKey] ?? null}
+                                  uploaded={!!uploaded[frontKey]}
+                                  uploading={uploading.has(frontKey)}
+                                  onFileChange={(f) => {
+                                    setPending((p) => ({ ...p, [frontKey]: f }));
+                                    setUploaded((p) => { const n = { ...p }; delete n[frontKey]; return n; });
+                                  }}
+                                />
+                                <div />
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Historical fronts — collapsible */}
+                        {showHistoryInEdit && histFronts.length > 0 && (
+                          <div className="border border-slate-200 rounded-xl overflow-hidden">
+                            <button
+                              onClick={() => setHistExpanded((p) => ({ ...p, [jnHistKey]: !isJnHistOpen }))}
+                              className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-left transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <HiOutlineLockClosed className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500">Previous Uploads</span>
+                                <span className="text-[10px] text-slate-400">({histFronts.length} front{histFronts.length !== 1 ? "s" : ""})</span>
+                              </div>
+                              <HiOutlineChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isJnHistOpen ? "rotate-180" : ""}`} />
+                            </button>
+                            {isJnHistOpen && (
+                              <div className="px-4 py-4 space-y-4 bg-slate-50/50 border-t border-slate-100">
+                                {histFronts.map((hDoc) => (
+                                  <ImageCard key={hDoc.id} doc={hDoc} side="Front" accent={group.accent} readOnly isDormant={isDormant} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Divider ── */}
+                      <div className="flex items-center gap-2">
+                        <div className="h-px flex-1 bg-slate-200" />
+                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                          {group.key === "sigcard" ? "Risk Profiling" : group.label + " Back"} — per account holder
+                        </p>
+                        <div className="h-px flex-1 bg-slate-200" />
+                      </div>
+
+                      {/* ── Per-holder Backs ── */}
+                      <div className="grid grid-cols-2 gap-4">
+                        {allPersons.map((person) => {
+                          const backDoc = getDoc(group.back, person.index);
+                          const backKey = backDoc
+                            ? `${group.back}__${backDoc.id}`
+                            : `${group.back}__${personKey(person.index)}`;
+                          return (
+                            <div key={person.index} className="space-y-2">
+                              <div className="flex items-center gap-1.5">
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${person.index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>{person.index}</div>
+                                <p className="text-xs font-semibold text-slate-600 truncate">{person.name || person.label}</p>
+                              </div>
+                              <ImageCard doc={backDoc} side="Back" accent={group.accent} readOnly={!isLatestDoc(backDoc)} isDormant={isDormant}
+                                preview={pending[backKey] ?? null} uploaded={!!uploaded[backKey]} uploading={uploading.has(backKey)}
+                                onFileChange={(f) => { setPending((p) => ({ ...p, [backKey]: f })); setUploaded((p) => { const n = { ...p }; delete n[backKey]; return n; }); }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <p className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
+                        <HiOutlinePhotograph className="w-3.5 h-3.5" /> Click an image to replace · JPEG, PNG · max 10 MB
+                      </p>
+                    </div>
+                  </div>
+                );
+              } // end joint non-itf sigcard/nais
+
               // ── Shared doc or Corporate non-sigcard (always pi=1) ────────────
               if (shared || isCorporate) {
                 const personIdx = 1;
