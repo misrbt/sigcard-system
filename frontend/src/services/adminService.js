@@ -20,6 +20,8 @@ export const adminService = {
   clearForcePasswordChange: (id) => api.post(`/admin/users/${id}/clear-force-password-change`),
   restoreLoginAccess: (id) => api.post(`/admin/users/${id}/restore-login-access`),
   resetUser2FA: (id) => api.post(`/admin/users/${id}/reset-2fa`),
+  requireTwoFactor: (id) => api.post(`/admin/users/${id}/require-2fa`),
+  disableTwoFactorRequirement: (id) => api.post(`/admin/users/${id}/require-2fa/disable`),
 
   // Roles
   getRoles: () => api.get('/admin/roles'),
@@ -46,6 +48,12 @@ export const adminService = {
   updateBranch: (id, data) => api.put(`/admin/branches/${id}`, data),
   deleteBranch: (id) => api.delete(`/admin/branches/${id}`),
   updateBranchParent: (branchId, parentId) => api.put(`/admin/branches/${branchId}/parent`, { parent_id: parentId }),
+
+  // Branch data sharing (which branch's customers another branch can see)
+  getBranchShares: () => api.get('/admin/branch-shares'),
+  createBranchShare: (data) => api.post('/admin/branch-shares', data),
+  updateBranchShare: (id, data) => api.put(`/admin/branch-shares/${id}`, data),
+  deleteBranchShare: (id) => api.delete(`/admin/branch-shares/${id}`),
 
   // System Settings
   getSystemSettings: () => api.get('/admin/system-settings'),

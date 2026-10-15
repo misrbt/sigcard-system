@@ -9,12 +9,11 @@ use App\Models\User;
 use App\Traits\BranchDashboardTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
-use Carbon\Carbon;
 
 /**
  * Manager Controller - Banking Operations Management
@@ -36,7 +35,7 @@ class ManagerController extends Controller
     public function getDashboard(): JsonResponse
     {
         try {
-            $user   = auth()->user();
+            $user = auth()->user();
             $branch = $user->branch()->with('children')->first();
 
             $branchIds = collect([$user->branch_id]);
@@ -47,10 +46,10 @@ class ManagerController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data'    => $this->getBranchDashboardData($branchIds->unique()->values()->all()),
+                'data' => $this->getBranchDashboardData($branchIds->unique()->values()->all()),
             ]);
         } catch (\Exception $e) {
-            Log::error('Manager dashboard error: ' . $e->getMessage());
+            Log::error('Manager dashboard error: '.$e->getMessage());
 
             return response()->json(['success' => false, 'message' => 'Failed to load dashboard'], 500);
         }
@@ -72,7 +71,7 @@ class ManagerController extends Controller
             $query = User::query()->with(['roles', 'permissions']);
 
             // Managers can only view users in their branch
-            if (!$user->hasRole('admin')) {
+            if (! $user->hasRole('admin')) {
                 $query->where('branch_code', $user->branch_code);
             }
 
@@ -89,8 +88,8 @@ class ManagerController extends Controller
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('employee_id', 'like', "%{$search}%");
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('employee_id', 'like', "%{$search}%");
                 });
             }
 
@@ -108,21 +107,21 @@ class ManagerController extends Controller
                 'meta' => [
                     'branch_scope' => $user->branch_code,
                     'total_active' => User::where('status', 'active')
-                        ->when(!$user->hasRole('admin'), fn($q) => $q->where('branch_code', $user->branch_code))
+                        ->when(! $user->hasRole('admin'), fn ($q) => $q->where('branch_code', $user->branch_code))
                         ->count(),
                     'total_inactive' => User::where('status', 'inactive')
-                        ->when(!$user->hasRole('admin'), fn($q) => $q->where('branch_code', $user->branch_code))
+                        ->when(! $user->hasRole('admin'), fn ($q) => $q->where('branch_code', $user->branch_code))
                         ->count(),
-                ]
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving users: ' . $e->getMessage());
+            Log::error('Manager error retrieving users: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve users',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -136,10 +135,10 @@ class ManagerController extends Controller
             $manager = auth()->user();
 
             // Managers can only update users in their branch
-            if (!$manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
+            if (! $manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot update user from different branch'
+                    'message' => 'Cannot update user from different branch',
                 ], 403);
             }
 
@@ -147,7 +146,7 @@ class ManagerController extends Controller
             if ($user->hasRole(['super-admin', 'admin'])) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot update admin users'
+                    'message' => 'Cannot update admin users',
                 ], 403);
             }
 
@@ -173,24 +172,24 @@ class ManagerController extends Controller
                 ->withProperties([
                     'action' => 'manager_updated_user',
                     'original_data' => $originalData,
-                    'updated_data' => $user->fresh()->toArray()
+                    'updated_data' => $user->fresh()->toArray(),
                 ])
                 ->log('Manager updated user');
 
             return response()->json([
                 'success' => true,
                 'message' => 'User updated successfully',
-                'data' => $user->fresh()->load(['roles', 'permissions'])
+                'data' => $user->fresh()->load(['roles', 'permissions']),
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Manager error updating user: ' . $e->getMessage());
+            Log::error('Manager error updating user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -206,17 +205,17 @@ class ManagerController extends Controller
             $manager = auth()->user();
 
             // Branch restriction for managers
-            if (!$manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
+            if (! $manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot activate user from different branch'
+                    'message' => 'Cannot activate user from different branch',
                 ], 403);
             }
 
             $user->update([
                 'status' => 'active',
                 'account_locked_at' => null,
-                'failed_login_attempts' => 0
+                'failed_login_attempts' => 0,
             ]);
 
             activity()
@@ -228,16 +227,16 @@ class ManagerController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User account activated successfully',
-                'data' => $user->fresh()
+                'data' => $user->fresh(),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error activating user: ' . $e->getMessage());
+            Log::error('Manager error activating user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to activate user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -253,24 +252,24 @@ class ManagerController extends Controller
             $manager = auth()->user();
 
             // Branch restriction and role checks
-            if (!$manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
+            if (! $manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot deactivate user from different branch'
+                    'message' => 'Cannot deactivate user from different branch',
                 ], 403);
             }
 
             if ($user->hasRole(['admin', 'super-admin'])) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot deactivate admin users'
+                    'message' => 'Cannot deactivate admin users',
                 ], 403);
             }
 
             if ($user->id === $manager->id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot deactivate your own account'
+                    'message' => 'Cannot deactivate your own account',
                 ], 403);
             }
 
@@ -286,16 +285,16 @@ class ManagerController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User account deactivated successfully',
-                'data' => $user->fresh()
+                'data' => $user->fresh(),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error deactivating user: ' . $e->getMessage());
+            Log::error('Manager error deactivating user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to deactivate user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -311,23 +310,23 @@ class ManagerController extends Controller
             'new_password' => [
                 'required',
                 'string',
-                'min:12',
+                'min:8',
                 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/',
             ],
-            'force_change' => 'boolean'
+            'force_change' => 'boolean',
         ], [
-            'new_password.min' => 'Password must be at least 12 characters long (BSP requirement).',
-            'new_password.regex' => 'Password must contain uppercase, lowercase, number and special character.'
+            'new_password.min' => 'Password must be at least 8 characters long (BSP requirement).',
+            'new_password.regex' => 'Password must contain uppercase, lowercase, number and special character.',
         ]);
 
         try {
             $manager = auth()->user();
 
             // Branch restriction
-            if (!$manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
+            if (! $manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot reset password for user from different branch'
+                    'message' => 'Cannot reset password for user from different branch',
                 ], 403);
             }
 
@@ -337,7 +336,7 @@ class ManagerController extends Controller
                 'password_expires_at' => now()->addDays(config('auth.password_expiry_days', 90)),
                 'force_password_change' => $request->force_change ?? true,
                 'failed_login_attempts' => 0,
-                'account_locked_at' => null
+                'account_locked_at' => null,
             ]);
 
             $user->tokens()->delete();
@@ -352,17 +351,17 @@ class ManagerController extends Controller
                 'success' => true,
                 'message' => 'Password reset successfully',
                 'data' => [
-                    'force_change_required' => $request->force_change ?? true
-                ]
+                    'force_change_required' => $request->force_change ?? true,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error resetting password: ' . $e->getMessage());
+            Log::error('Manager error resetting password: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reset password',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -378,16 +377,16 @@ class ManagerController extends Controller
             $manager = auth()->user();
 
             // Branch restriction
-            if (!$manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
+            if (! $manager->hasRole('admin') && $user->branch_code !== $manager->branch_code) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot unlock user from different branch'
+                    'message' => 'Cannot unlock user from different branch',
                 ], 403);
             }
 
             $user->update([
                 'account_locked_at' => null,
-                'failed_login_attempts' => 0
+                'failed_login_attempts' => 0,
             ]);
 
             activity()
@@ -399,16 +398,16 @@ class ManagerController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User account unlocked successfully',
-                'data' => $user->fresh()
+                'data' => $user->fresh(),
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error unlocking user: ' . $e->getMessage());
+            Log::error('Manager error unlocking user: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to unlock user',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -432,14 +431,14 @@ class ManagerController extends Controller
                 'amount_to' => 'nullable|numeric|min:0',
                 'date_from' => 'nullable|date',
                 'date_to' => 'nullable|date|after_or_equal:date_from',
-                'per_page' => 'nullable|integer|min:1|max:100'
+                'per_page' => 'nullable|integer|min:1|max:100',
             ]);
 
             // Placeholder data - implement actual transaction retrieval
             $transactions = [
                 [
                     'id' => 1,
-                    'reference_number' => 'TXN-' . Str::random(10),
+                    'reference_number' => 'TXN-'.Str::random(10),
                     'type' => 'transfer',
                     'amount' => 50000.00,
                     'currency' => 'PHP',
@@ -449,8 +448,8 @@ class ManagerController extends Controller
                     'branch_code' => $manager->branch_code,
                     'initiated_by' => 'John Doe',
                     'created_at' => now()->subHours(2),
-                    'requires_manager_approval' => true
-                ]
+                    'requires_manager_approval' => true,
+                ],
             ];
 
             activity()
@@ -466,23 +465,23 @@ class ManagerController extends Controller
                     'pagination' => [
                         'total' => count($transactions),
                         'per_page' => $request->per_page ?? 20,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'meta' => [
                     'branch_scope' => $manager->branch_code,
                     'pending_approval_count' => 5,
-                    'high_value_count' => 2
-                ]
+                    'high_value_count' => 2,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving transactions: ' . $e->getMessage());
+            Log::error('Manager error retrieving transactions: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve transactions',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -508,8 +507,8 @@ class ManagerController extends Controller
                     'initiated_by' => 'Teller 1',
                     'initiated_at' => now()->subMinutes(30),
                     'priority' => 'high',
-                    'requires_dual_approval' => true
-                ]
+                    'requires_dual_approval' => true,
+                ],
             ];
 
             activity()
@@ -525,18 +524,18 @@ class ManagerController extends Controller
                     'summary' => [
                         'total_pending' => count($pendingTransactions),
                         'high_priority' => 1,
-                        'total_amount' => 100000.00
-                    ]
-                ]
+                        'total_amount' => 100000.00,
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving pending transactions: ' . $e->getMessage());
+            Log::error('Manager error retrieving pending transactions: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve pending transactions',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -550,7 +549,7 @@ class ManagerController extends Controller
 
         $request->validate([
             'comments' => 'nullable|string|max:500',
-            'override_limits' => 'boolean'
+            'override_limits' => 'boolean',
         ]);
 
         try {
@@ -562,7 +561,7 @@ class ManagerController extends Controller
                     'action' => 'manager_approved_transaction',
                     'transaction_id' => $transaction,
                     'comments' => $request->comments,
-                    'override_limits' => $request->override_limits ?? false
+                    'override_limits' => $request->override_limits ?? false,
                 ])
                 ->log('Manager approved transaction');
 
@@ -575,17 +574,17 @@ class ManagerController extends Controller
                     'approved_by' => $manager->name,
                     'approved_at' => now(),
                     'comments' => $request->comments,
-                    'next_step' => 'processing'
-                ]
+                    'next_step' => 'processing',
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error approving transaction: ' . $e->getMessage());
+            Log::error('Manager error approving transaction: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to approve transaction',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -598,7 +597,7 @@ class ManagerController extends Controller
         $this->authorize('approve transactions');
 
         $request->validate([
-            'reason' => 'required|string|max:500'
+            'reason' => 'required|string|max:500',
         ]);
 
         try {
@@ -609,7 +608,7 @@ class ManagerController extends Controller
                 ->withProperties([
                     'action' => 'manager_rejected_transaction',
                     'transaction_id' => $transaction,
-                    'reason' => $request->reason
+                    'reason' => $request->reason,
                 ])
                 ->log('Manager rejected transaction');
 
@@ -621,17 +620,17 @@ class ManagerController extends Controller
                     'status' => 'rejected',
                     'rejected_by' => $manager->name,
                     'rejected_at' => now(),
-                    'reason' => $request->reason
-                ]
+                    'reason' => $request->reason,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error rejecting transaction: ' . $e->getMessage());
+            Log::error('Manager error rejecting transaction: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reject transaction',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -652,7 +651,7 @@ class ManagerController extends Controller
                 'status' => 'nullable|in:active,inactive,suspended,closed',
                 'type' => 'nullable|in:savings,checking,time_deposit',
                 'search' => 'nullable|string|max:100',
-                'per_page' => 'nullable|integer|min:1|max:100'
+                'per_page' => 'nullable|integer|min:1|max:100',
             ]);
 
             // Placeholder data - implement actual account retrieval
@@ -666,8 +665,8 @@ class ManagerController extends Controller
                     'balance' => 50000.00,
                     'currency' => 'PHP',
                     'opened_date' => now()->subYears(1),
-                    'last_activity' => now()->subDays(3)
-                ]
+                    'last_activity' => now()->subDays(3),
+                ],
             ];
 
             activity()
@@ -683,23 +682,23 @@ class ManagerController extends Controller
                     'pagination' => [
                         'total' => count($accounts),
                         'per_page' => $request->per_page ?? 20,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'meta' => [
                     'branch_scope' => $manager->branch_code,
                     'total_accounts' => 150,
-                    'active_accounts' => 140
-                ]
+                    'active_accounts' => 140,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving accounts: ' . $e->getMessage());
+            Log::error('Manager error retrieving accounts: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve accounts',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -716,7 +715,7 @@ class ManagerController extends Controller
                 ->causedBy($manager)
                 ->withProperties([
                     'action' => 'manager_viewed_account_balance',
-                    'account_number' => $account
+                    'account_number' => $account,
                 ])
                 ->log('Manager viewed account balance');
 
@@ -731,17 +730,17 @@ class ManagerController extends Controller
                     'currency' => 'PHP',
                     'last_transaction_date' => now()->subDays(1),
                     'account_status' => 'active',
-                    'branch_code' => $manager->branch_code
-                ]
+                    'branch_code' => $manager->branch_code,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving account balance: ' . $e->getMessage());
+            Log::error('Manager error retrieving account balance: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve account balance',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -755,7 +754,7 @@ class ManagerController extends Controller
 
         $request->validate([
             'transfer_id' => 'required|string',
-            'comments' => 'nullable|string|max:500'
+            'comments' => 'nullable|string|max:500',
         ]);
 
         try {
@@ -766,7 +765,7 @@ class ManagerController extends Controller
                 ->withProperties([
                     'action' => 'manager_approved_transfer',
                     'transfer_id' => $request->transfer_id,
-                    'comments' => $request->comments
+                    'comments' => $request->comments,
                 ])
                 ->log('Manager approved transfer');
 
@@ -778,17 +777,17 @@ class ManagerController extends Controller
                     'status' => 'approved',
                     'approved_by' => $manager->name,
                     'approved_at' => now(),
-                    'comments' => $request->comments
-                ]
+                    'comments' => $request->comments,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error approving transfer: ' . $e->getMessage());
+            Log::error('Manager error approving transfer: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to approve transfer',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -801,7 +800,7 @@ class ManagerController extends Controller
         $request->validate([
             'from_date' => 'nullable|date',
             'to_date' => 'nullable|date|after_or_equal:from_date',
-            'format' => 'nullable|in:pdf,excel,csv'
+            'format' => 'nullable|in:pdf,excel,csv',
         ]);
 
         try {
@@ -814,7 +813,7 @@ class ManagerController extends Controller
                     'account_number' => $account,
                     'from_date' => $request->from_date,
                     'to_date' => $request->to_date,
-                    'format' => $request->format ?? 'pdf'
+                    'format' => $request->format ?? 'pdf',
                 ])
                 ->log('Manager generated account statement');
 
@@ -822,26 +821,26 @@ class ManagerController extends Controller
                 'success' => true,
                 'message' => 'Statement generated successfully',
                 'data' => [
-                    'statement_id' => 'STMT-MGR-' . Str::random(10),
+                    'statement_id' => 'STMT-MGR-'.Str::random(10),
                     'account_number' => $account,
                     'period' => [
                         'from' => $request->from_date ?? now()->subDays(30)->format('Y-m-d'),
-                        'to' => $request->to_date ?? now()->format('Y-m-d')
+                        'to' => $request->to_date ?? now()->format('Y-m-d'),
                     ],
                     'format' => $request->format ?? 'pdf',
-                    'download_url' => '/api/manager/statements/download/STMT-MGR-' . Str::random(10),
+                    'download_url' => '/api/manager/statements/download/STMT-MGR-'.Str::random(10),
                     'expires_at' => now()->addHours(24),
-                    'generated_by' => $manager->name
-                ]
+                    'generated_by' => $manager->name,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error generating statement: ' . $e->getMessage());
+            Log::error('Manager error generating statement: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to generate statement',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -861,7 +860,7 @@ class ManagerController extends Controller
             $request->validate([
                 'status' => 'nullable|in:active,inactive,pending_verification,suspended',
                 'search' => 'nullable|string|max:100',
-                'per_page' => 'nullable|integer|min:1|max:100'
+                'per_page' => 'nullable|integer|min:1|max:100',
             ]);
 
             // Placeholder data
@@ -876,8 +875,8 @@ class ManagerController extends Controller
                     'branch_code' => $manager->branch_code,
                     'kyc_status' => 'verified',
                     'created_at' => now()->subMonths(6),
-                    'last_activity' => now()->subDays(2)
-                ]
+                    'last_activity' => now()->subDays(2),
+                ],
             ];
 
             activity()
@@ -893,23 +892,23 @@ class ManagerController extends Controller
                     'pagination' => [
                         'total' => count($customers),
                         'per_page' => $request->per_page ?? 20,
-                        'current_page' => 1
-                    ]
+                        'current_page' => 1,
+                    ],
                 ],
                 'meta' => [
                     'branch_scope' => $manager->branch_code,
                     'total_customers' => 300,
-                    'pending_verification' => 5
-                ]
+                    'pending_verification' => 5,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving customers: ' . $e->getMessage());
+            Log::error('Manager error retrieving customers: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve customers',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -924,7 +923,7 @@ class ManagerController extends Controller
             'phone' => 'nullable|string|max:20',
             'address' => 'nullable|string|max:500',
             'email' => 'nullable|email|max:255',
-            'status' => 'nullable|in:active,inactive,suspended'
+            'status' => 'nullable|in:active,inactive,suspended',
         ]);
 
         try {
@@ -935,7 +934,7 @@ class ManagerController extends Controller
                 ->withProperties([
                     'action' => 'manager_updated_customer',
                     'customer_id' => $customer,
-                    'updated_fields' => array_keys($request->only(['name', 'phone', 'address', 'email', 'status']))
+                    'updated_fields' => array_keys($request->only(['name', 'phone', 'address', 'email', 'status'])),
                 ])
                 ->log('Manager updated customer information');
 
@@ -946,17 +945,17 @@ class ManagerController extends Controller
                     'customer_id' => $customer,
                     'updated_at' => now(),
                     'updated_by' => $manager->name,
-                    'requires_compliance_review' => true
-                ]
+                    'requires_compliance_review' => true,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error updating customer: ' . $e->getMessage());
+            Log::error('Manager error updating customer: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update customer',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -972,7 +971,7 @@ class ManagerController extends Controller
             'verification_type' => 'required|in:identity,address,income,kyc_complete',
             'documents_reviewed' => 'required|array',
             'documents_reviewed.*' => 'string',
-            'comments' => 'nullable|string|max:500'
+            'comments' => 'nullable|string|max:500',
         ]);
 
         try {
@@ -985,7 +984,7 @@ class ManagerController extends Controller
                     'customer_id' => $customer,
                     'verification_type' => $request->verification_type,
                     'documents_reviewed' => $request->documents_reviewed,
-                    'comments' => $request->comments
+                    'comments' => $request->comments,
                 ])
                 ->log('Manager verified customer');
 
@@ -998,17 +997,17 @@ class ManagerController extends Controller
                     'verified_by' => $manager->name,
                     'verified_at' => now(),
                     'status' => 'verified',
-                    'comments' => $request->comments
-                ]
+                    'comments' => $request->comments,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error verifying customer: ' . $e->getMessage());
+            Log::error('Manager error verifying customer: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to verify customer',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1023,7 +1022,7 @@ class ManagerController extends Controller
         $request->validate([
             'account_type' => 'required|in:savings,checking,time_deposit',
             'initial_deposit' => 'required|numeric|min:500',
-            'comments' => 'nullable|string|max:500'
+            'comments' => 'nullable|string|max:500',
         ]);
 
         try {
@@ -1036,7 +1035,7 @@ class ManagerController extends Controller
                     'customer_id' => $customer,
                     'account_type' => $request->account_type,
                     'initial_deposit' => $request->initial_deposit,
-                    'comments' => $request->comments
+                    'comments' => $request->comments,
                 ])
                 ->log('Manager approved customer application');
 
@@ -1046,22 +1045,22 @@ class ManagerController extends Controller
                 'data' => [
                     'customer_id' => $customer,
                     'account_type' => $request->account_type,
-                    'account_number' => '12345' . str_pad(rand(0, 99999), 5, '0', STR_PAD_LEFT),
+                    'account_number' => '12345'.str_pad(rand(0, 99999), 5, '0', STR_PAD_LEFT),
                     'initial_deposit' => $request->initial_deposit,
                     'approved_by' => $manager->name,
                     'approved_at' => now(),
                     'status' => 'approved',
-                    'next_step' => 'account_creation'
-                ]
+                    'next_step' => 'account_creation',
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error approving customer application: ' . $e->getMessage());
+            Log::error('Manager error approving customer application: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to approve customer application',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1084,22 +1083,22 @@ class ManagerController extends Controller
                     'name' => 'Daily Transaction Report',
                     'description' => 'Summary of all transactions for a specific day',
                     'can_generate' => true,
-                    'formats' => ['pdf', 'excel', 'csv']
+                    'formats' => ['pdf', 'excel', 'csv'],
                 ],
                 [
                     'type' => 'account_summary',
                     'name' => 'Account Summary Report',
                     'description' => 'Summary of all accounts in branch',
                     'can_generate' => true,
-                    'formats' => ['pdf', 'excel']
+                    'formats' => ['pdf', 'excel'],
                 ],
                 [
                     'type' => 'pending_approvals',
                     'name' => 'Pending Approvals Report',
                     'description' => 'List of all pending transactions and applications',
                     'can_generate' => true,
-                    'formats' => ['pdf', 'excel']
-                ]
+                    'formats' => ['pdf', 'excel'],
+                ],
             ];
 
             activity()
@@ -1116,18 +1115,18 @@ class ManagerController extends Controller
                         'can_view_reports' => true,
                         'can_generate_reports' => true,
                         'can_export_reports' => true,
-                        'can_schedule_reports' => false
-                    ]
-                ]
+                        'can_schedule_reports' => false,
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving reports: ' . $e->getMessage());
+            Log::error('Manager error retrieving reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1142,7 +1141,7 @@ class ManagerController extends Controller
             'from_date' => 'required|date',
             'to_date' => 'required|date|after_or_equal:from_date',
             'format' => 'nullable|in:pdf,excel,csv',
-            'include_details' => 'boolean'
+            'include_details' => 'boolean',
         ]);
 
         try {
@@ -1155,9 +1154,9 @@ class ManagerController extends Controller
                     'report_type' => $request->type,
                     'date_range' => [
                         'from' => $request->from_date,
-                        'to' => $request->to_date
+                        'to' => $request->to_date,
                     ],
-                    'format' => $request->format ?? 'pdf'
+                    'format' => $request->format ?? 'pdf',
                 ])
                 ->log('Manager generated report');
 
@@ -1165,28 +1164,28 @@ class ManagerController extends Controller
                 'success' => true,
                 'message' => 'Report generated successfully',
                 'data' => [
-                    'report_id' => 'MGR-RPT-' . Str::random(10),
+                    'report_id' => 'MGR-RPT-'.Str::random(10),
                     'type' => $request->type,
                     'period' => [
                         'from' => $request->from_date,
-                        'to' => $request->to_date
+                        'to' => $request->to_date,
                     ],
                     'format' => $request->format ?? 'pdf',
-                    'download_url' => '/api/manager/reports/download/MGR-RPT-' . Str::random(10),
+                    'download_url' => '/api/manager/reports/download/MGR-RPT-'.Str::random(10),
                     'generated_at' => now(),
                     'generated_by' => $manager->name,
                     'expires_at' => now()->addHours(48),
-                    'branch_scope' => $manager->branch_code
-                ]
+                    'branch_scope' => $manager->branch_code,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error generating report: ' . $e->getMessage());
+            Log::error('Manager error generating report: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to generate report',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1202,7 +1201,7 @@ class ManagerController extends Controller
             $request->validate([
                 'period' => 'nullable|in:daily,weekly,monthly,quarterly',
                 'date_from' => 'nullable|date',
-                'date_to' => 'nullable|date|after_or_equal:date_from'
+                'date_to' => 'nullable|date|after_or_equal:date_from',
             ]);
 
             $financialReports = [
@@ -1214,8 +1213,8 @@ class ManagerController extends Controller
                         'total_deposits' => 500000.00,
                         'total_withdrawals' => 300000.00,
                         'closing_balance' => 1200000.00,
-                        'currency' => 'PHP'
-                    ]
+                        'currency' => 'PHP',
+                    ],
                 ],
                 [
                     'type' => 'transaction_volume',
@@ -1225,9 +1224,9 @@ class ManagerController extends Controller
                         'deposit_count' => 75,
                         'withdrawal_count' => 60,
                         'transfer_count' => 15,
-                        'average_transaction_amount' => 25000.00
-                    ]
-                ]
+                        'average_transaction_amount' => 25000.00,
+                    ],
+                ],
             ];
 
             activity()
@@ -1242,17 +1241,17 @@ class ManagerController extends Controller
                     'reports' => $financialReports,
                     'period' => $request->period ?? 'daily',
                     'branch_code' => $manager->branch_code,
-                    'generated_at' => now()
-                ]
+                    'generated_at' => now(),
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving financial reports: ' . $e->getMessage());
+            Log::error('Manager error retrieving financial reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve financial reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1278,7 +1277,7 @@ class ManagerController extends Controller
                 'daily_transaction_count' => 245,
                 'pending_approvals' => 8,
                 'system_alerts' => 2,
-                'last_updated' => now()
+                'last_updated' => now(),
             ];
 
             activity()
@@ -1289,16 +1288,16 @@ class ManagerController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Branch operations retrieved successfully',
-                'data' => $branchOperations
+                'data' => $branchOperations,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving branch operations: ' . $e->getMessage());
+            Log::error('Manager error retrieving branch operations: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve branch operations',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1314,7 +1313,7 @@ class ManagerController extends Controller
             $request->validate([
                 'period' => 'nullable|in:daily,weekly,monthly',
                 'date_from' => 'nullable|date',
-                'date_to' => 'nullable|date|after_or_equal:date_from'
+                'date_to' => 'nullable|date|after_or_equal:date_from',
             ]);
 
             $branchReports = [
@@ -1323,19 +1322,19 @@ class ManagerController extends Controller
                     'transaction_volume' => 245,
                     'customer_satisfaction' => 4.2,
                     'processing_time_avg' => 3.5,
-                    'error_rate' => 0.02
+                    'error_rate' => 0.02,
                 ],
                 'financial_summary' => [
                     'total_deposits' => 2500000.00,
                     'total_withdrawals' => 1800000.00,
                     'net_cash_flow' => 700000.00,
-                    'currency' => 'PHP'
+                    'currency' => 'PHP',
                 ],
                 'operational_metrics' => [
                     'staff_utilization' => 85,
                     'system_uptime' => 99.8,
-                    'queue_wait_time_avg' => 4.2
-                ]
+                    'queue_wait_time_avg' => 4.2,
+                ],
             ];
 
             activity()
@@ -1346,16 +1345,16 @@ class ManagerController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Branch reports retrieved successfully',
-                'data' => $branchReports
+                'data' => $branchReports,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving branch reports: ' . $e->getMessage());
+            Log::error('Manager error retrieving branch reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve branch reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1369,7 +1368,7 @@ class ManagerController extends Controller
 
         $request->validate([
             'approval_level' => 'required|in:manager,senior_manager',
-            'comments' => 'nullable|string|max:500'
+            'comments' => 'nullable|string|max:500',
         ]);
 
         try {
@@ -1381,7 +1380,7 @@ class ManagerController extends Controller
                     'action' => 'manager_approved_branch_transaction',
                     'transaction_id' => $transaction,
                     'approval_level' => $request->approval_level,
-                    'comments' => $request->comments
+                    'comments' => $request->comments,
                 ])
                 ->log('Manager approved branch transaction');
 
@@ -1394,17 +1393,17 @@ class ManagerController extends Controller
                     'approved_by' => $manager->name,
                     'approved_at' => now(),
                     'branch_code' => $manager->branch_code,
-                    'comments' => $request->comments
-                ]
+                    'comments' => $request->comments,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error approving branch transaction: ' . $e->getMessage());
+            Log::error('Manager error approving branch transaction: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to approve branch transaction',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1425,7 +1424,7 @@ class ManagerController extends Controller
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'user_id' => 'nullable|exists:users,id',
             'event' => 'nullable|string',
-            'per_page' => 'nullable|integer|min:1|max:100'
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
         try {
@@ -1435,7 +1434,7 @@ class ManagerController extends Controller
                 ->orderBy('created_at', 'desc');
 
             // Managers can only view logs from their branch
-            if (!$manager->hasRole('admin')) {
+            if (! $manager->hasRole('admin')) {
                 $query->whereHas('causer', function ($q) use ($manager) {
                     $q->where('branch_code', $manager->branch_code);
                 });
@@ -1464,7 +1463,7 @@ class ManagerController extends Controller
                 ->withProperties([
                     'action' => 'manager_viewed_audit_logs',
                     'filters' => $request->all(),
-                    'branch_scope' => $manager->branch_code
+                    'branch_scope' => $manager->branch_code,
                 ])
                 ->log('Manager viewed audit logs');
 
@@ -1474,17 +1473,17 @@ class ManagerController extends Controller
                 'data' => $logs,
                 'meta' => [
                     'branch_scope' => $manager->branch_code,
-                    'access_level' => 'manager'
-                ]
+                    'access_level' => 'manager',
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving audit logs: ' . $e->getMessage());
+            Log::error('Manager error retrieving audit logs: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve audit logs',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1504,7 +1503,7 @@ class ManagerController extends Controller
                     'status' => 'compliant',
                     'last_check' => now()->subHours(2),
                     'issues_found' => 0,
-                    'branch_code' => $manager->branch_code
+                    'branch_code' => $manager->branch_code,
                 ],
                 [
                     'type' => 'transaction_monitoring',
@@ -1512,8 +1511,8 @@ class ManagerController extends Controller
                     'status' => 'review_required',
                     'last_check' => now()->subHours(1),
                     'issues_found' => 2,
-                    'branch_code' => $manager->branch_code
-                ]
+                    'branch_code' => $manager->branch_code,
+                ],
             ];
 
             activity()
@@ -1527,17 +1526,17 @@ class ManagerController extends Controller
                 'data' => [
                     'reports' => $complianceReports,
                     'branch_scope' => $manager->branch_code,
-                    'overall_status' => 'review_required'
-                ]
+                    'overall_status' => 'review_required',
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving compliance reports: ' . $e->getMessage());
+            Log::error('Manager error retrieving compliance reports: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve compliance reports',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1560,8 +1559,8 @@ class ManagerController extends Controller
                     'status' => 'pending_review',
                     'created_at' => now()->subDays(1),
                     'branch_code' => $manager->branch_code,
-                    'requires_manager_approval' => true
-                ]
+                    'requires_manager_approval' => true,
+                ],
             ];
 
             activity()
@@ -1579,18 +1578,18 @@ class ManagerController extends Controller
                         'pending_approval' => 1,
                         'high_risk' => 0,
                         'medium_risk' => 1,
-                        'low_risk' => 0
-                    ]
-                ]
+                        'low_risk' => 0,
+                    ],
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error retrieving risk assessments: ' . $e->getMessage());
+            Log::error('Manager error retrieving risk assessments: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve risk assessments',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }
@@ -1605,7 +1604,7 @@ class ManagerController extends Controller
         $request->validate([
             'approved' => 'required|boolean',
             'comments' => 'nullable|string|max:500',
-            'override_reason' => 'nullable|string|max:500'
+            'override_reason' => 'nullable|string|max:500',
         ]);
 
         try {
@@ -1620,7 +1619,7 @@ class ManagerController extends Controller
                     'assessment_id' => $assessment,
                     'decision' => $status,
                     'comments' => $request->comments,
-                    'override_reason' => $request->override_reason
+                    'override_reason' => $request->override_reason,
                 ])
                 ->log('Manager made risk assessment decision');
 
@@ -1633,17 +1632,17 @@ class ManagerController extends Controller
                     'reviewed_by' => $manager->name,
                     'reviewed_at' => now(),
                     'comments' => $request->comments,
-                    'override_reason' => $request->override_reason
-                ]
+                    'override_reason' => $request->override_reason,
+                ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Manager error with risk assessment: ' . $e->getMessage());
+            Log::error('Manager error with risk assessment: '.$e->getMessage());
 
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to process risk assessment',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
         }
     }

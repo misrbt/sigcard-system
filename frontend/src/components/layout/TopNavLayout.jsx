@@ -17,6 +17,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useAppConfig } from "../../context/AppConfigContext";
 import logo from "../../assets/images/logos.png";
 import Footer from "./Footer";
+import { confirmNavigation } from "../../utils/navigationGuard";
 
 const NAV_ITEMS = {
   manager: [
@@ -74,12 +75,22 @@ const TopNavLayout = ({ children, userRole }) => {
   const isActive = (path) => location.pathname === path;
 
   const handleLogout = async () => {
+    if (!(await confirmNavigation())) return;
     setShowProfileMenu(false);
     try {
       await logout();
     } finally {
       navigate("/login", { replace: true });
     }
+  };
+
+  // Confirms with any registered page guard (e.g. an unfinished status-change upload)
+  // before following a nav link, instead of silently discarding unsaved work.
+  const guardedNavigate = async (e, path, afterConfirm) => {
+    e.preventDefault();
+    if (!(await confirmNavigation())) return;
+    afterConfirm?.();
+    navigate(path);
   };
 
   return (
@@ -114,6 +125,7 @@ const TopNavLayout = ({ children, userRole }) => {
                   <Link
                     key={item.path}
                     to={item.path}
+                    onClick={(e) => guardedNavigate(e, item.path)}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       active
                         ? "bg-[#1877F2] text-white shadow-sm"
@@ -162,7 +174,7 @@ const TopNavLayout = ({ children, userRole }) => {
                       <Link
                         to={profilePath}
                         className="flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-gray-700 transition-colors"
-                        onClick={() => setShowProfileMenu(false)}
+                        onClick={(e) => guardedNavigate(e, profilePath, () => setShowProfileMenu(false))}
                       >
                         <MdAccountCircle className="w-4 h-4 text-blue-600" />
                         <span className="text-sm font-medium">Profile</span>
@@ -205,7 +217,7 @@ const TopNavLayout = ({ children, userRole }) => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={(e) => guardedNavigate(e, item.path, () => setMobileMenuOpen(false))}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     active
                       ? "bg-[#1877F2] text-white"

@@ -21,7 +21,19 @@ return Application::configure(basePath: dirname(__DIR__))
         // a controlled Nginx proxy on the same server.
         $middleware->trustProxies(at: '*');
 
-        $middleware->appendToGroup('api', \App\Http\Middleware\ApiMaintenanceMode::class);
+        $middleware->appendToGroup('api', [
+            \App\Http\Middleware\TokenFromCookie::class,
+            \App\Http\Middleware\ApiMaintenanceMode::class,
+        ]);
+
+        // Laravel's middleware priority sorter otherwise runs the route's
+        // auth:sanctum check before this (unprioritized) middleware gets a
+        // chance to turn the digicur_token cookie into an Authorization
+        // header, so every cookie-authenticated request 401s.
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\TokenFromCookie::class,
+        );
 
         $middleware->alias([
             'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,

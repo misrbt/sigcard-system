@@ -11,6 +11,7 @@ import logo from "../../assets/images/logos.png";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_LABELS } from "../../constants/roles";
 import { useAppConfig } from "../../context/AppConfigContext";
+import { confirmNavigation } from "../../utils/navigationGuard";
 
 const defaultNavLinks = [
   { to: "/user/dashboard", label: "Home",              permission: null },
@@ -50,11 +51,21 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
   }, []);
 
   const handleLogout = async () => {
+    if (!(await confirmNavigation())) return;
     try {
       await logout();
     } finally {
       navigate("/login", { replace: true });
     }
+  };
+
+  // Confirms with any registered page guard (e.g. an unfinished status-change upload)
+  // before following a nav link, instead of silently discarding unsaved work.
+  const guardedNavigate = async (e, to, afterConfirm) => {
+    e.preventDefault();
+    if (!(await confirmNavigation())) return;
+    afterConfirm?.();
+    navigate(to);
   };
 
   return (
@@ -65,6 +76,7 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
             {/* Logo Section */}
             <Link
               to="/user/dashboard"
+              onClick={(e) => guardedNavigate(e, "/user/dashboard")}
               className="flex items-center gap-4 transition-transform hover:scale-105"
             >
               <img src={logoSrc} alt={`${app_abbreviation} Logo`} className="w-auto h-10" />
@@ -77,12 +89,13 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
             </Link>
 
             {/* Desktop Navigation Links */}
-            <div className="items-center hidden gap-8 lg:flex">
+            <div className="items-center hidden gap-6 lg:flex">
               {visibleLinks.map((link) => (
                 <Link
                   key={link.to}
                   to={link.to}
-                  className="relative text-xl font-medium text-white/80 transition-colors hover:text-white after:absolute after:bottom-[-4px] after:left-0 after:h-0.5 after:w-0 after:bg-white after:transition-all hover:after:w-full"
+                  onClick={(e) => guardedNavigate(e, link.to)}
+                  className="relative text-lg font-medium text-white/80 transition-colors hover:text-white after:absolute after:bottom-[-4px] after:left-0 after:h-0.5 after:w-0 after:bg-white after:transition-all hover:after:w-full"
                 >
                   {link.label}
                 </Link>
@@ -164,7 +177,7 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
                       <div className="p-2">
                         <Link
                           to="/user/profile"
-                          onClick={() => setIsProfileOpen(false)}
+                          onClick={(e) => guardedNavigate(e, "/user/profile", () => setIsProfileOpen(false))}
                           className="flex items-center gap-3 px-4 py-3 transition-colors rounded-xl text-slate-700 hover:bg-slate-50"
                         >
                           <HiOutlineUser className="w-5 h-5 text-slate-500" />
@@ -216,7 +229,7 @@ const Navbar = ({ navLinks = defaultNavLinks }) => {
                     <Link
                       key={link.to}
                       to={link.to}
-                      onClick={() => setIsMobileMenuOpen(false)}
+                      onClick={(e) => guardedNavigate(e, link.to, () => setIsMobileMenuOpen(false))}
                       className="block px-4 py-3 text-base font-medium transition-colors rounded-lg text-white/80 hover:bg-white/10 hover:text-white"
                     >
                       {link.label}

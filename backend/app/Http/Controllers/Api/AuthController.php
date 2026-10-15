@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,14 +26,59 @@ class AuthController extends Controller
     ) {}
 
     /**
+     * Attach the bearer token as an httpOnly cookie instead of returning it
+     * in the JSON body — keeps it out of JavaScript-accessible storage.
+     */
+    private function attachTokenCookie(JsonResponse $response, ?string $token, ?int $minutes = null): JsonResponse
+    {
+        if (! $token) {
+            return $response;
+        }
+
+        $minutes ??= (int) config('sanctum.expiration', 30);
+
+        return $response->cookie(
+            'digicur_token',
+            $token,
+            $minutes,
+            '/',
+            null,
+            ! app()->environment(['local', 'testing']),
+            true,
+            true,
+            'Strict'
+        );
+    }
+
+    /**
+     * Clear the auth cookie (logout).
+     */
+    private function clearTokenCookie(JsonResponse $response): JsonResponse
+    {
+        return $response->cookie(
+            'digicur_token',
+            null,
+            -1,
+            '/',
+            null,
+            ! app()->environment(['local', 'testing']),
+            true,
+            true,
+            'Strict'
+        );
+    }
+
+    /**
      * Authenticate user with BSP compliance
      */
     public function login(Request $request): JsonResponse
     {
         try {
             $result = $this->bspAuthService->authenticate($request);
+            $token = $result['token'] ?? null;
+            unset($result['token']);
 
-            return response()->json([
+            $response = response()->json([
                 'success' => true,
                 'message' => 'Authentication successful',
                 'data' => $result,
@@ -43,6 +89,8 @@ class AuthController extends Controller
                     'risk_assessment_passed' => true,
                 ],
             ], 200);
+
+            return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
 
         } catch (ValidationException $e) {
             return response()->json([
@@ -103,13 +151,17 @@ class AuthController extends Controller
         Cache::forget("temp_2fa_token_{$request->temporary_token}");
 
         $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Two-factor authentication successful.',
             'data' => $result,
             'bsp_compliance' => ['mfa_verified' => true, 'audit_logged' => true],
         ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
     }
 
     /**
@@ -157,13 +209,190 @@ class AuthController extends Controller
         activity()->causedBy($user)->log('Two-factor authentication enrolled (system-required)');
 
         $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Two-factor authentication enrolled. Welcome!',
             'data' => $result,
             'bsp_compliance' => ['mfa_enrolled' => true, 'mfa_verified' => true, 'audit_logged' => true],
         ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
+    }
+
+    /**
+     * Complete a forced password change (step 2 for 'password_change_required').
+     * Runs before any 2FA step so a user is never asked to bind an
+     * authenticator app to a password they're about to replace.
+     */
+    public function forcePasswordChange(Request $request): JsonResponse
+    {
+        $request->validate([
+            'temporary_token' => 'required|string',
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|confirmed',
+        ]);
+
+        $user = $this->bspAuthService->resolveForcePasswordChangeToken($request->temporary_token);
+
+        if (! $user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification session expired. Please log in again.',
+                'errors' => ['temporary_token' => ['Session expired.']],
+            ], 422);
+        }
+
+        if (! Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Current password is incorrect',
+                'errors' => ['current_password' => ['Current password is incorrect']],
+            ], 422);
+        }
+
+        $passwordErrors = $this->bspAuthService->validatePasswordComplexity($request->new_password);
+        if (! empty($passwordErrors)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'New password does not meet BSP complexity requirements',
+                'errors' => ['new_password' => $passwordErrors],
+                'bsp_compliance' => ['password_policy_enforced' => true],
+            ], 422);
+        }
+
+        if (Hash::check($request->new_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'New password must be different from current password',
+                'errors' => ['new_password' => ['New password must be different from current password']],
+            ], 422);
+        }
+
+        $result = $this->bspAuthService->completeForcedPasswordChange(
+            $user,
+            $request->temporary_token,
+            $request->new_password,
+            $request
+        );
+        $token = $result['token'] ?? null;
+        unset($result['token']);
+
+        activity()->causedBy($user)->log('Password changed (forced, before 2FA)');
+
+        $response = response()->json([
+            'success' => true,
+            'message' => 'Password updated successfully.',
+            'data' => $result,
+            'bsp_compliance' => ['audit_logged' => true, 'password_policy_enforced' => true],
+        ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
+    }
+
+    /**
+     * Complete login for a user who was shown a fresh recovery code
+     * (step 2 for 'recovery_code_issued'). No code re-entry needed —
+     * this just confirms they acknowledged saving it.
+     */
+    public function confirmRecoveryCode(Request $request): JsonResponse
+    {
+        $request->validate([
+            'temporary_token' => 'required|string',
+        ]);
+
+        $userId = Cache::get("confirm_recovery_token_{$request->temporary_token}");
+
+        if (! $userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification session expired. Please log in again.',
+                'errors' => ['temporary_token' => ['Session expired.']],
+            ], 422);
+        }
+
+        $user = User::find($userId);
+
+        if (! $user) {
+            return response()->json(['success' => false, 'message' => 'User not found.'], 422);
+        }
+
+        Cache::forget("confirm_recovery_token_{$request->temporary_token}");
+        Cache::forget("pending_recovery_code_{$user->id}");
+
+        activity()->causedBy($user)->log('Recovery code acknowledged by user');
+
+        $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
+
+        $response = response()->json([
+            'success' => true,
+            'message' => 'Recovery code saved. Welcome!',
+            'data' => $result,
+            'bsp_compliance' => ['audit_logged' => true],
+        ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
+    }
+
+    /**
+     * Complete login for a user entering their recovery code
+     * (step 2 for 'recovery_code_required').
+     */
+    public function verifyRecoveryCode(Request $request): JsonResponse
+    {
+        $request->validate([
+            'temporary_token' => 'required|string',
+            'recovery_code' => 'required|string',
+        ]);
+
+        $userId = Cache::get("verify_recovery_token_{$request->temporary_token}");
+
+        if (! $userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification session expired. Please log in again.',
+                'errors' => ['temporary_token' => ['Session expired.']],
+            ], 422);
+        }
+
+        $user = User::find($userId);
+
+        if (! $user || ! $user->recovery_code_hash) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Recovery code is not configured for this account.',
+            ], 422);
+        }
+
+        if (! Hash::check($request->recovery_code, $user->recovery_code_hash)) {
+            $user->incrementFailedLoginAttempts();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid recovery code.',
+                'errors' => ['recovery_code' => ['Invalid recovery code.']],
+                'bsp_compliance' => ['mfa_failed' => true, 'audit_logged' => true],
+            ], 422);
+        }
+
+        Cache::forget("verify_recovery_token_{$request->temporary_token}");
+
+        $result = $this->bspAuthService->completeAuthentication($user, $request);
+        $token = $result['token'] ?? null;
+        unset($result['token']);
+
+        $response = response()->json([
+            'success' => true,
+            'message' => 'Signed in successfully.',
+            'data' => $result,
+            'bsp_compliance' => ['mfa_verified' => true, 'audit_logged' => true],
+        ], 200);
+
+        return $this->attachTokenCookie($response, $token, $result['session_timeout'] ?? null);
     }
 
     /**
@@ -177,7 +406,7 @@ class AuthController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:12',
+            'password' => 'required|string|min:8',
             'employee_id' => 'required|string|unique:users',
             'department' => 'required|string',
             'branch_code' => 'required|string',
@@ -298,7 +527,7 @@ class AuthController extends Controller
     {
         $this->bspAuthService->logout($request);
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'message' => 'Logged out successfully',
             'bsp_compliance' => [
@@ -307,6 +536,8 @@ class AuthController extends Controller
                 'audit_logged' => true,
             ],
         ]);
+
+        return $this->clearTokenCookie($response);
     }
 
     /**
@@ -316,7 +547,12 @@ class AuthController extends Controller
     {
         $request->validate([
             'current_password' => 'required|string',
-            'new_password' => 'required|string|min:6|confirmed',
+            'new_password' => [
+                'required',
+                'string',
+                'confirmed',
+                Password::min(8)->letters()->mixedCase()->numbers()->symbols()->uncompromised(),
+            ],
         ]);
 
         $user = $request->user();
@@ -518,6 +754,7 @@ class AuthController extends Controller
     public function refreshToken(Request $request): JsonResponse
     {
         $user = $request->user();
+        $minutes = (int) config('sanctum.expiration', 30);
 
         // Revoke current token
         $request->user()->currentAccessToken()->delete();
@@ -526,24 +763,25 @@ class AuthController extends Controller
         $token = $user->createToken(
             'auth-token',
             ['*'],
-            now()->addMinutes((int) config('sanctum.expiration', 30))
+            now()->addMinutes($minutes)
         );
 
         $user->update([
-            'session_expires_at' => now()->addMinutes((int) config('sanctum.expiration', 30)),
+            'session_expires_at' => now()->addMinutes($minutes),
         ]);
 
         activity()
             ->causedBy($user)
             ->log('Token refreshed');
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'data' => [
-                'token' => $token->plainTextToken,
                 'expires_at' => $token->accessToken->expires_at,
             ],
         ]);
+
+        return $this->attachTokenCookie($response, $token->plainTextToken, $minutes);
     }
 
     /**

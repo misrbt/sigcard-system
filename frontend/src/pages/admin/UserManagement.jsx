@@ -8,6 +8,7 @@ import {
   MdBuild, MdDevices, MdLogout, MdWarning, MdInfo,
   MdAccessTime, MdComputer, MdVpnKey, MdKey, MdShield,
   MdWifi, MdCircle, MdPhoneAndroid, MdPhonelinkErase,
+  MdGppGood, MdGppBad,
 } from 'react-icons/md';
 import { FaUserShield } from 'react-icons/fa';
 import { adminService } from '../../services/adminService';
@@ -20,7 +21,7 @@ import Button from '../../components/ui/Button';
 // ── UserForm (unchanged) ──────────────────────────────────────────────────────
 const UserForm = ({
   isEdit, formData, formErrors, handleFormChange,
-  handleRoleChange, setFormData, branches, roles, userStatuses, submitting, onCancel, onSubmit,
+  handleRoleChange, branches, roles, userStatuses, submitting, onCancel, onSubmit,
 }) => (
   <div className="space-y-5">
     {formErrors.general && (
@@ -49,13 +50,6 @@ const UserForm = ({
         {roles.map((role) => <option key={role.id} value={role.name}>{role.name}</option>)}
       </select>
     </div>
-    <label className="flex items-center gap-3 cursor-pointer select-none">
-      <div className={`relative w-10 h-6 rounded-full transition-colors ${formData.two_factor_enabled ? 'bg-[#1877F2]' : 'bg-gray-300'}`}
-        onClick={() => setFormData((prev) => ({ ...prev, two_factor_enabled: !prev.two_factor_enabled }))}>
-        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${formData.two_factor_enabled ? 'translate-x-5' : 'translate-x-1'}`} />
-      </div>
-      <span className="text-base text-gray-700 font-medium">Enable Two-Factor Authentication</span>
-    </label>
     <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
       <Button variant="outline" onClick={onCancel}>Cancel</Button>
       <Button variant="primary" onClick={onSubmit} loading={submitting}>{isEdit ? 'Update User' : 'Create User'}</Button>
@@ -497,7 +491,7 @@ const LoginTroubleshooterModal = ({ user, onClose, onRefreshList }) => {
 const EMPTY_FORM = {
   firstname: '', lastname: '', username: '', email: '',
   branch_id: '', status: 'active', roles: [],
-  two_factor_enabled: false, account_expires_at: '',
+  account_expires_at: '',
 };
 
 const PER_PAGE_OPTIONS = [10, 15, 25, 50, 100];
@@ -679,7 +673,6 @@ const UserManagement = () => {
       username: user.username || '', email: user.email || '',
       branch_id: user.branch_id || '', status: user.status || 'active',
       roles: user.roles?.map((r) => r.name) || [],
-      two_factor_enabled: user.two_factor_enabled || false,
       account_expires_at: user.account_expires_at ? user.account_expires_at.substring(0, 10) : '',
     });
     setFormErrors({});
@@ -766,6 +759,50 @@ const UserManagement = () => {
     }
   };
 
+  const handleToggleRequire2FA = async (user) => {
+    const isRequired = user.require_two_factor;
+    const result = await Swal.fire({
+      icon: 'warning',
+      title: isRequired ? 'Exempt From 2FA?' : 'Require 2FA?',
+      html: isRequired
+        ? `<p>${user.firstname} ${user.lastname} will no longer need an authenticator app. A recovery code will be shown to them once at their next login — they'll use it in place of an authenticator code from now on.</p>`
+        : `<p>${user.firstname} ${user.lastname} will need to set up an authenticator app at their next login.</p>`,
+      showCancelButton: true,
+      confirmButtonColor: isRequired ? '#ef4444' : '#1877F2',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: isRequired ? 'Exempt' : 'Require',
+    });
+    if (!result.isConfirmed) return;
+    try {
+      isRequired
+        ? await adminService.disableTwoFactorRequirement(user.id)
+        : await adminService.requireTwoFactor(user.id);
+      fetchUsers(currentPage);
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Failed', text: err.response?.data?.message || 'Could not update 2FA requirement.', confirmButtonColor: '#1877F2' });
+    }
+  };
+
+  const handleRegenerateRecoveryCode = async (user) => {
+    const result = await Swal.fire({
+      icon: 'warning',
+      title: 'Regenerate Recovery Code?',
+      html: `<p>The current recovery code for ${user.firstname} ${user.lastname} will stop working. A new one will be shown to them at their next login.</p>`,
+      showCancelButton: true,
+      confirmButtonColor: '#1877F2',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Regenerate',
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await adminService.disableTwoFactorRequirement(user.id);
+      fetchUsers(currentPage);
+      Swal.fire({ icon: 'success', title: 'Recovery Code Regenerated', text: `A new code will be shown to ${user.firstname} at their next login.`, confirmButtonColor: '#1877F2', timer: 4000, timerProgressBar: true });
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Failed', text: err.response?.data?.message || 'Could not regenerate the recovery code.', confirmButtonColor: '#1877F2' });
+    }
+  };
+
   const handleUnlock = async (user) => {
     try {
       await adminService.unlockUser(user.id);
@@ -826,7 +863,7 @@ const UserManagement = () => {
 
   const onlineUserIds = useMemo(() => new Set(onlineUsers.map((u) => u.id)), [onlineUsers]);
 
-  const sharedFormProps = { formData, formErrors, handleFormChange, handleRoleChange, setFormData, branches, roles, userStatuses: appConfig.user_statuses, submitting };
+  const sharedFormProps = { formData, formErrors, handleFormChange, handleRoleChange, branches, roles, userStatuses: appConfig.user_statuses, submitting };
 
   const SORT_COL = { name: 'firstname', email: 'email', status: 'status', joined: 'created_at' };
 
@@ -1140,6 +1177,17 @@ const UserManagement = () => {
                               2FA Off
                             </span>
                           )}
+                          {user.require_two_factor ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 w-fit">
+                              <MdGppGood className="w-2.5 h-2.5" />
+                              2FA Required
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 w-fit">
+                              <MdKey className="w-2.5 h-2.5" />
+                              Recovery Code
+                            </span>
+                          )}
                           {user.active_tokens_count > 0 ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 w-fit">
                               <MdDevices className="w-2.5 h-2.5" />
@@ -1180,6 +1228,22 @@ const UserManagement = () => {
                               ? <MdToggleOn  className="w-5 h-5 text-emerald-500" />
                               : <MdToggleOff className="w-5 h-5" />}
                           </button>
+                          <button
+                            onClick={() => handleToggleRequire2FA(user)}
+                            className={`p-1.5 rounded-lg transition-colors ${user.require_two_factor ? 'text-emerald-500 hover:bg-emerald-50' : 'text-amber-500 hover:bg-amber-50'}`}
+                            title={user.require_two_factor ? '2FA Required — click to exempt (issues a recovery code)' : 'Recovery Code — click to require an authenticator app'}
+                          >
+                            {user.require_two_factor ? <MdGppGood className="w-4 h-4" /> : <MdGppBad className="w-4 h-4" />}
+                          </button>
+                          {!user.require_two_factor && (
+                            <button
+                              onClick={() => handleRegenerateRecoveryCode(user)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                              title="Regenerate Recovery Code"
+                            >
+                              <MdRefresh className="w-4 h-4" />
+                            </button>
+                          )}
                           {isLocked && (
                             <button onClick={() => handleUnlock(user)} className="p-1.5 rounded-lg text-yellow-600 hover:bg-yellow-50 transition-colors" title="Unlock">
                               <MdLockOpen className="w-4 h-4" />

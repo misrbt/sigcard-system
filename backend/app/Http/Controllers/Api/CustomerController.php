@@ -4,14 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AddCustomerAccountRequest;
+use App\Http\Requests\CheckCustomerNameRequest;
 use App\Http\Requests\StoreCustomerRequest;
 use App\Http\Requests\UpdateCustomerRequest;
+use App\Models\BranchDataShare;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDocument;
 use App\Models\CustomerHolder;
+use App\Models\User;
 use App\Services\ThumbmarkSearchService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
@@ -33,30 +38,7 @@ class CustomerController extends Controller
         $query = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts']);
         $authUser = Auth::user();
 
-        // Users see only their own branch.
-        // Cashiers and managers see their own branch plus any branch lite children.
-        // Admins see all branches unless they explicitly filter.
-        if ($authUser->hasRole('user')) {
-            $query->where('branch_id', $authUser->branch_id);
-        } elseif ($authUser->hasAnyRole(['cashier', 'manager'])) {
-            $branch = $authUser->branch()->with('children')->first();
-            $branchIds = collect([$authUser->branch_id]);
-
-            if ($branch) {
-                $branchIds = $branchIds->merge($branch->children->pluck('id'));
-            }
-
-            $allBranchIds = $branchIds->unique()->values();
-
-            // Allow filtering to a specific branch within the cashier/manager's scope
-            if ($request->has('branch_id') && $allBranchIds->contains((int) $request->branch_id)) {
-                $query->where('branch_id', $request->branch_id);
-            } else {
-                $query->whereIn('branch_id', $allBranchIds);
-            }
-        } elseif ($request->has('branch_id')) {
-            $query->where('branch_id', $request->branch_id);
-        }
+        $this->applyBranchScope($query, $request, $authUser);
 
         if ($request->has('status')) {
             $query->where('status', $request->status);
@@ -81,7 +63,28 @@ class CustomerController extends Controller
             });
         }
 
+        $dateColumn = match ($request->date_field) {
+            'uploaded' => 'created_at',
+            'opened' => 'date_opened',
+            'status' => 'status_updated_at',
+            default => null,
+        };
+
+        if ($dateColumn && $request->filled('month')) {
+            $month = \Carbon\Carbon::parse($request->month.'-01');
+            $query->whereYear($dateColumn, $month->year)->whereMonth($dateColumn, $month->month);
+        } elseif ($dateColumn && ($request->filled('date_from') || $request->filled('date_to'))) {
+            if ($request->filled('date_from')) {
+                $query->whereDate($dateColumn, '>=', $request->date_from);
+            }
+            if ($request->filled('date_to')) {
+                $query->whereDate($dateColumn, '<=', $request->date_to);
+            }
+        }
+
         $customers = $query->latest('updated_at')->paginate($request->get('per_page', 15));
+
+        $this->annotateSharedCustomers($customers->getCollection(), $authUser);
 
         return response()->json($customers);
     }
@@ -201,6 +204,127 @@ class CustomerController extends Controller
         }
     }
 
+    /**
+     * Restrict a customer query to the branches the authenticated user is allowed to see.
+     *
+     * Users see only their own branch. Cashiers and managers see their own branch plus
+     * any branch lite children. Admins/compliance/audit see all branches unless they
+     * explicitly filter.
+     */
+    private function applyBranchScope(Builder $query, Request $request, User $authUser): void
+    {
+        if ($authUser->hasRole('user')) {
+            BranchDataShare::applyVisibility($query, [$authUser->branch_id]);
+        } elseif ($authUser->hasAnyRole(['cashier', 'manager'])) {
+            $allBranchIds = $this->ownBranchIds($authUser);
+
+            // Allow filtering to a specific branch within the cashier/manager's scope
+            if ($request->has('branch_id') && $allBranchIds->contains((int) $request->branch_id)) {
+                $query->where('branch_id', $request->branch_id);
+            } else {
+                BranchDataShare::applyVisibility($query, $allBranchIds);
+            }
+        } elseif ($request->has('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+    }
+
+    /**
+     * Branches whose customers a user owns outright: users see their own branch,
+     * cashiers and managers also see their branch lite children. Null means the
+     * role is not branch-restricted (admin, compliance, audit).
+     *
+     * @return Collection<int, int>|null
+     */
+    private function ownBranchIds(User $authUser): ?Collection
+    {
+        if ($authUser->hasRole('user')) {
+            return collect([$authUser->branch_id]);
+        }
+
+        if ($authUser->hasAnyRole(['cashier', 'manager'])) {
+            $branch = $authUser->branch()->with('children')->first();
+            $branchIds = collect([$authUser->branch_id]);
+
+            if ($branch) {
+                $branchIds = $branchIds->merge($branch->children->pluck('id'));
+            }
+
+            return $branchIds->unique()->values();
+        }
+
+        return null;
+    }
+
+    /**
+     * Mark customers that reached this viewer through a branch data share and, when the
+     * share excludes documents, hide their uploaded images/documents.
+     *
+     * @param  iterable<Customer>  $customers
+     */
+    private function annotateSharedCustomers(iterable $customers, User $authUser): void
+    {
+        $ownBranchIds = $this->ownBranchIds($authUser);
+
+        if ($ownBranchIds === null) {
+            return;
+        }
+
+        $shares = BranchDataShare::activeForTargets($ownBranchIds);
+
+        foreach ($customers as $customer) {
+            if ($ownBranchIds->contains((int) $customer->branch_id)) {
+                continue;
+            }
+
+            $share = $shares->first(fn (BranchDataShare $s) => $s->covers($customer));
+
+            if (! $share) {
+                continue;
+            }
+
+            $customer->setAttribute('is_shared', true);
+            $customer->setAttribute('shared_from_branch', $share->sourceBranch?->branch_name);
+
+            if (! $share->include_documents) {
+                $customer->setRelation('documents', collect());
+            }
+        }
+    }
+
+    /**
+     * GET /api/customers/check-name
+     *
+     * Live duplicate-name check used by the Upload Signature Card wizard: while staff
+     * type a customer's name, flag whether a customer (or joint/corporate co-signatory)
+     * with the same first + last name already exists, so the same person isn't
+     * enrolled twice under a new sigcard record.
+     */
+    public function checkDuplicateName(CheckCustomerNameRequest $request): JsonResponse
+    {
+        $this->authorize('view-customers');
+
+        $firstname = Str::lower(trim($request->firstname));
+        $lastname = Str::lower(trim($request->lastname));
+
+        $query = Customer::query();
+        $this->applyBranchScope($query, $request, Auth::user());
+
+        $query->where(function (Builder $q) use ($firstname, $lastname) {
+            $q->where(function (Builder $nameQuery) use ($firstname, $lastname) {
+                $nameQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
+                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
+            })->orWhereHas('holders', function (Builder $holderQuery) use ($firstname, $lastname) {
+                $holderQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
+                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
+            });
+        });
+
+        return response()->json([
+            'exists' => $query->exists(),
+        ]);
+    }
+
     public function show(Customer $customer): JsonResponse
     {
         $this->authorize('view-customers');
@@ -216,7 +340,11 @@ class CustomerController extends Controller
             ])
             ->log('Customer sigcard record viewed');
 
-        return response()->json($customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']));
+        $customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']);
+
+        $this->annotateSharedCustomers([$customer], Auth::user());
+
+        return response()->json($customer);
     }
 
     public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
@@ -440,7 +568,11 @@ class CustomerController extends Controller
             ])
             ->log('Customer documents viewed');
 
-        return response()->json($customer->documents()->orderBy('person_index')->get());
+        $customer->setRelation('documents', $customer->documents()->orderBy('person_index')->get());
+
+        $this->annotateSharedCustomers([$customer], Auth::user());
+
+        return response()->json($customer->documents->values());
     }
 
     public function history(Customer $customer): JsonResponse
@@ -694,15 +826,22 @@ class CustomerController extends Controller
                 $versionedName = $baseName.'_v'.now()->format('Ymd_His').'.jpg';
                 $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
 
-                if (Storage::disk('public')->exists($existing->file_path)) {
-                    Storage::disk('public')->move($existing->file_path, $versionedPath);
-                }
+                $moved = Storage::disk('public')->exists($existing->file_path)
+                    && Storage::disk('public')->move($existing->file_path, $versionedPath);
 
                 $existing->update([
                     'is_current' => false,
-                    'file_path' => $versionedPath,
-                    'file_name' => $versionedName,
+                    'file_path' => $moved ? $versionedPath : $existing->file_path,
+                    'file_name' => $moved ? $versionedName : $existing->file_name,
                 ]);
+
+                if (! $moved) {
+                    Log::warning('replaceDocument: archive move skipped, old file missing at expected path', [
+                        'customer_id' => $customer->id,
+                        'document_id' => $existing->id,
+                        'expected_path' => $existing->getOriginal('file_path'),
+                    ]);
+                }
 
                 // Demote any other stale is_current duplicates for the same
                 // type + person_index (guards against prior data inconsistency).
@@ -1095,11 +1234,19 @@ class CustomerController extends Controller
                 : $index + 1;
 
             if (! empty($pair['front'])) {
-                $this->uploadDocument($customer, $pair['front'], $frontType, $personIndex, $accountStatus, $statusLogId);
+                $frontFiles = is_array($pair['front']) ? $pair['front'] : [$pair['front']];
+                $frontTotal = count($frontFiles);
+                foreach (array_values($frontFiles) as $i => $frontFile) {
+                    $this->uploadDocument($customer, $frontFile, $frontType, $personIndex, $accountStatus, $statusLogId, $i + 1, $frontTotal);
+                }
             }
 
             if (! empty($pair['back'])) {
-                $this->uploadDocument($customer, $pair['back'], $backType, $personIndex, $accountStatus, $statusLogId);
+                $backFiles = is_array($pair['back']) ? $pair['back'] : [$pair['back']];
+                $backTotal = count($backFiles);
+                foreach (array_values($backFiles) as $i => $backFile) {
+                    $this->uploadDocument($customer, $backFile, $backType, $personIndex, $accountStatus, $statusLogId, $i + 1, $backTotal);
+                }
             }
         }
     }
@@ -1126,7 +1273,9 @@ class CustomerController extends Controller
         string $documentType,
         int $personIndex,
         ?string $accountStatus = null,
-        ?int $statusLogId = null
+        ?int $statusLogId = null,
+        int $sequence = 1,
+        int $total = 1
     ): CustomerDocument {
         // ── Optimise image ───────────────────────────────────────────────────
         $image = $this->imageManager()->read($file->getRealPath());
@@ -1143,7 +1292,7 @@ class CustomerController extends Controller
         if ($accountStatus) {
             $directory .= '/'.$this->sanitizeName(strtoupper($accountStatus));
         }
-        $filename = $this->buildFilename($documentType, $personIndex, $file);
+        $filename = $this->buildFilename($documentType, $personIndex, $file, $sequence, $total);
         $path = "{$directory}/{$filename}";
 
         Storage::disk('public')->put($path, (string) $encoded);
@@ -1242,7 +1391,7 @@ class CustomerController extends Controller
      * For joint/multi-person accounts, person index > 1 is appended.
      * Other documents keep their original sanitised name with a UUID suffix.
      */
-    private function buildFilename(string $documentType, int $personIndex, UploadedFile $file): string
+    private function buildFilename(string $documentType, int $personIndex, UploadedFile $file, int $sequence = 1, int $total = 1): string
     {
         $nameMap = [
             'sigcard_front' => 'SIGCARD - FRONT',
@@ -1255,9 +1404,10 @@ class CustomerController extends Controller
 
         if (isset($nameMap[$documentType])) {
             $base = $nameMap[$documentType];
-            $suffix = $personIndex > 1 ? " - PERSON {$personIndex}" : '';
+            $personSuffix = $personIndex > 1 ? " - PERSON {$personIndex}" : '';
+            $sequenceSuffix = $total > 1 ? " ({$sequence})" : '';
 
-            return $base.$suffix.'.jpg';
+            return $base.$personSuffix.$sequenceSuffix.'.jpg';
         }
 
         // Other documents — keep original name, add UUID to avoid collisions.
@@ -1318,15 +1468,22 @@ class CustomerController extends Controller
             $versionedName = $pathInfo['filename'].'_v'.now()->format('Ymd_His').'.jpg';
             $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
 
-            if (Storage::disk('public')->exists($doc->file_path)) {
-                Storage::disk('public')->move($doc->file_path, $versionedPath);
-            }
+            $moved = Storage::disk('public')->exists($doc->file_path)
+                && Storage::disk('public')->move($doc->file_path, $versionedPath);
 
             $doc->update([
                 'is_current' => false,
-                'file_path' => $versionedPath,
-                'file_name' => $versionedName,
+                'file_path' => $moved ? $versionedPath : $doc->file_path,
+                'file_name' => $moved ? $versionedName : $doc->file_name,
             ]);
+
+            if (! $moved) {
+                Log::warning('archiveAndReplaceDocGroup: archive move skipped, old file missing at expected path', [
+                    'customer_id' => $customer->id,
+                    'document_id' => $doc->id,
+                    'expected_path' => $doc->getOriginal('file_path'),
+                ]);
+            }
 
             activity()
                 ->causedBy(Auth::user())

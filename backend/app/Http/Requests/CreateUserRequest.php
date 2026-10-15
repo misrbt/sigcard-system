@@ -26,7 +26,6 @@ class CreateUserRequest extends FormRequest
             'status' => ['required', 'in:active,inactive,suspended'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['exists:roles,name'],
-            'two_factor_enabled' => ['boolean'],
             'account_expires_at' => ['nullable', 'date', 'after:today'],
         ];
     }

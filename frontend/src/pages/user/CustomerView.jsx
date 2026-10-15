@@ -28,6 +28,14 @@ import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
+import { setNavigationGuard } from "../../utils/navigationGuard";
+import {
+  getPendingStatusChange,
+  savePendingStatusChange,
+  clearPendingStatusChange,
+  markUploadResolved,
+  isUploadResolved,
+} from "../../utils/pendingStatusStorage";
 
 // ── Helpers / constants ───────────────────────────────────────────────────────
 const storageUrl = (path) => {
@@ -49,8 +57,8 @@ const UPLOAD_TYPE_MAP = {
 };
 
 const docLabel = {
-  sigcard_front:  "Sigcard Front",
-  sigcard_back:   "Sigcard Back",
+  sigcard_front:  "SIGCARD",
+  sigcard_back:   "Risk Profiling",
   nais_front:     "NAIS Front",
   nais_back:      "NAIS Back",
   privacy_front:  "Data Privacy Front",
@@ -232,7 +240,7 @@ const HIST_STATUS_COLORS = {
 };
 
 const HIST_DOC_LABELS = {
-  sigcard_front: "Sigcard Front", sigcard_back: "Sigcard Back",
+  sigcard_front: "SIGCARD", sigcard_back: "Risk Profiling",
   nais_front: "NAIS Front", nais_back: "NAIS Back",
   privacy_front: "Data Privacy Front", privacy_back: "Data Privacy Back",
   other: "Other Document",
@@ -753,8 +761,19 @@ const CustomerView = ({ basePath = '/user' }) => {
   const pendingStatusDateParam = searchParams.get("pendingStatusDate");
   const pendingAcctIdParam   = searchParams.get("pendingAcctId");
 
+  // A stale "back button" history entry can still carry the old upload/pendingStatus
+  // params after that same change was already saved or cancelled — ignore it rather
+  // than reopening a finished panel.
+  const isStaleResolvedUpload = !!(pendingStatusParam && uploadParam) && isUploadResolved(id);
+
   // True when the status change hasn't been saved yet — upload commits everything atomically
-  const isPendingUpload = !!(pendingStatusParam && uploadParam);
+  const isPendingUpload = !!(pendingStatusParam && uploadParam) && !isStaleResolvedUpload;
+
+  // Scrub the stale params from the URL so refreshing or navigating from here doesn't
+  // keep re-triggering this check.
+  useEffect(() => {
+    if (isStaleResolvedUpload) setSearchParams({}, { replace: true });
+  }, [isStaleResolvedUpload, setSearchParams]);
 
   // Unified display values (pending takes precedence over legacy saved)
   const activeStatusParam   = pendingStatusParam ?? newStatusParam;
@@ -765,17 +784,20 @@ const CustomerView = ({ basePath = '/user' }) => {
     : null;
   const privacyNotRequired = activeStatusParam === "escheat" && escheatYear !== null && escheatYear <= 2021;
 
-  // Intercept the browser back button when a status change is pending (popstate works with BrowserRouter)
-  // Intercept the browser back button while a status change is pending.
-  // We capture the current URL so we can push back to it after the popstate fires.
+  // Intercept the browser back button while a status change is pending (popstate works with BrowserRouter).
+  //
+  // React Router keeps its own popstate listener (registered at app startup, so it always
+  // runs before ours) that re-renders to the previous route — and unmount tears our listener
+  // down — before our handler would get a chance to run. To avoid that race, we push a
+  // duplicate history entry up front: the first "back" press then lands on an identical URL,
+  // so React Router sees no location change and this component never unmounts, giving us a
+  // safe moment to confirm before actually leaving.
   useEffect(() => {
     if (!isPendingUpload) return;
 
-    const currentUrl = window.location.href;
+    window.history.pushState(null, "", window.location.href);
 
     const handlePopState = () => {
-      // The browser has already moved back — push this page's URL back to stay here
-      window.history.pushState(null, "", currentUrl);
       Swal.fire({
         icon: "warning",
         title: "Leave without uploading?",
@@ -788,9 +810,12 @@ const CustomerView = ({ basePath = '/user' }) => {
         reverseButtons: true,
       }).then((result) => {
         if (result.isConfirmed) {
-          // User chose to leave — remove guard and go back past the entry we re-pushed
+          // User chose to leave — remove the guard and go back past the buffer entry
           window.removeEventListener("popstate", handlePopState);
           window.history.back();
+        } else {
+          // Staying — re-arm the buffer so the next back press is caught too
+          window.history.pushState(null, "", window.location.href);
         }
       });
     };
@@ -798,6 +823,45 @@ const CustomerView = ({ basePath = '/user' }) => {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [isPendingUpload, pendingStatusParam]);
+
+  // Remember an in-progress status change on this device so it can be resumed later,
+  // even after the tab is closed or the user signs out.
+  useEffect(() => {
+    if (!isPendingUpload) return;
+    savePendingStatusChange(id, {
+      upload: uploadParam,
+      pendingStatus: pendingStatusParam,
+      pendingStatusDate: pendingStatusDateParam || undefined,
+      pendingAcctId: pendingAcctIdParam || undefined,
+    });
+  }, [id, isPendingUpload, uploadParam, pendingStatusParam, pendingStatusDateParam, pendingAcctIdParam]);
+
+  // Offer to resume an unfinished status change left over from a previous visit.
+  useEffect(() => {
+    if (uploadParam) return; // already viewing the upload panel — nothing to resume into
+    const pending = getPendingStatusChange(id);
+    if (!pending) return;
+
+    Swal.fire({
+      icon: "info",
+      title: "Unfinished status change",
+      html: `<p style="font-size:14px;color:#374151;">This customer has an unfinished status change to <strong style="text-transform:capitalize">${pending.pendingStatus}</strong> waiting on supporting documents.</p><p style="margin-top:8px;font-size:12px;color:#6b7280;">The status was never saved — resume the upload to finish it.</p>`,
+      showCancelButton: true,
+      confirmButtonText: "Resume Upload",
+      cancelButtonText: "Stay on this page",
+      confirmButtonColor: "#2563eb",
+      cancelButtonColor: "#6b7280",
+      reverseButtons: true,
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      const params = new URLSearchParams({ upload: pending.upload, pendingStatus: pending.pendingStatus });
+      if (pending.pendingStatusDate) params.set("pendingStatusDate", pending.pendingStatusDate);
+      if (pending.pendingAcctId) params.set("pendingAcctId", pending.pendingAcctId);
+      setSearchParams(params, { replace: true });
+    });
+    // Only re-check when navigating to a different customer or arriving fresh (no upload param).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, uploadParam]);
 
   const [activeAcctIdx, setActiveAcctIdx] = useState(1);
 
@@ -861,6 +925,35 @@ const CustomerView = ({ basePath = '/user' }) => {
     setPerPersonCorpBacks({});
   };
 
+  // Used by in-page navigation buttons (Edit Docs, Add Account) so they warn before
+  // leaving an unfinished status change, same as the browser back button does.
+  const confirmLeaveIfPending = async () => {
+    if (!isPendingUpload) return true;
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Leave without uploading?",
+      html: `<p style="font-size:14px;color:#374151;">The account status change to <strong style="text-transform:capitalize">${pendingStatusParam}</strong> will <strong>not be saved</strong> if you leave now.</p><p style="margin-top:8px;font-size:12px;color:#6b7280;">Stay on this page to finish uploading the supporting documents.</p>`,
+      showCancelButton: true,
+      confirmButtonText: "Leave anyway",
+      cancelButtonText: "Stay & upload",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#2563eb",
+      reverseButtons: true,
+    });
+    return result.isConfirmed;
+  };
+
+  // Let the nav bars (Home/Upload/Customer Profiles/Logout) ask before navigating away
+  // from an unfinished status change, same confirmation the back button uses. The ref
+  // keeps the registered guard pointed at the latest closure without re-registering it
+  // on every render.
+  const confirmLeaveIfPendingRef = useRef(confirmLeaveIfPending);
+  confirmLeaveIfPendingRef.current = confirmLeaveIfPending;
+  useEffect(() => {
+    setNavigationGuard(() => confirmLeaveIfPendingRef.current());
+    return () => setNavigationGuard(null);
+  }, []);
+
   const resetUploadPanel = async () => {
     if (isPendingUpload) {
       const result = await Swal.fire({
@@ -875,6 +968,8 @@ const CustomerView = ({ basePath = '/user' }) => {
         reverseButtons: true,
       });
       if (!result.isConfirmed) return;
+      clearPendingStatusChange(id);
+      markUploadResolved(id);
     }
     clearUploadPanel();
   };
@@ -890,7 +985,7 @@ const CustomerView = ({ basePath = '/user' }) => {
     const isCorpUpload   = acctType === "Corporate" && customer.corporate_sub_type !== "Sole Proprietorship";
 
     const hasFiles =
-      Object.values(docUploadFiles).some(Boolean)
+      Object.values(docUploadFiles).some((v) => (Array.isArray(v) ? v.length > 0 : Boolean(v)))
       || otherUploadFiles.length > 0
       || nonItfSigcardFront !== null
       || Object.values(perPersonSigcardBacks).some(Boolean)
@@ -937,18 +1032,24 @@ const CustomerView = ({ basePath = '/user' }) => {
               }
             });
         }
-        // NAIS + Privacy: simple front/back per account
-        for (const { key, pKey, frontKey, backKey } of [
-          { key: "nais",    pKey: "naisPairs",    frontKey: "nais_front",    backKey: "nais_back"    },
-          { key: "privacy", pKey: "privacyPairs", frontKey: "privacy_front", backKey: "privacy_back" },
-        ]) {
-          if (!uploadsSelected.includes(key)) continue;
-          const f = docUploadFiles[frontKey];
-          const b = docUploadFiles[backKey];
-          if (f || b) {
-            fd.append(`${pKey}[0][person_index]`, activeAcctIdx);
-            if (f) fd.append(`${pKey}[0][front]`, f);
-            if (b) fd.append(`${pKey}[0][back]`,  b);
+        // NAIS: multiple files per side
+        if (uploadsSelected.includes("nais")) {
+          const naisFronts = docUploadFiles["nais_front"] ?? [];
+          const naisBacks  = docUploadFiles["nais_back"]  ?? [];
+          if (naisFronts.length || naisBacks.length) {
+            fd.append("naisPairs[0][person_index]", activeAcctIdx);
+            naisFronts.forEach((f) => fd.append("naisPairs[0][front][]", f));
+            naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
+          }
+        }
+        // Privacy: multiple files per side
+        if (uploadsSelected.includes("privacy")) {
+          const privacyFronts = docUploadFiles["privacy_front"] ?? [];
+          const privacyBacks  = docUploadFiles["privacy_back"]  ?? [];
+          if (privacyFronts.length || privacyBacks.length) {
+            fd.append("privacyPairs[0][person_index]", activeAcctIdx);
+            privacyFronts.forEach((f) => fd.append("privacyPairs[0][front][]", f));
+            privacyBacks.forEach((f) => fd.append("privacyPairs[0][back][]", f));
           }
         }
 
@@ -973,35 +1074,56 @@ const CustomerView = ({ basePath = '/user' }) => {
               }
             });
         }
-        // NAIS + Privacy: simple front/back per account
-        for (const { key, pKey, frontKey, backKey } of [
-          { key: "nais",    pKey: "naisPairs",    frontKey: "nais_front",    backKey: "nais_back"    },
-          { key: "privacy", pKey: "privacyPairs", frontKey: "privacy_front", backKey: "privacy_back" },
-        ]) {
-          if (!uploadsSelected.includes(key)) continue;
-          const f = docUploadFiles[frontKey];
-          const b = docUploadFiles[backKey];
-          if (f || b) {
-            fd.append(`${pKey}[0][person_index]`, activeAcctIdx);
-            if (f) fd.append(`${pKey}[0][front]`, f);
-            if (b) fd.append(`${pKey}[0][back]`,  b);
+        // NAIS: multiple files per side
+        if (uploadsSelected.includes("nais")) {
+          const naisFronts = docUploadFiles["nais_front"] ?? [];
+          const naisBacks  = docUploadFiles["nais_back"]  ?? [];
+          if (naisFronts.length || naisBacks.length) {
+            fd.append("naisPairs[0][person_index]", activeAcctIdx);
+            naisFronts.forEach((f) => fd.append("naisPairs[0][front][]", f));
+            naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
+          }
+        }
+        // Privacy: multiple files per side
+        if (uploadsSelected.includes("privacy")) {
+          const privacyFronts = docUploadFiles["privacy_front"] ?? [];
+          const privacyBacks  = docUploadFiles["privacy_back"]  ?? [];
+          if (privacyFronts.length || privacyBacks.length) {
+            fd.append("privacyPairs[0][person_index]", activeAcctIdx);
+            privacyFronts.forEach((f) => fd.append("privacyPairs[0][front][]", f));
+            privacyBacks.forEach((f) => fd.append("privacyPairs[0][back][]", f));
           }
         }
 
       } else {
-        // Regular + Joint ITF: simple front/back for each selected doc type
-        for (const { key, pKey, frontKey, backKey } of [
-          { key: "sigcard", pKey: "sigcardPairs", frontKey: "sigcard_front", backKey: "sigcard_back" },
-          { key: "nais",    pKey: "naisPairs",    frontKey: "nais_front",    backKey: "nais_back"    },
-          { key: "privacy", pKey: "privacyPairs", frontKey: "privacy_front", backKey: "privacy_back" },
-        ]) {
-          if (!uploadsSelected.includes(key)) continue;
-          const f = docUploadFiles[frontKey];
-          const b = docUploadFiles[backKey];
-          if (f || b) {
-            fd.append(`${pKey}[0][person_index]`, isItfUpload ? 1 : activeAcctIdx);
-            if (f) fd.append(`${pKey}[0][front]`, f);
-            if (b) fd.append(`${pKey}[0][back]`,  b);
+        // Regular + Joint ITF: Sigcard, NAIS & Privacy multi-file
+        const personIdx = isItfUpload ? 1 : activeAcctIdx;
+
+        if (uploadsSelected.includes("sigcard")) {
+          const scFronts = docUploadFiles["sigcard_front"] ?? [];
+          const scBacks  = docUploadFiles["sigcard_back"]  ?? [];
+          if (scFronts.length || scBacks.length) {
+            fd.append("sigcardPairs[0][person_index]", personIdx);
+            scFronts.forEach((f) => fd.append("sigcardPairs[0][front][]", f));
+            scBacks.forEach((f) => fd.append("sigcardPairs[0][back][]", f));
+          }
+        }
+        if (uploadsSelected.includes("nais")) {
+          const naisFronts = docUploadFiles["nais_front"] ?? [];
+          const naisBacks  = docUploadFiles["nais_back"]  ?? [];
+          if (naisFronts.length || naisBacks.length) {
+            fd.append("naisPairs[0][person_index]", personIdx);
+            naisFronts.forEach((f) => fd.append("naisPairs[0][front][]", f));
+            naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
+          }
+        }
+        if (uploadsSelected.includes("privacy")) {
+          const privacyFronts = docUploadFiles["privacy_front"] ?? [];
+          const privacyBacks  = docUploadFiles["privacy_back"]  ?? [];
+          if (privacyFronts.length || privacyBacks.length) {
+            fd.append("privacyPairs[0][person_index]", personIdx);
+            privacyFronts.forEach((f) => fd.append("privacyPairs[0][front][]", f));
+            privacyBacks.forEach((f) => fd.append("privacyPairs[0][back][]", f));
           }
         }
         // ITF optional 2nd person sigcard front
@@ -1024,6 +1146,10 @@ const CustomerView = ({ basePath = '/user' }) => {
 
       const { data: uploadData } = await api.post(`/customers/${id}/upload-status-document`, fd, { headers: { "Content-Type": "multipart/form-data" } });
 
+      if (wasAtomicSave) {
+        clearPendingStatusChange(id);
+        markUploadResolved(id);
+      }
       clearUploadPanel();
       if (uploadData?.customer) {
         setCustomer(uploadData.customer);
@@ -1114,14 +1240,10 @@ const CustomerView = ({ basePath = '/user' }) => {
     const imgs = [];
     let startIdx = 0;
 
-    // When customer has multiple accounts (non-Joint), filter to active account tab
-    const hasMultiAccounts = customer?.account_type !== "Joint" && (customer?.accounts?.length ?? 0) >= 1;
-    const currentDocsList = latestLogWithDocs
-      ? (customer.documents ?? []).filter((d) => d.status_log_id === latestLogWithDocs.id)
-      : (customer.documents ?? []).filter((d) => !d.account_status);
-    const viewDocs = hasMultiAccounts
-      ? currentDocsList.filter((d) => d.person_index === activeAcctIdx)
-      : currentDocsList;
+    // Reuse the same current/latest-status-group filtered list the thumbnails use
+    // (docsForSection already excludes archived is_current=false docs and scopes to
+    // the active account tab), so the full-size viewer never shows a stale replaced document.
+    const viewDocs = docsForSection;
 
     const persons = [...new Set(
       viewDocs
@@ -1142,11 +1264,12 @@ const CustomerView = ({ basePath = '/user' }) => {
         (persons.length ? persons : [1]).forEach((p) => {
           ["front", "back"].forEach((side) => {
             const type = sec[side];
-            const doc  = viewDocs.find((d) => d.document_type === type && d.person_index === p);
-            if (doc) {
-              if (startType === type && startPerson === p) startIdx = imgs.length;
-              imgs.push({ src: storageUrl(doc.file_path), label: docLabel[type] ?? type, person: persons.length > 1 ? p : null });
-            }
+            const sideDocs = viewDocs.filter((d) => d.document_type === type && d.person_index === p);
+            sideDocs.forEach((doc, i) => {
+              if (startType === type && startPerson === p && i === 0) startIdx = imgs.length;
+              const label = sideDocs.length > 1 ? `${docLabel[type] ?? type} (${i + 1})` : (docLabel[type] ?? type);
+              imgs.push({ src: storageUrl(doc.file_path), label, person: persons.length > 1 ? p : null });
+            });
           });
         });
       }
@@ -1302,8 +1425,8 @@ const CustomerView = ({ basePath = '/user' }) => {
     ? latestLogForAcct
       ? (latestLogForAcct.documents ?? []).filter((d) => d.is_current !== false && d.person_index === activeAcctIdx)
       : legacyForAcct
-        ? legacyForAcct.docs.filter((d) => d.person_index === activeAcctIdx)
-        : initialDocs.filter((d) => d.person_index === activeAcctIdx)
+        ? legacyForAcct.docs.filter((d) => d.is_current !== false && d.person_index === activeAcctIdx)
+        : initialDocs.filter((d) => d.is_current !== false && d.person_index === activeAcctIdx)
     : docs;
 
   // Per-account status label shown in the Documents section header
@@ -1439,7 +1562,9 @@ const CustomerView = ({ basePath = '/user' }) => {
                 <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
                   {canEdit && (
                     <button
-                      onClick={() => navigate(`${basePath}/customers/${customer.id}/edit`)}
+                      onClick={async () => {
+                        if (await confirmLeaveIfPending()) navigate(`${basePath}/customers/${customer.id}/edit`);
+                      }}
                       className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white text-sm font-semibold transition-colors"
                     >
                       <HiOutlinePencilAlt className="w-4 h-4" />
@@ -1448,7 +1573,9 @@ const CustomerView = ({ basePath = '/user' }) => {
                   )}
                   {canCreate && (
                     <button
-                      onClick={() => navigate(`${basePath}/customers/${id}/add-account`)}
+                      onClick={async () => {
+                        if (await confirmLeaveIfPending()) navigate(`${basePath}/customers/${id}/add-account`);
+                      }}
                       className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-500 rounded-xl text-white text-sm font-semibold transition-colors"
                     >
                       <HiOutlinePlus className="w-4 h-4" />
@@ -1869,8 +1996,21 @@ const CustomerView = ({ basePath = '/user' }) => {
               {uploadParam && activeStatusParam && canEdit && (() => {
                 const uploadsSelected = uploadParam.split(",").filter(Boolean);
 
-                const stagedCount = [
-                  ...Object.values(docUploadFiles).filter(Boolean),
+                // Multiple photos per document side (sigcard/NAIS) are only needed when closing
+                // an account (e.g. archival copies). Every other status gets one photo per side,
+                // same as initial enrollment.
+                const isClosingUpload = activeStatusParam === "closed";
+                const renderDocSlot = (label, files, onChangeFiles) =>
+                  isClosingUpload
+                    ? <MultiFileDropZone label={label} files={files} onChange={onChangeFiles} />
+                    : <DocImageDropZone compact label={label} file={files[0] ?? null}
+                        onChange={(f) => onChangeFiles(f ? [f] : [])} />;
+
+                const docFilesCount = Object.values(docUploadFiles).reduce(
+                  (sum, v) => sum + (Array.isArray(v) ? v.length : (v ? 1 : 0)),
+                  0
+                );
+                const stagedCount = docFilesCount + [
                   ...otherUploadFiles,
                   nonItfSigcardFront,
                   ...Object.values(perPersonSigcardBacks).filter(Boolean),
@@ -1940,7 +2080,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                 <div className="space-y-1.5">
                                   <p className="text-xs font-semibold text-slate-500">Front — Shared</p>
                                   <div className="w-1/2 pr-1.5">
-                                    <DocImageDropZone compact label="Sigcard Front"
+                                    <DocImageDropZone compact label="SIGCARD"
                                       file={nonItfSigcardFront}
                                       onChange={setNonItfSigcardFront} />
                                   </div>
@@ -1979,7 +2119,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                   <div className={`grid gap-3 ${corpSigcardFronts.length === 1 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
                                     {corpSigcardFronts.map((file, i) => (
                                       <DocImageDropZone key={i} compact
-                                        label={corpSigcardFronts.length > 1 ? `Front ${i + 1}` : "Sigcard Front"}
+                                        label={corpSigcardFronts.length > 1 ? `Front ${i + 1}` : "SIGCARD"}
                                         file={file}
                                         onChange={(f) => setCorpSigcardFronts((prev) => { const a = [...prev]; a[i] = f; return a; })} />
                                     ))}
@@ -2037,18 +2177,16 @@ const CustomerView = ({ basePath = '/user' }) => {
 
                           // Joint ITF: shared front+back + optional 2nd person front
                           if (isITF) {
-                            const scFront = docUploadFiles["sigcard_front"] ?? null;
-                            const scBack  = docUploadFiles["sigcard_back"]  ?? null;
+                            const scFronts = docUploadFiles["sigcard_front"] ?? [];
+                            const scBacks  = docUploadFiles["sigcard_back"]  ?? [];
                             return (
                               <div key="sigcard" className="space-y-3">
                                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card — Shared</p>
                                 <div className="grid grid-cols-2 gap-3">
-                                  <DocImageDropZone compact label="Sigcard Front (Shared)"
-                                    file={scFront}
-                                    onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_front: f ?? undefined }))} />
-                                  <DocImageDropZone compact label="Sigcard Back (Shared)"
-                                    file={scBack}
-                                    onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_back: f ?? undefined }))} />
+                                  {renderDocSlot("SIGCARD (Shared)", scFronts,
+                                    (files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files })))}
+                                  {renderDocSlot("Risk Profiling (Shared)", scBacks,
+                                    (files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files })))}
                                 </div>
                                 {!itfHasSecondFront ? (
                                   <button type="button" onClick={() => setItfHasSecondFront(true)}
@@ -2059,7 +2197,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                   <div className="space-y-2">
                                     <div className="flex items-center gap-2">
                                       <div className="w-5 h-5 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-[10px]">2</div>
-                                      <p className="text-xs font-semibold text-slate-500">2nd Person — Sigcard Front</p>
+                                      <p className="text-xs font-semibold text-slate-500">2nd Person — SIGCARD</p>
                                       <button type="button" onClick={() => { setItfHasSecondFront(false); setItfSecondFront(null); }}
                                         className="ml-auto text-xs font-semibold text-red-500 hover:text-red-600 transition-colors">Remove</button>
                                     </div>
@@ -2074,59 +2212,35 @@ const CustomerView = ({ basePath = '/user' }) => {
                             );
                           }
 
-                          // Regular: simple front + back
-                          const scFront = docUploadFiles["sigcard_front"] ?? null;
-                          const scBack  = docUploadFiles["sigcard_back"]  ?? null;
+                          // Regular: simple front + back — multiple images per side only when closing
+                          const scFronts = docUploadFiles["sigcard_front"] ?? [];
+                          const scBacks  = docUploadFiles["sigcard_back"]  ?? [];
                           return (
                             <div key="sigcard" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <DocImageDropZone compact label="Sigcard Front"
-                                  file={scFront}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_front: f ?? undefined }))} />
-                                <DocImageDropZone compact label="Sigcard Back"
-                                  file={scBack}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, sigcard_back: f ?? undefined }))} />
+                                {renderDocSlot("SIGCARD", scFronts,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files })))}
+                                {renderDocSlot("Risk Profiling", scBacks,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files })))}
                               </div>
-                              {(scFront || scBack) && (
-                                <div className="flex justify-center">
-                                  <button type="button"
-                                    onClick={() => { const src = scFront ?? scBack; setDocUploadFiles((p) => ({ ...p, sigcard_front: src, sigcard_back: src })); }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-blue-600 border border-blue-200 rounded-lg bg-white hover:bg-blue-50 transition-colors shadow-sm">
-                                    <HiOutlinePhotograph className="w-3.5 h-3.5 flex-shrink-0" />
-                                    Use same image for both sides
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           );
                         }
 
                         // ── NAIS ─────────────────────────────────────────────
                         if (uploadType === "nais") {
-                          const nFront = docUploadFiles["nais_front"] ?? null;
-                          const nBack  = docUploadFiles["nais_back"]  ?? null;
+                          const nFronts = docUploadFiles["nais_front"] ?? [];
+                          const nBacks  = docUploadFiles["nais_back"]  ?? [];
                           return (
                             <div key="nais" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">NAIS</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <DocImageDropZone compact label="NAIS Front"
-                                  file={nFront}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, nais_front: f ?? undefined }))} />
-                                <DocImageDropZone compact label="NAIS Back"
-                                  file={nBack}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, nais_back: f ?? undefined }))} />
+                                {renderDocSlot("NAIS Front", nFronts,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, nais_front: files })))}
+                                {renderDocSlot("NAIS Back", nBacks,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, nais_back: files })))}
                               </div>
-                              {(nFront || nBack) && (
-                                <div className="flex justify-center">
-                                  <button type="button"
-                                    onClick={() => { const src = nFront ?? nBack; setDocUploadFiles((p) => ({ ...p, nais_front: src, nais_back: src })); }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-blue-600 border border-blue-200 rounded-lg bg-white hover:bg-blue-50 transition-colors shadow-sm">
-                                    <HiOutlinePhotograph className="w-3.5 h-3.5 flex-shrink-0" />
-                                    Use same image for both sides
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           );
                         }
@@ -2135,18 +2249,16 @@ const CustomerView = ({ basePath = '/user' }) => {
                         if (uploadType === "privacy") {
                           // Data Privacy was only implemented in 2022; skip for escheat accounts dated ≤ 2021
                           if (privacyNotRequired) return null;
-                          const pFront = docUploadFiles["privacy_front"] ?? null;
-                          const pBack  = docUploadFiles["privacy_back"]  ?? null;
+                          const pFronts = docUploadFiles["privacy_front"] ?? [];
+                          const pBacks  = docUploadFiles["privacy_back"]  ?? [];
                           return (
                             <div key="privacy" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Data Privacy</p>
                               <div className="grid grid-cols-2 gap-3">
-                                <DocImageDropZone compact label="Privacy Front"
-                                  file={pFront}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, privacy_front: f ?? undefined }))} />
-                                <DocImageDropZone compact label="Privacy Back"
-                                  file={pBack}
-                                  onChange={(f) => setDocUploadFiles((p) => ({ ...p, privacy_back: f ?? undefined }))} />
+                                {renderDocSlot("Privacy Front", pFronts,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, privacy_front: files })))}
+                                {renderDocSlot("Privacy Back", pBacks,
+                                  (files) => setDocUploadFiles((p) => ({ ...p, privacy_back: files })))}
                               </div>
                             </div>
                           );
@@ -2365,9 +2477,9 @@ const CustomerView = ({ basePath = '/user' }) => {
                       /* ── Per-person doc rendering (non-shared) ── */
                       <div className="space-y-3">
                         {(persons.length ? persons : [1]).map((p) => {
-                          const frontDoc = docsForSection.find((d) => d.document_type === sec.front && d.person_index === p);
-                          const backDoc  = docsForSection.find((d) => d.document_type === sec.back  && d.person_index === p);
-                          if (!frontDoc && !backDoc) return null;
+                          const frontDocs = docsForSection.filter((d) => d.document_type === sec.front && d.person_index === p);
+                          const backDocs  = docsForSection.filter((d) => d.document_type === sec.back  && d.person_index === p);
+                          if (!frontDocs.length && !backDocs.length) return null;
                           return (
                             <div key={p}>
                               {isJoint && persons.length > 1 && (
@@ -2376,29 +2488,35 @@ const CustomerView = ({ basePath = '/user' }) => {
                                 </p>
                               )}
                               <div className="grid grid-cols-2 gap-3">
-                                {[{ doc: frontDoc, type: sec.front, lbl: "Front" }, { doc: backDoc, type: sec.back, lbl: "Back" }].map(({ doc, type, lbl }) => (
+                                {[{ docs: frontDocs, type: sec.front, lbl: "Front" }, { docs: backDocs, type: sec.back, lbl: "Back" }].map(({ docs: sideDocs, type, lbl }) => (
                                   <div key={lbl}>
-                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">{lbl}</p>
-                                    {doc ? (
-                                      <>
-                                        <button
-                                          onClick={() => openViewer(type, p)}
-                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
-                                        >
-                                          <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
-                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
-                                            </div>
+                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">
+                                      {lbl}{sideDocs.length > 1 ? ` (${sideDocs.length})` : ""}
+                                    </p>
+                                    {sideDocs.length ? (
+                                      <div className={`grid gap-2 ${sideDocs.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                                        {sideDocs.map((doc, i) => (
+                                          <div key={doc.id}>
+                                            <button
+                                              onClick={() => openViewerByPath(doc.file_path)}
+                                              className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
+                                            >
+                                              <img src={storageUrl(doc.file_path)} alt={`${lbl} ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                                <div className="bg-white/90 rounded-full p-1.5 shadow">
+                                                  <HiOutlineEye className="w-4 h-4 text-slate-700" />
+                                                </div>
+                                              </div>
+                                            </button>
+                                            {type === "sigcard_front" && doc.has_thumbmark === false && (
+                                              <div className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
+                                                <MdFingerprint className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                                <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">No thumbmark</span>
+                                              </div>
+                                            )}
                                           </div>
-                                        </button>
-                                        {type === "sigcard_front" && doc.has_thumbmark === false && (
-                                          <div className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
-                                            <MdFingerprint className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                                            <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">No thumbmark</span>
-                                          </div>
-                                        )}
-                                      </>
+                                        ))}
+                                      </div>
                                     ) : (
                                       <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
                                         <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />

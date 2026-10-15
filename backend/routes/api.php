@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\BranchDataShareController;
 use App\Http\Controllers\Api\CashierController;
 use App\Http\Controllers\Api\ComplianceController;
 use App\Http\Controllers\Api\ConfigController;
@@ -24,11 +25,14 @@ Route::get('/test', function () {
 Route::get('/config', [ConfigController::class, 'index']);
 
 // DIGICUR Authentication Routes
-Route::prefix('auth')->group(function () {
+Route::prefix('auth')->middleware(['throttle:10,1'])->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register'])->middleware(['role:admin']);
     Route::post('/verify-2fa', [AuthController::class, 'verifyTwoFactor']);
     Route::post('/setup-2fa', [AuthController::class, 'setupTwoFactor']);
+    Route::post('/force-password-change', [AuthController::class, 'forcePasswordChange']);
+    Route::post('/confirm-recovery-code', [AuthController::class, 'confirmRecoveryCode']);
+    Route::post('/verify-recovery-code', [AuthController::class, 'verifyRecoveryCode']);
 
     Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
@@ -75,6 +79,8 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::post('/users/{user}/clear-force-password-change', [AdminController::class, 'clearForcePasswordChange']);
         Route::post('/users/{user}/restore-login-access', [AdminController::class, 'restoreLoginAccess']);
         Route::post('/users/{user}/reset-2fa', [AdminController::class, 'resetUser2FA']);
+        Route::post('/users/{user}/require-2fa', [AdminController::class, 'requireTwoFactor']);
+        Route::post('/users/{user}/require-2fa/disable', [AdminController::class, 'disableTwoFactorRequirement']);
 
         Route::get('/roles', [AdminController::class, 'getAllRoles']);
         Route::post('/roles', [AdminController::class, 'createRole']);
@@ -106,6 +112,11 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
         Route::put('/branches/{branch}', [AdminController::class, 'updateBranch']);
         Route::delete('/branches/{branch}', [AdminController::class, 'deleteBranch']);
         Route::put('/branches/{branch}/parent', [AdminController::class, 'updateBranchParent']);
+
+        Route::get('/branch-shares', [BranchDataShareController::class, 'index']);
+        Route::post('/branch-shares', [BranchDataShareController::class, 'store']);
+        Route::put('/branch-shares/{share}', [BranchDataShareController::class, 'update']);
+        Route::delete('/branch-shares/{share}', [BranchDataShareController::class, 'destroy']);
     });
 
     // Manager Routes (includes some admin functions)
@@ -173,6 +184,7 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
     // Customer read routes — compliance/audit see all; others are branch-restricted in controller
     Route::middleware(['role:user,manager,admin,cashier,compliance,audit'])->prefix('customers')->group(function () {
         Route::get('/', [CustomerController::class, 'index']);
+        Route::get('/check-name', [CustomerController::class, 'checkDuplicateName']);
         Route::get('/{customer}', [CustomerController::class, 'show']);
         Route::get('/{customer}/documents', [CustomerController::class, 'getDocuments']);
         Route::get('/{customer}/history', [CustomerController::class, 'history']);
@@ -247,7 +259,7 @@ Route::get('/bsp/compliance-info', function () {
                 'password_expiry_days' => 90,
                 'session_timeout_minutes' => 30,
                 'max_concurrent_sessions' => 3,
-                'minimum_password_length' => 12,
+                'minimum_password_length' => 8,
             ],
         ],
     ]);

@@ -29,6 +29,7 @@ import { MdFingerprint } from "react-icons/md";
 import Swal from "sweetalert2";
 import api from "../../services/api";
 import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
+import { clearUploadResolved } from "../../utils/pendingStatusStorage";
 
 const PAGE_SIZE = 10;
 
@@ -53,8 +54,8 @@ const accountStyle = {
 };
 
 const docLabel = {
-  sigcard_front:  "Sigcard Front",
-  sigcard_back:   "Sigcard Back",
+  sigcard_front:  "SIGCARD",
+  sigcard_back:   "Risk Profiling",
   nais_front:     "NAIS Front",
   nais_back:      "NAIS Back",
   privacy_front:  "Data Privacy Front",
@@ -654,6 +655,11 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                   <span className="flex items-center gap-1">
                     <HiOutlineOfficeBuilding className="w-3.5 h-3.5" />
                     {customer.branch?.branch_name ?? "—"}
+                    {customer.is_shared && (
+                      <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 bg-indigo-50 rounded-full" title={`Shared from ${customer.shared_from_branch}`}>
+                        Shared
+                      </span>
+                    )}
                   </span>
                   {customer.account_no && (
                     <span className="flex items-center gap-1">
@@ -1164,7 +1170,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
 // ── Skeleton row ────────────────────────────────────────────────────────────
 const SkeletonRow = () => (
   <tr className="animate-pulse">
-    {[...Array(6)].map((_, i) => (
+    {[...Array(7)].map((_, i) => (
       <td key={i} className="px-4 py-3">
         <div className="h-3 rounded-full bg-slate-200" style={{ width: `${60 + (i % 3) * 20}%` }} />
       </td>
@@ -1584,7 +1590,7 @@ const STATUS_CONFIG = {
   closed:      { label: "Closed",      desc: "Account has been permanently closed.",        icon: "✕", ring: "ring-red-400",    bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500"    },
 };
 
-const EditStatusModal = ({ customer, onClose, onSaved }) => {
+const EditStatusModal = ({ customer, onClose }) => {
   const navigate = useNavigate();
 
   // Build all accounts: primary first, then additional
@@ -1601,9 +1607,7 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
   const [step, setStep]               = useState(isMulti ? "select" : "pick");
   const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
   const [status, setStatus]           = useState(isMulti ? null : (customer.status ?? "active"));
-  const [saving, setSaving]           = useState(false);
   const [newStatus, setNewStatus]     = useState(null);
-  const [statusLogId, setStatusLogId] = useState(null);
   const [uploadTypes, setUploadTypes] = useState({ sigcard: false, nais: false, privacy: false, other: false });
 
   const handleSelectAcct = (acct) => {
@@ -1647,46 +1651,23 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
       if (!confirm.isConfirmed) return;
     }
 
-    setSaving(true);
-    try {
-      let res;
-      if (selectedAcct.type === "primary") {
-        res = await api.put(`/customers/${customer.id}`, { status });
-      } else {
-        res = await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, { status });
-      }
-      onSaved();
-
-      if (status === "escheat") {
-        await Swal.fire({
-          icon: "success",
-          title: "Status Updated",
-          text: "Account has been marked as Escheat.",
-          confirmButtonColor: "#ea580c",
-          timer: 2000,
-          timerProgressBar: true,
-        });
-        onClose();
-        return;
-      }
-
-      setNewStatus(status);
-      setStatusLogId(res.data?.status_log_id ?? null);
-      setStep("upload_select");
-    } catch (err) {
-      const msg = err?.response?.data?.message ?? "Something went wrong.";
-      Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
-    } finally {
-      setSaving(false);
-    }
+    // No status is written to the database yet, for any status — it only gets saved
+    // once the required documents are uploaded (atomically, together, on the upload panel).
+    setNewStatus(status);
+    setStep("upload_select");
   };
 
   const handleGoToUpload = () => {
     const chosen = Object.entries(uploadTypes).filter(([, v]) => v).map(([k]) => k);
     onClose();
     if (chosen.length > 0) {
-      const params = new URLSearchParams({ upload: chosen.join(","), newStatus });
-      if (statusLogId) params.set("statusLogId", statusLogId);
+      // Status not saved yet — backend applies the status change and the uploaded
+      // documents together in a single transaction, only once the upload succeeds.
+      // This is a fresh pending change, so a stale "already resolved" flag from an
+      // earlier status change on this same customer shouldn't suppress it.
+      clearUploadResolved(customer.id);
+      const params = new URLSearchParams({ upload: chosen.join(","), pendingStatus: newStatus });
+      if (selectedAcct.type === "additional") params.set("pendingAcctId", selectedAcct.id);
       navigate(`/user/customers/${customer.id}/view?${params.toString()}`);
     }
   };
@@ -1848,9 +1829,9 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
                   className="px-4 py-2 text-sm font-semibold text-slate-700 border-2 border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
                   Cancel
                 </button>
-                <button onClick={handleSave} disabled={saving || isUnchanged || isEscheat}
+                <button onClick={handleSave} disabled={isUnchanged || isEscheat}
                   className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow transition-all disabled:opacity-50 disabled:shadow-none bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90">
-                  {saving ? "Saving…" : "Confirm Update"}
+                  Continue
                 </button>
               </div>
             </div>
@@ -1865,11 +1846,11 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${statusStyle[newStatus] ?? "bg-slate-100 text-slate-600"}`}>
                   {newStatus}
                 </span>
-                <span className="text-xs text-slate-500">status saved successfully</span>
+                <span className="text-xs text-slate-500">not saved yet</span>
               </div>
-              <p className="text-sm font-bold text-slate-800 mt-2">Upload new documents?</p>
+              <p className="text-sm font-bold text-slate-800 mt-2">Upload supporting documents</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Select which documents to upload for this status change. They will be added to the customer&apos;s history.
+                Select which documents to upload. The account will only be marked <strong className="capitalize">{newStatus}</strong> once these documents are uploaded successfully.
               </p>
             </div>
 
@@ -1908,11 +1889,11 @@ const EditStatusModal = ({ customer, onClose, onSaved }) => {
             <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
               <button onClick={onClose}
                 className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors">
-                Skip for now
+                Cancel
               </button>
-              <button onClick={handleGoToUpload}
-                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 transition-all">
-                {Object.values(uploadTypes).some(Boolean) ? "Go to Upload" : "Done"}
+              <button onClick={handleGoToUpload} disabled={!Object.values(uploadTypes).some(Boolean)}
+                className="px-5 py-2 text-sm font-bold text-white rounded-xl shadow bg-gradient-to-r from-blue-600 to-blue-700 hover:opacity-90 transition-all disabled:opacity-50 disabled:shadow-none">
+                Continue to Upload
               </button>
             </div>
           </>
@@ -1952,6 +1933,14 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [accountTypeFilter, setAccountTypeFilter] = useState("all");
   const [riskLevelFilter, setRiskLevelFilter]     = useState("all");
   const [branchFilter, setBranchFilter]           = useState("all");
+
+  // Advanced filter — date opened / date uploaded, by month or custom range
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [dateFieldFilter, setDateFieldFilter]     = useState("opened"); // "opened" | "uploaded" | "status"
+  const [monthFilter, setMonthFilter]             = useState("");       // "YYYY-MM"
+  const [dateFromFilter, setDateFromFilter]       = useState("");
+  const [dateToFilter, setDateToFilter]           = useState("");
+  const hasAdvancedFilter = !!(monthFilter || dateFromFilter || dateToFilter);
   const [sortDir, setSortDir]             = useState("asc");
   const [page, setPage]                   = useState(1);
   const [totalPages, setTotalPages]       = useState(1);
@@ -1974,7 +1963,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const searchContainerRef                        = useRef(null);
   const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
 
-  const isAdminView = basePath === "/admin";
+  const showAllBranchesFilter = basePath === "/admin" || basePath === "/compliance";
 
   // ── Fetch branch + children for branch filter (manager & cashier) ─────────
   useEffect(() => {
@@ -1991,14 +1980,14 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
     }).catch(() => {});
   }, [branchScoped, user?.branch_id]);
 
-  // ── Fetch all branches for branch filter (admin) — excludes Head Office ───
+  // ── Fetch all branches for branch filter (admin & compliance) — excludes Head Office ───
   useEffect(() => {
-    if (!isAdminView) return;
+    if (!showAllBranchesFilter) return;
     api.get("/branches").then(({ data }) => {
       const all = data.data ?? [];
       setBranchOptions(all.filter((b) => !b.is_head_office && b.brcode !== "00"));
     }).catch(() => {});
-  }, [isAdminView]);
+  }, [showAllBranchesFilter]);
 
   // ── Fetch table data ───────────────────────────────────────────────────────
   const fetchCustomers = useCallback(async () => {
@@ -2009,7 +1998,16 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
       if (statusFilter !== "all")     params.status       = statusFilter;
       if (accountTypeFilter !== "all") params.account_type = accountTypeFilter;
       if (riskLevelFilter !== "all")  params.risk_level   = riskLevelFilter;
-      if ((branchScoped || isAdminView) && branchFilter !== "all") params.branch_id = branchFilter;
+      if ((branchScoped || showAllBranchesFilter) && branchFilter !== "all") params.branch_id = branchFilter;
+      if (hasAdvancedFilter) {
+        params.date_field = dateFieldFilter;
+        if (monthFilter) {
+          params.month = monthFilter;
+        } else {
+          if (dateFromFilter) params.date_from = dateFromFilter;
+          if (dateToFilter)   params.date_to   = dateToFilter;
+        }
+      }
 
       const { data } = await api.get("/customers", { params });
 
@@ -2026,10 +2024,10 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
     } finally {
       setLoading(false);
     }
-  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, isAdminView]);
+  }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, showAllBranchesFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, hasAdvancedFilter]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
-  useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter]);
+  useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
 
   // ── Quick search (live) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -2109,7 +2107,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
         </AnimatePresence>
       )}
 
-      <main className="flex flex-col flex-1 w-full max-w-7xl gap-3 px-4 pt-3 pb-6 mx-auto sm:px-6 lg:px-8">
+      <main className={`flex flex-col flex-1 w-full ${basePath === "/admin" ? "max-w-[110rem]" : "max-w-7xl"} gap-3 px-4 pt-3 pb-6 mx-auto sm:px-6 lg:px-8`}>
 
         {/* Header */}
         {onlyTab !== "quick" && (
@@ -2202,8 +2200,8 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     <option value="High Risk">High Risk</option>
                   </select>
 
-                  {/* Branch — manager & cashier (only when they have child branches), and admin (all branches except Head Office) */}
-                  {(branchScoped || isAdminView) && branchOptions.length > 0 && (
+                  {/* Branch — manager & cashier (only when they have child branches), and admin/compliance (all branches except Head Office) */}
+                  {(branchScoped || showAllBranchesFilter) && branchOptions.length > 0 && (
                     <select
                       value={branchFilter}
                       onChange={(e) => setBranchFilter(e.target.value)}
@@ -2223,6 +2221,21 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     {sortDir === "asc" ? "↑ A–Z" : "↓ Z–A"}
                   </button>
                   <button
+                    onClick={() => setShowAdvancedFilter((v) => !v)}
+                    className={`flex items-center gap-1.5 px-5 py-3 text-sm font-semibold rounded-xl border-2 transition-all ${
+                      hasAdvancedFilter
+                        ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+                        : "border-slate-200 text-slate-700 hover:border-blue-400 hover:bg-blue-50"
+                    }`}
+                  >
+                    <HiOutlineCalendar className="w-4 h-4" />
+                    Advanced Filter
+                    {hasAdvancedFilter && (
+                      <span className="ml-0.5 w-2 h-2 rounded-full bg-white" />
+                    )}
+                    <HiOutlineChevronDown className={`w-4 h-4 transition-transform duration-200 ${showAdvancedFilter ? "rotate-180" : ""}`} />
+                  </button>
+                  <button
                     onClick={fetchCustomers}
                     className="px-4 py-3 border-2 border-slate-200 rounded-xl text-slate-600 hover:border-blue-400 hover:bg-blue-50 transition-all"
                     title="Refresh"
@@ -2231,6 +2244,102 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   </button>
                 </div>
               </div>
+
+              {/* Advanced Filter panel — filter by month or date range on Date Opened / Date Uploaded / Status Date */}
+              <AnimatePresence>
+                {showAdvancedFilter && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/40 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          Filter by Account Status and Date Opened, Date Uploaded, or Status Date
+                        </p>
+                        {hasAdvancedFilter && (
+                          <button
+                            onClick={() => { setMonthFilter(""); setDateFromFilter(""); setDateToFilter(""); }}
+                            className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-end gap-3">
+                        {/* Account status — same filter as the Status dropdown above, for convenience */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Account Status</label>
+                          <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="all">All Status</option>
+                            <option value="active">Active</option>
+                            <option value="reactivated">Reactivated</option>
+                            <option value="dormant">Dormant</option>
+                            <option value="escheat">Escheat</option>
+                            <option value="closed">Closed</option>
+                          </select>
+                        </div>
+
+                        {/* Which date field */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Date Type</label>
+                          <select
+                            value={dateFieldFilter}
+                            onChange={(e) => setDateFieldFilter(e.target.value)}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="opened">Date Opened</option>
+                            <option value="uploaded">Date Uploaded</option>
+                            <option value="status">Status Date (when status changed)</option>
+                          </select>
+                        </div>
+
+                        {/* Month picker */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Month</label>
+                          <input
+                            type="month"
+                            value={monthFilter}
+                            onChange={(e) => { setMonthFilter(e.target.value); if (e.target.value) { setDateFromFilter(""); setDateToFilter(""); } }}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <span className="text-xs text-slate-400 pb-2.5">or a custom range —</span>
+
+                        {/* From/To range */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">From</label>
+                          <input
+                            type="date"
+                            value={dateFromFilter}
+                            onChange={(e) => { setDateFromFilter(e.target.value); if (e.target.value) setMonthFilter(""); }}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">To</label>
+                          <input
+                            type="date"
+                            value={dateToFilter}
+                            onChange={(e) => { setDateToFilter(e.target.value); if (e.target.value) setMonthFilter(""); }}
+                            className="px-3 py-2.5 text-sm font-medium border-2 border-slate-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Tip: set Account Status to Dormant, Active, or any status, and pick Status Date + a month to see exactly which accounts became that status in that month.
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Count */}
               <p className="text-sm text-slate-500 px-1">
@@ -2243,7 +2352,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
-                      {["Full Name", "Accounts", "Account Type", "Risk Level", "Status", "Date Added", "Action"].map((h) => (
+                      {["Full Name", "Accounts", "Account Type", "Risk Level", "Status", "Date Opened", "Date Added", "Action"].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600">
                           {h}
                         </th>
@@ -2256,7 +2365,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                       : customers.length === 0
                       ? (
                         <tr>
-                          <td colSpan={7} className="px-6 py-20 text-center">
+                          <td colSpan={8} className="px-6 py-20 text-center">
                             <div className="mx-auto w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                               <HiOutlineSearch className="w-8 h-8 text-slate-400" />
                             </div>
@@ -2318,7 +2427,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                               </span>
                             )}
                           </td>
-                          {/* Date */}
+                          {/* Date Opened */}
+                          <td className="px-4 py-2.5 text-[11px] text-slate-500">
+                            {c.date_opened ? formatDate(`${String(c.date_opened).substring(0, 10)}T00:00:00`) : "—"}
+                          </td>
+                          {/* Date Added */}
                           <td className="px-4 py-2.5 text-[11px] text-slate-500">
                             {formatDate(c.created_at)}
                           </td>

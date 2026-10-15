@@ -9,6 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
+            $table->dropUnique(['employee_id']);
             $table->dropIndex(['employee_id']);
             $table->dropIndex(['department']);
             $table->dropColumn(['employee_id', 'department', 'employee_position', 'phone_number']);

@@ -40,7 +40,7 @@ This Laravel-based banking authentication system is designed to meet the cyberse
 | BSP Requirement | Implementation | Status |
 |-----------------|----------------|---------|
 | Multi-Factor Authentication | SMS/TOTP-based 2FA | ✅ Implemented |
-| Password Complexity | 12+ chars, mixed case, numbers, symbols | ✅ Implemented |
+| Password Complexity | 8+ chars, mixed case, numbers, symbols | ✅ Implemented |
 | Account Lockout | 5 failed attempts, 30-min lockout | ✅ Implemented |
 | Session Management | 30-minute timeout, concurrent session limits | ✅ Implemented |
 | Audit Logging | Comprehensive activity tracking | ✅ Implemented |
@@ -148,7 +148,7 @@ BSP Circular 982 (Cybersecurity Framework):
 The core authentication service implements all BSP requirements:
 
 #### Key Features
-- **Password Complexity Validation**: 12+ characters with mixed case, numbers, and symbols
+- **Password Complexity Validation**: 8+ characters with mixed case, numbers, and symbols
 - **Account Lockout Policy**: 5 failed attempts trigger 30-minute lockout
 - **Session Timeout**: 30-minute inactivity timeout
 - **Concurrent Session Limiting**: Maximum 3 active sessions per user
@@ -189,7 +189,7 @@ sequenceDiagram
 
 ```php
 // BSP-Compliant Password Requirements
-- Minimum 12 characters
+- Minimum 8 characters
 - At least 1 uppercase letter
 - At least 1 lowercase letter
 - At least 1 number
