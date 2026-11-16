@@ -125,6 +125,8 @@ php artisan sigcard:repair-joint-data --apply    # makes the fix (moves hidden s
 - 5 accounts with "Not set" (#17, #22, #25, #26, #30).
 - No missing Risk Profilings.
 
+**Staging, applied (Nov 16, 2026):** document 230 (customer #30) was moved from person 3 to person 1 and logged. A re-run found nothing left to fix. The "Not set" accounts and #4 are still waiting for staff.
+
 ### 2.5 Known limits
 
 - Joint type (`joint_sub_type`) can't be changed after creation from the screens; `UpdateCustomerRequest` does not accept it.
