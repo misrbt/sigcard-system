@@ -95,6 +95,8 @@ production: the database changes the deploy runs automatically, and the **manual
   value, a server/PHP/Nginx/systemd change, a one-time command) → **add it to the top release
   section of that file** as part of finishing the task.
 - On production, still follow RULE 5: give the steps; don't apply code fixes there directly.
+- Questions about joint accounts (types, who's who, which documents, old vs new records) →
+  read `JOINT_ACCOUNT_GUIDE.md` first, and keep it updated when joint-account behaviour changes.
 
 ---
 

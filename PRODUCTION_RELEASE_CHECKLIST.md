@@ -71,6 +71,14 @@ Each release adds a section at the top. Tick items off as they are done on produ
    curl -skI https://sigcard.rbtbank.com/ | grep -i cache-control   # expect: no-cache
    ```
 
+3. [ ] **Old joint accounts: run the repair tool** (no re-upload needed; see `JOINT_ACCOUNT_GUIDE.md`).
+   ```bash
+   cd /PATH/sigcard-system/backend
+   php artisan sigcard:repair-joint-data            # preview first, read the report
+   php artisan sigcard:repair-joint-data --apply    # moves hidden signature cards to Person 1
+   ```
+   Give the branch the lists from sections 3–5 of the report (accounts needing a choice in Edit Info).
+
 ### After deploy: check in the browser (Ctrl+Shift+R first)
 - [ ] Upload → Joint shows 3 choices: Regular Joint, ITF, **For the Account Of**.
 - [ ] For the Account Of → name screen asks for Account Name, Organization, Primary, Secondary, plus "Add Another Account Holder".
