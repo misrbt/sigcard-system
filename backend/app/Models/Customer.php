@@ -31,6 +31,7 @@ class Customer extends Model
         'lastname',
         'suffix',
         'company_name',
+        'organization',
         'account_type',
         'joint_sub_type',
         'joint_arrangement',
@@ -61,7 +62,7 @@ class Customer extends Model
         return LogOptions::defaults()
             ->useLogName('customer')
             ->logOnly([
-                'account_no', 'date_opened', 'firstname', 'middlename', 'lastname', 'suffix', 'company_name',
+                'account_no', 'date_opened', 'firstname', 'middlename', 'lastname', 'suffix', 'company_name', 'organization',
                 'account_type', 'joint_sub_type', 'joint_arrangement', 'corporate_sub_type', 'risk_level', 'status', 'branch_id',
             ])
             ->logOnlyDirty()
@@ -143,6 +144,11 @@ class Customer extends Model
     {
         if ($this->account_type === AccountType::Corporate->value) {
             return $this->company_name ?? '';
+        }
+
+        // "For the Account Of" joint accounts are known by their account name.
+        if ($this->account_type === AccountType::Joint->value && $this->joint_sub_type === 'FAO' && $this->company_name) {
+            return $this->company_name;
         }
 
         $name = $this->firstname ?? '';

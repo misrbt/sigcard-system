@@ -44,11 +44,13 @@ const ACCOUNT_TYPE_META = {
 const JOINT_SUB_TYPE_META = {
   "ITF":     { label: "ITF (In Trust For)", description: "Two or more persons sharing one account. Each person uploads their own documents.", icon: HiOutlineUsers,      color: "purple", ring: "ring-purple-500", bg: "bg-purple-50", border: "border-purple-500", iconBg: "bg-purple-500" },
   "Non-ITF": { label: "Non-ITF",            description: "One customer with one or more accounts. Each account has its own documents.",       icon: HiOutlineCreditCard, color: "indigo", ring: "ring-indigo-500", bg: "bg-indigo-50", border: "border-indigo-500", iconBg: "bg-indigo-500" },
+  "FAO":     { label: "For the Account Of", description: "Account opened by account holders on behalf of an organization.",                  icon: HiOutlineOfficeBuilding, color: "teal", ring: "ring-teal-500", bg: "bg-teal-50", border: "border-teal-500", iconBg: "bg-teal-500" },
 };
 
 // Joint account types, grouped the way staff think about them:
 //   1. Regular joint account (Non-ITF) — AND or OR
 //   2. ITF account — Sole Trustee or Joint Trustee
+//   3. For the Account Of (FAO) — AND or OR, held on behalf of an organization
 const JOINT_TYPE_GROUPS = [
   {
     subType: "Non-ITF",
@@ -68,13 +70,22 @@ const JOINT_TYPE_GROUPS = [
       { arrangement: "Joint Trustee", label: "Joint Trustee", description: "Two or more trustees manage the account together." },
     ],
   },
+  {
+    subType: "FAO",
+    title: "For the Account Of",
+    note: "Held by account holders on behalf of an organization.",
+    options: [
+      { arrangement: "AND", label: "All Must Sign", description: "Every account holder must sign for each transaction." },
+      { arrangement: "OR",  label: "Any May Sign",  description: "Any one of the account holders may sign." },
+    ],
+  },
 ];
 
 const personRole = (p) => (p.role === "trustee" ? "trustee" : "beneficiary");
 
 // List of Person 2+ with name fields, optional Trustee / In-Trust-For choice,
 // and add / remove buttons.
-const AdditionalPeopleList = ({ persons, setPersons, titleFor, subtitleFor, showRoleChoice, addLabel, minCount = 1 }) => (
+const AdditionalPeopleList = ({ persons, setPersons, titleFor, subtitleFor, showRoleChoice, addLabel, minCount = 1, accountType }) => (
   <>
     {persons.map((p, i) => (
       <div key={i} className="rounded-2xl border-2 border-purple-100 bg-purple-50/20 p-5 space-y-4">
@@ -109,6 +120,7 @@ const AdditionalPeopleList = ({ persons, setPersons, titleFor, subtitleFor, show
         <div className="border-t border-purple-100" />
         <NameGrid
           values={p}
+          accountType={accountType}
           onChange={(key, val) => setPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
         />
       </div>
@@ -217,9 +229,10 @@ const StatusPicker = ({ value, onChange, statuses = [] }) => (
 );
 
 // Live duplicate-name check: while staff type a name here, ask the backend whether a
-// customer (or joint/corporate co-signatory) with the same first + last name already
-// exists, so the same person isn't enrolled twice under a new sigcard record.
-const useDuplicateNameCheck = (firstName, middleName, lastName) => {
+// customer (or joint/corporate co-signatory) with the same first, middle and last name
+// already exists under the SAME account type. A joint account holder who also has their
+// own Regular account is not a duplicate.
+const useDuplicateNameCheck = (firstName, middleName, lastName, accountType) => {
   const [exists, setExists] = useState(false);
   const [checking, setChecking] = useState(false);
   const requestIdRef = useRef(0);
@@ -241,7 +254,7 @@ const useDuplicateNameCheck = (firstName, middleName, lastName) => {
     const debounceId = setTimeout(async () => {
       try {
         const res = await api.get("/customers/check-name", {
-          params: { firstname: first, middlename: middleName?.trim() || undefined, lastname: last },
+          params: { firstname: first, middlename: middleName?.trim() || undefined, lastname: last, account_type: accountType || undefined },
         });
         if (requestIdRef.current === requestId) setExists(!!res.data?.exists);
       } catch {
@@ -252,14 +265,14 @@ const useDuplicateNameCheck = (firstName, middleName, lastName) => {
     }, 500);
 
     return () => clearTimeout(debounceId);
-  }, [firstName, middleName, lastName]);
+  }, [firstName, middleName, lastName, accountType]);
 
   return { exists, checking };
 };
 
-const NameGrid = ({ values, onChange }) => {
+const NameGrid = ({ values, onChange, accountType }) => {
   const { exists: isDuplicate, checking: checkingDuplicate } =
-    useDuplicateNameCheck(values.firstName, values.middleName, values.lastName);
+    useDuplicateNameCheck(values.firstName, values.middleName, values.lastName, accountType);
 
   return (
     <div className="space-y-3">
@@ -288,7 +301,7 @@ const NameGrid = ({ values, onChange }) => {
       {!checkingDuplicate && isDuplicate && (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200">
           <HiOutlineExclamation className="w-4 h-4 text-amber-500 flex-shrink-0" />
-          <p className="text-xs font-semibold text-amber-800">This client already exists</p>
+          <p className="text-xs font-semibold text-amber-800">This client already exists with the same account type</p>
         </div>
       )}
     </div>
@@ -407,7 +420,7 @@ const UploadSigcard = () => {
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState({
     accountType: "", jointSubType: "", jointArrangement: "", corporateSubType: "", firstName: "", middleName: "", lastName: "",
-    suffix: "", companyName: "", riskLevel: "", accountNo: "", dateOpened: "",
+    suffix: "", companyName: "", organization: "", riskLevel: "", accountNo: "", dateOpened: "",
     dateUpdated: "", status: "active", statusDate: "",
   });
   const [photoFile, setPhotoFile] = useState(null);
@@ -427,7 +440,9 @@ const UploadSigcard = () => {
   const isJoint              = formData.accountType === "Joint";
   const isCorporate          = formData.accountType === "Corporate";
   const isITF                = isJoint && formData.jointSubType === "ITF";
-  const isNonITF             = isJoint && formData.jointSubType === "Non-ITF";
+  const isFAO                = isJoint && formData.jointSubType === "FAO";
+  // Regular joint and "For the Account Of" share the same AND / OR holders and documents
+  const isNonITF             = isJoint && (formData.jointSubType === "Non-ITF" || isFAO);
   const isJointTrustee       = isITF && formData.jointArrangement === "Joint Trustee";
   const isSoleProprietorship = isCorporate && formData.corporateSubType === "Sole Proprietorship";
   const isEscheat            = formData.status === "escheat";
@@ -469,7 +484,7 @@ const UploadSigcard = () => {
 
   // Reset jointSubType when account type changes away from Joint
   useEffect(() => {
-    if (!isJoint) setFormData((prev) => ({ ...prev, jointSubType: "", jointArrangement: "" }));
+    if (!isJoint) setFormData((prev) => ({ ...prev, jointSubType: "", jointArrangement: "", organization: "" }));
   }, [isJoint]);
 
   // Reset corporateSubType when account type changes away from Corporate
@@ -649,7 +664,8 @@ const UploadSigcard = () => {
           additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim()) &&
           (!isJointTrustee || (additionalPersons.some((p) => personRole(p) === "trustee") &&
                                additionalPersons.some((p) => personRole(p) === "beneficiary")));
-        if (isNonITF) return !!formData.firstName.trim() && !!formData.lastName.trim() &&
+        if (isNonITF) return (!isFAO || (!!formData.companyName.trim() && !!formData.organization.trim())) &&
+          !!formData.firstName.trim() && !!formData.lastName.trim() &&
           additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
         return !!formData.firstName.trim() && !!formData.lastName.trim();
       case "holders":
@@ -675,14 +691,14 @@ const UploadSigcard = () => {
       case "otherDocs": return true;
       default: return false;
     }
-  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF, isJointTrustee]);
+  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF, isFAO, isJointTrustee]);
 
   const handleNext = () => { if (isStepValid) { setDirection(1);  setStep((s) => Math.min(s + 1, activeSteps.length - 1)); } };
   const handlePrev = () => {                   setDirection(-1); setStep((s) => Math.max(s - 1, 0)); };
 
   const resetAll = () => {
     setStep(0);
-    setFormData({ accountType:"", jointSubType:"", jointArrangement:"", corporateSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", riskLevel:"", accountNo:"", dateOpened:"", dateUpdated:"", status:"active", statusDate:"" });
+    setFormData({ accountType:"", jointSubType:"", jointArrangement:"", corporateSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", organization:"", riskLevel:"", accountNo:"", dateOpened:"", dateUpdated:"", status:"active", statusDate:"" });
     setPhotoFile(null);
     setFiles(initialFiles);
     setItfFiles(initialItfFiles());
@@ -701,9 +717,10 @@ const UploadSigcard = () => {
     try {
       // Files are sent raw; the backend's Image Intervention handles all resizing and optimisation.
       const fd = new FormData();
-      if (isCorporate) {
+      if (isCorporate || isFAO) {
         fd.append("company_name", formData.companyName);
       }
+      if (isFAO) fd.append("organization", formData.organization);
       fd.append("firstname",  formData.firstName);
       fd.append("middlename", formData.middleName);
       fd.append("lastname",   formData.lastName);
@@ -987,6 +1004,7 @@ const UploadSigcard = () => {
                   <div className="border-t border-slate-200" />
                   <NameGrid
                     values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                    accountType={formData.accountType}
                     onChange={(key, val) => setField(key, val)}
                   />
                 </div>
@@ -1012,6 +1030,7 @@ const UploadSigcard = () => {
                     <div className="border-t border-slate-200" />
                     <NameGrid
                       values={p}
+                      accountType={formData.accountType}
                       onChange={(key, val) => setAdditionalPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
                     />
                   </div>
@@ -1065,6 +1084,7 @@ const UploadSigcard = () => {
                   <div className="border-t border-blue-100" />
                   <NameGrid
                     values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                    accountType={formData.accountType}
                     onChange={(key, val) => setField(key, val)}
                   />
                 </div>
@@ -1077,6 +1097,7 @@ const UploadSigcard = () => {
                   subtitleFor={(p) => (personRole(p) === "trustee" ? "Joint trustee of the account" : "Beneficiary of the account")}
                   addLabel={isJointTrustee ? "Add Another Person" : "Add Another In-Trust-For Person"}
                   minCount={isJointTrustee ? 2 : 1}
+                  accountType={formData.accountType}
                 />
                 {isJointTrustee && !(additionalPersons.some((p) => personRole(p) === "trustee") && additionalPersons.some((p) => personRole(p) === "beneficiary")) && (
                   <p className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
@@ -1112,20 +1133,36 @@ const UploadSigcard = () => {
               </div>
             ) : isNonITF ? (
               <div className="space-y-5">
-                {/* Regular joint (AND / OR): primary + secondary account holders */}
+                {/* For the Account Of: account name + organization */}
+                {isFAO && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-slate-600">Account Name <span className="text-red-500">*</span></label>
+                      <input value={formData.companyName} onChange={(e) => setField("companyName", toTitleCase(e.target.value))}
+                        placeholder="Enter the account name" className={inputCls} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-slate-600">Organization <span className="text-red-500">*</span></label>
+                      <input value={formData.organization} onChange={(e) => setField("organization", toTitleCase(e.target.value))}
+                        placeholder="Organization the account is held for" className={inputCls} />
+                    </div>
+                  </div>
+                )}
+                {/* Regular joint / For the Account Of (AND / OR): primary + secondary account holders */}
                 <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/20 p-5 space-y-4">
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
                     <div>
                       <p className="text-sm font-bold text-slate-800">Person 1 — Primary Account Holder</p>
                       <p className="text-xs text-slate-400">
-                        Regular Joint Account · {formData.jointArrangement === "AND" ? "All Must Sign" : "Any May Sign"}
+                        {isFAO ? "For the Account Of" : "Regular Joint Account"} · {formData.jointArrangement === "AND" ? "All Must Sign" : "Any May Sign"}
                       </p>
                     </div>
                   </div>
                   <div className="border-t border-blue-100" />
                   <NameGrid
                     values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                    accountType={formData.accountType}
                     onChange={(key, val) => setField(key, val)}
                   />
                 </div>
@@ -1134,9 +1171,10 @@ const UploadSigcard = () => {
                   setPersons={setAdditionalPersons}
                   showRoleChoice={false}
                   titleFor={() => "Secondary Account Holder"}
-                  subtitleFor={() => "Co-owner of the joint account"}
+                  subtitleFor={() => (isFAO ? "Co-signer of the account" : "Co-owner of the joint account")}
                   addLabel="Add Another Account Holder"
                   minCount={1}
+                  accountType={formData.accountType}
                 />
                 {/* Photo — optional */}
                 <div className="space-y-1.5">
@@ -1176,6 +1214,7 @@ const UploadSigcard = () => {
                 </div>
                 <NameGrid
                   values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                  accountType={formData.accountType}
                   onChange={(key, val) => setField(key, val)}
                 />
                 {/* Photo — optional */}
@@ -1223,10 +1262,12 @@ const UploadSigcard = () => {
                   <p className="text-sm font-bold text-slate-800">
                     {isCorporate
                       ? formData.companyName || "Corporate Account"
-                      : `${formData.firstName} ${formData.lastName}`.trim() || "Account Holder"}
+                      : isFAO && formData.companyName
+                        ? formData.companyName
+                        : `${formData.firstName} ${formData.lastName}`.trim() || "Account Holder"}
                   </p>
                   <p className="text-xs text-slate-400">
-                    {isITF ? "Shared ITF account" : isNonITF ? "Primary account" : isCorporate ? "Corporate account" : "Primary account"}
+                    {isITF ? "Shared ITF account" : isFAO ? `For the Account Of${formData.organization ? ` ${formData.organization}` : ""}` : isNonITF ? "Primary account" : isCorporate ? "Corporate account" : "Primary account"}
                   </p>
                 </div>
               </div>

@@ -6,6 +6,7 @@ namespace App\Enums;
  * How a joint account is held.
  *
  * Regular joint (Non-ITF): AND (all holders must sign) or OR (any holder may sign).
+ * For the Account Of (FAO): AND / OR, same as regular joint.
  * ITF: Sole Trustee (one trustee) or Joint Trustee (two or more trustees).
  */
 enum JointArrangement: string
@@ -27,7 +28,7 @@ enum JointArrangement: string
     {
         return match ($jointSubType) {
             JointSubType::ITF->value => [self::SoleTrustee->value, self::JointTrustee->value],
-            JointSubType::NonITF->value => [self::And->value, self::Or->value],
+            JointSubType::NonITF->value, JointSubType::FAO->value => [self::And->value, self::Or->value],
             default => [],
         };
     }

@@ -45,14 +45,17 @@ class StoreCustomerRequest extends FormRequest
             'lastname' => 'required|string|max:255',
             'suffix' => 'nullable|string|max:50',
             'account_type' => 'required|in:Regular,Joint,Corporate',
-            'joint_sub_type' => 'required_if:account_type,Joint|nullable|in:ITF,Non-ITF',
+            'joint_sub_type' => 'required_if:account_type,Joint|nullable|in:ITF,Non-ITF,FAO',
             'joint_arrangement' => ['required_if:account_type,Joint', 'nullable', Rule::in(JointArrangement::valuesForSubType($this->input('joint_sub_type')))],
             'corporate_sub_type' => 'required_if:account_type,Corporate|nullable|in:Corporate,Sole Proprietorship',
             'risk_level' => 'required|in:Low Risk,Medium Risk,High Risk',
             'branch_id' => 'nullable|exists:branches,id',
 
             // Corporate accounts use company_name instead of personal name fields
-            'company_name' => 'required_if:account_type,Corporate|nullable|string|max:255',
+            'company_name' => 'required_if:account_type,Corporate|required_if:joint_sub_type,FAO|nullable|string|max:255',
+
+            // "For the Account Of" joint accounts: the organization the account is held for
+            'organization' => 'required_if:joint_sub_type,FAO|nullable|string|max:255',
 
             // Additional accounts for the same person (Regular only)
             'additionalAccounts' => 'nullable|array',
@@ -142,13 +145,16 @@ class StoreCustomerRequest extends FormRequest
         return [
             'firstname.required' => 'First name is required.',
             'lastname.required' => 'Last name is required.',
-            'company_name.required_if' => 'Company name is required for Corporate accounts.',
+            'company_name.required_if' => $this->input('joint_sub_type') === 'FAO'
+                ? 'Account name is required for "For the Account Of" accounts.'
+                : 'Company name is required for Corporate accounts.',
+            'organization.required_if' => 'Organization is required for "For the Account Of" accounts.',
             'account_type.required' => 'Account type is required.',
             'account_type.in' => 'Account type must be Regular, Joint, or Corporate.',
             'joint_sub_type.required_if' => 'Joint sub-type is required for Joint accounts.',
-            'joint_sub_type.in' => 'Joint sub-type must be ITF or Non-ITF.',
-            'joint_arrangement.required_if' => 'Please choose AND / OR (regular joint) or Sole / Joint Trustee (ITF).',
-            'joint_arrangement.in' => 'Regular joint accounts must be AND or OR; ITF accounts must be Sole Trustee or Joint Trustee.',
+            'joint_sub_type.in' => 'Joint sub-type must be Regular Joint, ITF, or For the Account Of.',
+            'joint_arrangement.required_if' => 'Please choose AND / OR (regular joint or For the Account Of) or Sole / Joint Trustee (ITF).',
+            'joint_arrangement.in' => 'Regular joint and For the Account Of accounts must be AND or OR; ITF accounts must be Sole Trustee or Joint Trustee.',
             'corporate_sub_type.required_if' => 'Corporate sub-type is required for Corporate accounts.',
             'corporate_sub_type.in' => 'Corporate sub-type must be Corporate or Sole Proprietorship.',
             'risk_level.required' => 'Risk level is required.',

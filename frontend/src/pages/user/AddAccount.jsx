@@ -324,7 +324,7 @@ const AddAccount = ({ basePath = "/user" }) => {
           <div className="space-y-6">
             {customer?.joint_sub_type && (
               <div className="px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700 font-medium">
-                Joint Sub-type: <span className="font-bold">{customer.joint_sub_type}</span>
+                Joint Sub-type: <span className="font-bold">{customer.joint_sub_type === "FAO" ? "For the Account Of" : customer.joint_sub_type}</span>
                 {customer.joint_sub_type === "ITF"
                   ? " — All documents are shared across all holders."
                   : " — Sigcard and NAIS are per-holder; Data Privacy is shared."}

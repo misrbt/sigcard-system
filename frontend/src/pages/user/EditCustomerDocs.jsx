@@ -474,7 +474,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
   const isJoint     = customer?.account_type === "Joint";
   const isCorporate = customer?.account_type === "Corporate";
   const isITF       = isJoint && customer?.joint_sub_type === "ITF";
-  const isNonITF    = isJoint && customer?.joint_sub_type === "Non-ITF";
+  const isNonITF    = isJoint && (customer?.joint_sub_type === "Non-ITF" || customer?.joint_sub_type === "FAO");
   const holders     = customer?.holders ?? [];
 
   // For ITF all docs are shared; for Non-ITF only privacy is shared

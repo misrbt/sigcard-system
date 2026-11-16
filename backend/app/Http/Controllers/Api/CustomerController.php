@@ -104,6 +104,7 @@ class CustomerController extends Controller
                 'lastname' => $request->lastname,
                 'suffix' => $request->suffix,
                 'company_name' => $request->company_name,
+                'organization' => $request->joint_sub_type === 'FAO' ? $request->organization : null,
                 'account_type' => $request->account_type,
                 'joint_sub_type' => $request->joint_sub_type,
                 'joint_arrangement' => $request->account_type === 'Joint' ? $request->joint_arrangement : null,
@@ -290,14 +291,6 @@ class CustomerController extends Controller
     }
 
     /**
-     * GET /api/customers/check-name
-     *
-     * Live duplicate-name check used by the Upload Signature Card wizard: while staff
-     * type a customer's name, flag whether a customer (or joint/corporate co-signatory)
-     * with the same first + last name already exists, so the same person isn't
-     * enrolled twice under a new sigcard record.
-     */
-    /**
      * Update joint co-holders / corporate signatories in place (matched by
      * person number) so the audit log records each name change, add any new
      * ones, and remove any that were taken off.
@@ -386,24 +379,38 @@ class CustomerController extends Controller
         });
     }
 
+    /**
+     * GET /api/customers/check-name
+     *
+     * Live duplicate-name check used by the Upload Signature Card wizard. A person is
+     * only flagged when the same first, middle and last name already exist under the
+     * SAME account type, so a joint account holder who also has their own Regular
+     * account (or vice versa) is not treated as a duplicate.
+     */
     public function checkDuplicateName(CheckCustomerNameRequest $request): JsonResponse
     {
         $this->authorize('view-customers');
 
         $firstname = Str::lower(trim($request->firstname));
+        $middlename = Str::lower(trim((string) $request->middlename));
         $lastname = Str::lower(trim($request->lastname));
+        $accountType = $request->account_type;
+
+        $matchesName = function (Builder $q) use ($firstname, $middlename, $lastname) {
+            $q->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
+                ->whereRaw("LOWER(TRIM(COALESCE(middlename, ''))) = ?", [$middlename])
+                ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
+        };
 
         $query = Customer::query();
         $this->applyBranchScope($query, $request, Auth::user());
 
-        $query->where(function (Builder $q) use ($firstname, $lastname) {
-            $q->where(function (Builder $nameQuery) use ($firstname, $lastname) {
-                $nameQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
-                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
-            })->orWhereHas('holders', function (Builder $holderQuery) use ($firstname, $lastname) {
-                $holderQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
-                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
-            });
+        if ($accountType) {
+            $query->where('account_type', $accountType);
+        }
+
+        $query->where(function (Builder $q) use ($matchesName) {
+            $q->where($matchesName)->orWhereHas('holders', $matchesName);
         });
 
         return response()->json([
@@ -465,6 +472,7 @@ class CustomerController extends Controller
                 'lastname',
                 'suffix',
                 'company_name',
+                'organization',
                 'account_type',
                 'joint_arrangement',
                 'risk_level',

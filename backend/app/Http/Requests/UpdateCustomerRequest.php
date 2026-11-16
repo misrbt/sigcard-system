@@ -28,6 +28,7 @@ class UpdateCustomerRequest extends FormRequest
             'lastname' => 'sometimes|nullable|string|max:255',
             'suffix' => 'nullable|string|max:50',
             'company_name' => 'sometimes|nullable|string|max:255',
+            'organization' => 'sometimes|nullable|string|max:255',
             'account_type' => 'sometimes|required|in:Regular,Joint,Corporate',
             'risk_level' => 'sometimes|required|in:Low Risk,Medium Risk,High Risk',
             'status' => 'sometimes|in:active,reactivated,dormant,escheat,closed',

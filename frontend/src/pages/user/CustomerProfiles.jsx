@@ -316,7 +316,7 @@ const HIST_FIELD_LABELS = {
   firstname: "First Name", middlename: "Middle Name", lastname: "Last Name",
   suffix: "Suffix", account_type: "Account Type", risk_level: "Risk Level",
   status: "Status", account_no: "Account No.", date_opened: "Date Opened",
-  company_name: "Company Name", branch_id: "Branch",
+  company_name: "Company / Account Name", organization: "Organization", branch_id: "Branch",
 };
 
 const histEventConfig = (event, description) => {

@@ -20,6 +20,7 @@ class CheckCustomerNameRequest extends FormRequest
             'firstname' => 'required|string|max:100',
             'middlename' => 'nullable|string|max:100',
             'lastname' => 'required|string|max:100',
+            'account_type' => 'nullable|in:Regular,Joint,Corporate',
         ];
     }
 }

@@ -28,7 +28,7 @@ import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
-import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isItfCustomer, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
+import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isFaoCustomer, isItfCustomer, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
 import { setNavigationGuard } from "../../utils/navigationGuard";
 import {
   getPendingStatusChange,
@@ -228,7 +228,7 @@ const HIST_FIELD_LABELS = {
   firstname: "First Name", middlename: "Middle Name", lastname: "Last Name",
   suffix: "Suffix", account_type: "Account Type", risk_level: "Risk Level",
   status: "Status", account_no: "Account No.", date_opened: "Date Opened",
-  company_name: "Company Name", branch_id: "Branch",
+  company_name: "Company / Account Name", organization: "Organization", branch_id: "Branch",
   corporate_sub_type: "Corp. Sub Type",
 };
 
@@ -501,8 +501,10 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
     lastname:     customer.lastname     ?? "",
     suffix:       customer.suffix       ?? "",
     company_name: customer.company_name ?? "",
+    organization: customer.organization ?? "",
     joint_arrangement: customer.joint_arrangement ?? "",
   });
+  const isFaoAcct = isFaoCustomer(customer);
   const arrangementOptions = customer.account_type === "Joint" ? (JOINT_ARRANGEMENTS_BY_SUB_TYPE[customer.joint_sub_type] ?? []) : [];
   const isItfAcct = isItfCustomer(customer);
   const isJointTrusteeAcct = isItfAcct && form.joint_arrangement === "Joint Trustee";
@@ -645,6 +647,20 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
         <div className="space-y-2">
           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Company Name</label>
           <input value={form.company_name} onChange={(e) => setF("company_name", e.target.value)} className={inputCls} />
+        </div>
+      )}
+
+      {/* Account Name + Organization — For the Account Of only */}
+      {isFaoAcct && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Account Name</label>
+            <input value={form.company_name} onChange={(e) => setF("company_name", e.target.value)} className={inputCls} />
+          </div>
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Organization</label>
+            <input value={form.organization} onChange={(e) => setF("organization", e.target.value)} className={inputCls} />
+          </div>
         </div>
       )}
 
@@ -1072,7 +1088,7 @@ const CustomerView = ({ basePath = '/user' }) => {
     const acctType  = customer.account_type;
     const jointSub  = customer.joint_sub_type;
     const isItfUpload    = acctType === "Joint" && jointSub === "ITF";
-    const isNonItfUpload = acctType === "Joint" && jointSub === "Non-ITF";
+    const isNonItfUpload = acctType === "Joint" && (jointSub === "Non-ITF" || jointSub === "FAO");
     const isCorpUpload   = acctType === "Corporate" && customer.corporate_sub_type !== "Sole Proprietorship";
 
     const hasFiles =
@@ -1319,7 +1335,7 @@ const CustomerView = ({ basePath = '/user' }) => {
 
   // Joint sub-type helpers (safe to reference in closures — called after render)
   const isITF = customer?.account_type === "Joint" && customer?.joint_sub_type === "ITF";
-  const isNonITF = customer?.account_type === "Joint" && customer?.joint_sub_type === "Non-ITF";
+  const isNonITF = customer?.account_type === "Joint" && (customer?.joint_sub_type === "Non-ITF" || customer?.joint_sub_type === "FAO");
   const isSharedDoc = (secKey) => {
     if (isITF) return true;
     if (isNonITF && secKey === "privacy") return true;
@@ -1728,6 +1744,26 @@ const CustomerView = ({ basePath = '/user' }) => {
                     <p className="text-sm font-semibold text-slate-800">{jointTypeLabel(customer)}</p>
                   </div>
                 </div>
+              )}
+
+              {/* Account Name + Organization — For the Account Of only */}
+              {isFaoCustomer(customer) && (
+                <>
+                  <div className="flex items-start gap-3">
+                    <HiOutlineDocumentText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Account Name</p>
+                      <p className="text-sm font-semibold text-slate-800">{customer.company_name || "—"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <HiOutlineOfficeBuilding className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Organization</p>
+                      <p className="text-sm font-semibold text-slate-800">{customer.organization || "—"}</p>
+                    </div>
+                  </div>
+                </>
               )}
 
               {/* Corporate Sub Type — Corporate only */}
