@@ -719,9 +719,9 @@ const UploadSigcard = () => {
       // Files are sent raw; the backend's Image Intervention handles all resizing and optimisation.
       const fd = new FormData();
       if (isCorporate || isFAO) {
-        fd.append("company_name", formData.companyName);
+        fd.append("company_name", formData.companyName.trim());
       }
-      if (isFAO) fd.append("organization", formData.organization);
+      if (isFAO) fd.append("organization", formData.organization.trim());
       fd.append("firstname",  formData.firstName);
       fd.append("middlename", formData.middleName);
       fd.append("lastname",   formData.lastName);
@@ -1139,12 +1139,12 @@ const UploadSigcard = () => {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <label className="block text-xs font-semibold text-slate-600">Account Name <span className="text-red-500">*</span></label>
-                      <input value={formData.companyName} onChange={(e) => setField("companyName", toTitleCase(e.target.value))}
+                      <input value={formData.companyName} onChange={(e) => setField("companyName", e.target.value)}
                         placeholder="Enter the account name" className={inputCls} />
                     </div>
                     <div className="space-y-1.5">
                       <label className="block text-xs font-semibold text-slate-600">Organization <span className="text-red-500">*</span></label>
-                      <input value={formData.organization} onChange={(e) => setField("organization", toTitleCase(e.target.value))}
+                      <input value={formData.organization} onChange={(e) => setField("organization", e.target.value)}
                         placeholder="Organization the account is held for" className={inputCls} />
                     </div>
                   </div>
