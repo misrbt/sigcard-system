@@ -5,8 +5,8 @@
 
 export const JOINT_ARRANGEMENTS_BY_SUB_TYPE = {
   "Non-ITF": [
-    { value: "AND", label: "AND — all holders sign together" },
-    { value: "OR",  label: "OR — any holder may sign" },
+    { value: "AND", label: "AND (all holders must sign)" },
+    { value: "OR",  label: "OR (any holder may sign)" },
   ],
   ITF: [
     { value: "Sole Trustee",  label: "Sole Trustee" },

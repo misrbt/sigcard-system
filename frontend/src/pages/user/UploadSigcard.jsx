@@ -53,19 +53,19 @@ const JOINT_TYPE_GROUPS = [
   {
     subType: "Non-ITF",
     title: "Regular Joint Account",
-    note: "Two or more co-owners of the account.",
+    note: "Owned jointly by two or more account holders.",
     options: [
-      { arrangement: "AND", label: "AND Account", description: "All account holders must sign together." },
-      { arrangement: "OR",  label: "OR Account",  description: "Any one of the account holders may sign." },
+      { arrangement: "AND", label: "AND", description: "All account holders must sign for every transaction." },
+      { arrangement: "OR",  label: "OR",  description: "Any one of the account holders may sign." },
     ],
   },
   {
     subType: "ITF",
-    title: "ITF Account (In Trust For)",
-    note: "A trustee holds the account for the In-Trust-For person.",
+    title: "In-Trust-For (ITF) Account",
+    note: "Held by a trustee on behalf of a beneficiary.",
     options: [
-      { arrangement: "Sole Trustee",  label: "Sole Trustee",  description: "One trustee for the In-Trust-For person(s)." },
-      { arrangement: "Joint Trustee", label: "Joint Trustee", description: "Two or more trustees for the In-Trust-For person(s)." },
+      { arrangement: "Sole Trustee",  label: "Sole Trustee",  description: "One trustee manages the account." },
+      { arrangement: "Joint Trustee", label: "Joint Trustee", description: "Two or more trustees manage the account together." },
     ],
   },
 ];
@@ -882,7 +882,7 @@ const UploadSigcard = () => {
             <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
             <p className="text-sm text-slate-500">Select the type of joint account.</p>
             <div className="grid gap-5 lg:grid-cols-2">
-              {JOINT_TYPE_GROUPS.filter((g) => jointSubTypeConfig.some((c) => c.value === g.subType)).map((group, gi) => {
+              {JOINT_TYPE_GROUPS.filter((g) => jointSubTypeConfig.some((c) => c.value === g.subType)).map((group) => {
                 const meta = JOINT_SUB_TYPE_META[group.subType] ?? {};
                 const Icon = meta.icon ?? HiOutlineUsers;
                 return (
@@ -892,12 +892,12 @@ const UploadSigcard = () => {
                         <Icon className="w-5 h-5 text-white" />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-slate-800">{gi + 1}. {group.title}</p>
+                        <p className="text-sm font-bold text-slate-800">{group.title}</p>
                         <p className="text-xs text-slate-400">{group.note}</p>
                       </div>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      {group.options.map((opt, oi) => {
+                      {group.options.map((opt) => {
                         const isSelected = formData.jointSubType === group.subType && formData.jointArrangement === opt.arrangement;
                         return (
                           <motion.button key={opt.arrangement} type="button" whileTap={{ scale: 0.97 }}
@@ -907,7 +907,7 @@ const UploadSigcard = () => {
                           >
                             {isSelected && <div className="absolute top-2 right-2"><HiOutlineCheckCircle className="w-5 h-5 text-green-500" /></div>}
                             <p className={`text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}>
-                              {String.fromCharCode(65 + oi)}. {opt.label}
+                              {opt.label}
                             </p>
                             <p className="text-xs text-slate-500 leading-relaxed">{opt.description}</p>
                           </motion.button>
@@ -1059,7 +1059,7 @@ const UploadSigcard = () => {
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
                     <div>
                       <p className="text-sm font-bold text-slate-800">Person 1 — Trustee</p>
-                      <p className="text-xs text-slate-400">{isJointTrustee ? "Trustee (one of the joint trustees)" : "Sole trustee — manages the account"}</p>
+                      <p className="text-xs text-slate-400">{isJointTrustee ? "Joint trustee of the account" : "Sole trustee of the account"}</p>
                     </div>
                   </div>
                   <div className="border-t border-blue-100" />
@@ -1074,7 +1074,7 @@ const UploadSigcard = () => {
                   setPersons={setAdditionalPersons}
                   showRoleChoice={isJointTrustee}
                   titleFor={(p) => (personRole(p) === "trustee" ? "Trustee" : "In-Trust-For")}
-                  subtitleFor={(p) => (personRole(p) === "trustee" ? "Joint trustee of the account" : "Person the account is held in trust for")}
+                  subtitleFor={(p) => (personRole(p) === "trustee" ? "Joint trustee of the account" : "Beneficiary of the account")}
                   addLabel={isJointTrustee ? "Add Another Person" : "Add Another In-Trust-For Person"}
                   minCount={isJointTrustee ? 2 : 1}
                 />
@@ -1119,7 +1119,7 @@ const UploadSigcard = () => {
                     <div>
                       <p className="text-sm font-bold text-slate-800">Person 1 — Primary Account Holder</p>
                       <p className="text-xs text-slate-400">
-                        Regular joint · {formData.jointArrangement === "AND" ? "AND account — all holders sign together" : "OR account — any holder may sign"}
+                        Regular Joint Account · {formData.jointArrangement === "AND" ? "AND (all holders must sign)" : "OR (any holder may sign)"}
                       </p>
                     </div>
                   </div>
