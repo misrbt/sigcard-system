@@ -26,6 +26,7 @@ Each release adds a section at the top. Tick items off as they are done on produ
 | Page reloads itself once if a screen file is missing after an update | 159a27c |
 | For the Account Of: Account Name and Organization keep capital letters exactly as typed | see git log |
 | For the Account Of: "Add Another Signature Card" (any number) for 3+ holders; extra cards (also Regular Joint's second card) now filed under Person 1 so they show on the profile | see git log |
+| Status-change upload panel (profile page): "Add Another Signature Card" for Regular Joint and For the Account Of; Edit Docs heading shows the joint type name | see git log |
 
 ### Before merging to `main`
 - [ ] **Check the deploy target folder exists on production.** `deploy-production.yml` copies to `DEPLOY_DIR: /home/rbtwebsrvr/projects/sigcard-system`. On the staging server that folder does not exist, and the staging deploy fails because of it. On production, run:
@@ -76,6 +77,7 @@ Each release adds a section at the top. Tick items off as they are done on produ
 - [ ] Regular Joint with 3 people → Signature Card step shows 3 Risk Profiling boxes with names.
 - [ ] Uploading a normal phone photo (3–8 MB) saves without "failed to upload".
 - [ ] Customer profile of a For the Account Of account shows Account Name and Organization.
+- [ ] For the Account Of with 3 holders: add 2 extra signature cards on upload → profile shows Person 1 "Front (3)"; Edit Docs shows Sigcard Front 1–3.
 
 ### Known follow-ups (not in this release)
 - Regular Joint second signature cards saved BEFORE this release are filed under a person number that may not exist, so they may not show on the profile. Check with:

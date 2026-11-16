@@ -1258,7 +1258,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                         <div>
                           <h3 className="text-sm font-bold text-slate-800">{group.label}</h3>
                           <p className="text-[10px] text-slate-400">
-                            Joint Non-ITF — {frontCount} front{frontCount !== 1 ? "s" : ""} + {totalPersons} back{totalPersons !== 1 ? "s" : ""}
+                            {customer?.joint_sub_type === "FAO" ? "For the Account Of" : "Regular Joint"} — {displayFrontCount} front{displayFrontCount !== 1 ? "s" : ""} + {totalPersons} back{totalPersons !== 1 ? "s" : ""}
                           </p>
                         </div>
                       </div>

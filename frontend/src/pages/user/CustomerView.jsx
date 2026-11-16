@@ -993,6 +993,7 @@ const CustomerView = ({ basePath = '/user' }) => {
   const [itfHasSecondFront,    setItfHasSecondFront]    = useState(false);
   const [itfSecondFront,        setItfSecondFront]        = useState(null);
   const [nonItfSigcardFront,    setNonItfSigcardFront]    = useState(null);
+  const [nonItfExtraFronts,     setNonItfExtraFronts]     = useState([]); // extra shared signature cards
   const [perPersonSigcardBacks, setPerPersonSigcardBacks] = useState({}); // { [personIndex]: File }
   const [corpSigcardFronts,     setCorpSigcardFronts]     = useState([null]);
   const [perPersonCorpBacks,    setPerPersonCorpBacks]    = useState({}); // { [personIndex]: File }
@@ -1027,6 +1028,7 @@ const CustomerView = ({ basePath = '/user' }) => {
     setItfHasSecondFront(false);
     setItfSecondFront(null);
     setNonItfSigcardFront(null);
+    setNonItfExtraFronts([]);
     setPerPersonSigcardBacks({});
     setCorpSigcardFronts([null]);
     setPerPersonCorpBacks({});
@@ -1095,6 +1097,7 @@ const CustomerView = ({ basePath = '/user' }) => {
       Object.values(docUploadFiles).some((v) => (Array.isArray(v) ? v.length > 0 : Boolean(v)))
       || otherUploadFiles.length > 0
       || nonItfSigcardFront !== null
+      || nonItfExtraFronts.some(Boolean)
       || Object.values(perPersonSigcardBacks).some(Boolean)
       || corpSigcardFronts.some(Boolean)
       || Object.values(perPersonCorpBacks).some(Boolean)
@@ -1128,6 +1131,12 @@ const CustomerView = ({ basePath = '/user' }) => {
             if (p1Back)  fd.append(`sigcardPairs[${pairIdx}][back]`,  p1Back);
             pairIdx++;
           }
+          // Extra signature cards belong to the shared card (person 1)
+          nonItfExtraFronts.filter(Boolean).forEach((f) => {
+            fd.append(`sigcardPairs[${pairIdx}][person_index]`, 1);
+            fd.append(`sigcardPairs[${pairIdx}][front]`, f);
+            pairIdx++;
+          });
           Object.entries(perPersonSigcardBacks)
             .filter(([pi]) => Number(pi) >= 2)
             .sort(([a], [b]) => Number(a) - Number(b))
@@ -2140,6 +2149,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                 const stagedCount = docFilesCount + [
                   ...otherUploadFiles,
                   nonItfSigcardFront,
+                  ...nonItfExtraFronts,
                   ...Object.values(perPersonSigcardBacks).filter(Boolean),
                   ...corpSigcardFronts.filter(Boolean),
                   ...Object.values(perPersonCorpBacks).filter(Boolean),
@@ -2206,11 +2216,28 @@ const CustomerView = ({ basePath = '/user' }) => {
                                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card</p>
                                 <div className="space-y-1.5">
                                   <p className="text-xs font-semibold text-slate-500">Front — Shared</p>
-                                  <div className="w-1/2 pr-1.5">
+                                  <div className="grid grid-cols-2 gap-3">
                                     <DocImageDropZone compact label="SIGCARD"
                                       file={nonItfSigcardFront}
                                       onChange={setNonItfSigcardFront} />
+                                    {nonItfExtraFronts.map((f, i) => (
+                                      <div key={i} className="space-y-1">
+                                        <DocImageDropZone compact label={`SIGCARD ${i + 2}`}
+                                          file={f}
+                                          onChange={(file) => setNonItfExtraFronts((prev) => prev.map((x, idx) => (idx === i ? file : x)))} />
+                                        <button type="button"
+                                          onClick={() => setNonItfExtraFronts((prev) => prev.filter((_, idx) => idx !== i))}
+                                          className="text-[11px] font-medium text-red-500 hover:text-red-600">
+                                          Remove Signature Card {i + 2}
+                                        </button>
+                                      </div>
+                                    ))}
                                   </div>
+                                  <button type="button"
+                                    onClick={() => setNonItfExtraFronts((prev) => [...prev, null])}
+                                    className="w-full px-3 py-2 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all">
+                                    + Add Another Signature Card
+                                  </button>
                                 </div>
                                 <div className="space-y-1.5">
                                   <p className="text-xs font-semibold text-slate-500">Back — Per Account Holder</p>
