@@ -5,8 +5,8 @@
 
 // What staff see for each stored value (stored values stay AND / OR).
 export const JOINT_ARRANGEMENT_LABELS = {
-  AND: "All Signatures Required",
-  OR: "Any One Signature",
+  AND: "All Must Sign",
+  OR: "Any May Sign",
   "Sole Trustee": "Sole Trustee",
   "Joint Trustee": "Joint Trustee",
 };
@@ -27,7 +27,7 @@ export const JOINT_ARRANGEMENTS_BY_SUB_TYPE = {
 export const isItfCustomer = (customer) =>
   customer?.account_type === "Joint" && customer?.joint_sub_type === "ITF";
 
-/** e.g. "Regular Joint — All Signatures Required", "ITF — Joint Trustee", "ITF — Not set". */
+/** e.g. "Regular Joint — All Must Sign", "ITF — Joint Trustee", "ITF — Not set". */
 export const jointTypeLabel = (customer) => {
   if (customer?.account_type !== "Joint") return "—";
   const kind = customer.joint_sub_type === "ITF" ? "ITF" : customer.joint_sub_type === "Non-ITF" ? "Regular Joint" : "Joint";

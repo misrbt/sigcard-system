@@ -55,8 +55,8 @@ const JOINT_TYPE_GROUPS = [
     title: "Regular Joint Account",
     note: "Owned jointly by two or more account holders.",
     options: [
-      { arrangement: "AND", label: "All Signatures Required", description: "Every account holder must sign for each transaction." },
-      { arrangement: "OR",  label: "Any One Signature",       description: "Any one of the account holders may sign." },
+      { arrangement: "AND", label: "All Must Sign", description: "Every account holder must sign for each transaction." },
+      { arrangement: "OR",  label: "Any May Sign",  description: "Any one of the account holders may sign." },
     ],
   },
   {
@@ -906,7 +906,7 @@ const UploadSigcard = () => {
                               ${isSelected ? `${meta.bg ?? "bg-slate-50"} ${meta.border ?? "border-slate-500"} ring-4 ${meta.ring ?? "ring-slate-500"}/20 shadow-md` : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"}`}
                           >
                             {isSelected && <div className="absolute top-2 right-2"><HiOutlineCheckCircle className="w-5 h-5 text-green-500" /></div>}
-                            <p className={`pr-6 text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}>
+                            <p className={`pr-6 text-sm font-bold whitespace-nowrap ${isSelected ? "text-slate-900" : "text-slate-700"}`}>
                               {opt.label}
                             </p>
                             <p className="text-xs text-slate-500 leading-relaxed">{opt.description}</p>
@@ -1119,7 +1119,7 @@ const UploadSigcard = () => {
                     <div>
                       <p className="text-sm font-bold text-slate-800">Person 1 — Primary Account Holder</p>
                       <p className="text-xs text-slate-400">
-                        Regular Joint Account · {formData.jointArrangement === "AND" ? "All Signatures Required" : "Any One Signature"}
+                        Regular Joint Account · {formData.jointArrangement === "AND" ? "All Must Sign" : "Any May Sign"}
                       </p>
                     </div>
                   </div>
