@@ -32,7 +32,7 @@ import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
 import { clearUploadResolved } from "../../utils/pendingStatusStorage";
 import RecentSearches from "../../components/common/RecentSearches";
 import { useRecentSearches } from "../../hooks/useRecentSearches";
-import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
+import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isFaoCustomer, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
 
 const PAGE_SIZE = 10;
 
@@ -749,9 +749,13 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             </div>
             <div className="px-5 py-4 grid grid-cols-2 gap-x-6 gap-y-4">
               {[
-                { icon: HiOutlineUser,           label: "Full Name",    value: customer.full_name },
+                { icon: HiOutlineUser,           label: "Full Name",    value: isFaoCustomer(customer) ? [customer.firstname, customer.middlename, customer.lastname, customer.suffix].filter(Boolean).join(" ") : customer.full_name },
                 { icon: HiOutlineCreditCard,      label: "Account Type", value: customer.account_type },
                 ...(isJoint ? [{ icon: HiOutlineTag, label: "Joint Account Type", value: jointTypeLabel(customer) }] : []),
+                ...(isFaoCustomer(customer) ? [
+                  { icon: HiOutlineDocumentText,   label: "Account Name", value: customer.company_name || "—" },
+                  { icon: HiOutlineOfficeBuilding, label: "Organization", value: customer.organization || "—" },
+                ] : []),
                 { icon: HiOutlineDocumentText,    label: "Account No.",  value: customer.account_no ?? "—" },
                 ...(!isJoint && !isCorporate ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level ?? "—" }] : []),
                 { icon: HiOutlineCalendar,        label: "Date Opened",  value: customer.date_opened ? formatDate(customer.date_opened) : "—" },
@@ -1366,6 +1370,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
     suffix:       customer.suffix       ?? "",
     account_type: customer.account_type ?? "Regular",
     joint_arrangement: customer.joint_arrangement ?? "",
+    ...(isFaoCustomer(customer) ? { company_name: customer.company_name ?? "", organization: customer.organization ?? "" } : {}),
   });
   const [holders, setHolders] = useState(
     (customer.holders ?? []).map((h) => ({
@@ -1427,6 +1432,20 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
             <option value="">Not set</option>
             {arrangementOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+        </div>
+      )}
+
+      {/* Account Name + Organization — For the Account Of only */}
+      {isJoint && isFaoCustomer(customer) && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Account Name *</label>
+            <input value={form.company_name} onChange={set("company_name")} className={editInputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Organization *</label>
+            <input value={form.organization} onChange={set("organization")} className={editInputCls} />
+          </div>
         </div>
       )}
 

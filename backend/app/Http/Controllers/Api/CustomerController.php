@@ -371,6 +371,7 @@ class CustomerController extends Controller
         $query->where(function (Builder $q) use ($search, $matchesAllWords) {
             $q->where($matchesAllWords)
                 ->orWhere('company_name', 'like', "%{$search}%")
+                ->orWhere('organization', 'like', "%{$search}%")
                 ->orWhere('account_no', 'like', "%{$search}%")
                 ->orWhereHas('holders', $matchesAllWords)
                 ->orWhereHas('accounts', function (Builder $accountQuery) use ($search) {
