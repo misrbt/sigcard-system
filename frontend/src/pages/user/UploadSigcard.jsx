@@ -557,7 +557,8 @@ const UploadSigcard = () => {
   useEffect(() => {
     if (isITF) return; // ITF uses itfFiles, not files
     const acctCount    = additionalAccounts.length + 1;
-    const sigcardCount = acctCount; // Non-ITF risk profiling is per account, not per person
+    // Regular joint: one Risk Profiling per account holder (primary + every secondary holder)
+    const sigcardCount = isNonITF ? additionalPersons.length + 1 : acctCount;
     setFiles((prev) => {
       const sync = (pairs, target) => {
         if (pairs.length === target) return pairs;
@@ -579,7 +580,7 @@ const UploadSigcard = () => {
         otherDocs:    syncOther(prev.otherDocs, acctCount),
       };
     });
-  }, [isITF, isNonITF, isCorporate, additionalAccounts.length]);
+  }, [isITF, isNonITF, isCorporate, additionalAccounts.length, additionalPersons.length]);
 
   // Sync corporate sigcard arrays to person count (always N signatories + 1 extra for corporate)
   useEffect(() => {
@@ -1408,11 +1409,12 @@ const UploadSigcard = () => {
           );
         }
 
-        // Non-ITF Joint: 1 shared sigcard front + 1 risk profiling per account
+        // Non-ITF Joint: 1 shared sigcard front + 1 risk profiling per account holder
         if (isNonITF) {
-          const acctLabels = [
-            "Account 1 — Primary",
-            ...additionalAccounts.map((_, i) => `Account ${i + 2}`),
+          const holderName = (p) => [p.firstName, p.lastName].filter(Boolean).join(" ").trim();
+          const holderLabels = [
+            `Primary Account Holder${holderName(formData) ? ` — ${holderName(formData)}` : ""}`,
+            ...additionalPersons.map((p) => `Secondary Account Holder${holderName(p) ? ` — ${holderName(p)}` : ""}`),
           ];
           return (
             <div className="space-y-8">
@@ -1455,7 +1457,7 @@ const UploadSigcard = () => {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-slate-200" />
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Risk Profiling — per account</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Risk Profiling — per account holder</p>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
 
@@ -1466,7 +1468,7 @@ const UploadSigcard = () => {
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${PERSON_COLORS[i] ?? "bg-slate-400"}`}>
                           {i + 1}
                         </div>
-                        <p className="text-sm font-semibold text-slate-700">{acctLabels[i] ?? `Account ${i + 1}`}</p>
+                        <p className="text-sm font-semibold text-slate-700">{holderLabels[i] ?? `Account Holder ${i + 1}`}</p>
                       </div>
                       <DocImageDropZone
                         label="Risk Profiling"
