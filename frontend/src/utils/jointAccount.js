@@ -3,10 +3,20 @@
 //   Regular joint (joint_sub_type "Non-ITF"): AND / OR — Primary + Secondary Account Holders
 //   ITF (joint_sub_type "ITF"): Sole / Joint Trustee — Trustee(s) + In-Trust-For person(s)
 
+// What staff see for each stored value (stored values stay AND / OR).
+export const JOINT_ARRANGEMENT_LABELS = {
+  AND: "All Signatures Required",
+  OR: "Any One Signature",
+  "Sole Trustee": "Sole Trustee",
+  "Joint Trustee": "Joint Trustee",
+};
+
+export const jointArrangementLabel = (value) => JOINT_ARRANGEMENT_LABELS[value] ?? value;
+
 export const JOINT_ARRANGEMENTS_BY_SUB_TYPE = {
   "Non-ITF": [
-    { value: "AND", label: "AND (all holders must sign)" },
-    { value: "OR",  label: "OR (any holder may sign)" },
+    { value: "AND", label: JOINT_ARRANGEMENT_LABELS.AND },
+    { value: "OR",  label: JOINT_ARRANGEMENT_LABELS.OR },
   ],
   ITF: [
     { value: "Sole Trustee",  label: "Sole Trustee" },
@@ -17,11 +27,11 @@ export const JOINT_ARRANGEMENTS_BY_SUB_TYPE = {
 export const isItfCustomer = (customer) =>
   customer?.account_type === "Joint" && customer?.joint_sub_type === "ITF";
 
-/** e.g. "Regular Joint — AND", "ITF — Joint Trustee", "ITF — Not set". */
+/** e.g. "Regular Joint — All Signatures Required", "ITF — Joint Trustee", "ITF — Not set". */
 export const jointTypeLabel = (customer) => {
   if (customer?.account_type !== "Joint") return "—";
   const kind = customer.joint_sub_type === "ITF" ? "ITF" : customer.joint_sub_type === "Non-ITF" ? "Regular Joint" : "Joint";
-  return `${kind} — ${customer.joint_arrangement || "Not set"}`;
+  return `${kind} — ${customer.joint_arrangement ? jointArrangementLabel(customer.joint_arrangement) : "Not set"}`;
 };
 
 /**

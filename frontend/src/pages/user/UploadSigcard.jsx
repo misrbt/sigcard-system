@@ -55,8 +55,8 @@ const JOINT_TYPE_GROUPS = [
     title: "Regular Joint Account",
     note: "Owned jointly by two or more account holders.",
     options: [
-      { arrangement: "AND", label: "AND", description: "All account holders must sign for every transaction." },
-      { arrangement: "OR",  label: "OR",  description: "Any one of the account holders may sign." },
+      { arrangement: "AND", label: "All Signatures Required", description: "Every account holder must sign for each transaction." },
+      { arrangement: "OR",  label: "Any One Signature",       description: "Any one of the account holders may sign." },
     ],
   },
   {
@@ -1119,7 +1119,7 @@ const UploadSigcard = () => {
                     <div>
                       <p className="text-sm font-bold text-slate-800">Person 1 — Primary Account Holder</p>
                       <p className="text-xs text-slate-400">
-                        Regular Joint Account · {formData.jointArrangement === "AND" ? "AND (all holders must sign)" : "OR (any holder may sign)"}
+                        Regular Joint Account · {formData.jointArrangement === "AND" ? "All Signatures Required" : "Any One Signature"}
                       </p>
                     </div>
                   </div>

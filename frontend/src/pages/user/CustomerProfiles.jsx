@@ -1417,7 +1417,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
         </select>
       </div>
 
-      {/* Joint arrangement — AND / OR (regular joint) or Sole / Joint Trustee (ITF) */}
+      {/* Joint arrangement — signing rule (regular joint) or Sole / Joint Trustee (ITF) */}
       {arrangementOptions.length > 0 && (
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1">
