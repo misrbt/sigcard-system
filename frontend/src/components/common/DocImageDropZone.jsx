@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { HiOutlinePhotograph } from "react-icons/hi";
+import { ACCEPTED_IMAGE_TYPES, imageFileProblem } from "../../utils/imageFile";
 
 /**
  * Single-image drop zone. Files are sent raw to the backend where
@@ -31,9 +32,14 @@ const DocImageDropZone = ({ label, file, onChange, className = "", compact = fal
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  const [error, setError] = useState(null);
+
   const accept = (raw) => {
     const f = raw instanceof File ? raw : raw?.[0] ?? null;
-    if (!f || !f.type.startsWith("image/")) return;
+    if (!f) return;
+    const problem = imageFileProblem(f);
+    if (problem) { setError(problem); return; }
+    setError(null);
     onChange(f);
   };
 
@@ -120,10 +126,14 @@ const DocImageDropZone = ({ label, file, onChange, className = "", compact = fal
         )}
       </div>
 
+      {error && (
+        <p className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+      )}
+
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={ACCEPTED_IMAGE_TYPES.join(",")}
         className="hidden"
         onChange={(e) => { accept(e.target.files?.[0]); e.target.value = ""; }}
       />

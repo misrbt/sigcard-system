@@ -81,13 +81,23 @@ class StoreCustomerRequest extends FormRequest
             'sigcardPairs.*.front' => 'nullable|image|max:10240',
             'sigcardPairs.*.back' => 'nullable|image|max:10240',
 
+            // NAIS is optional; an uploaded NAIS needs at least one side (front or back).
             'naisPairs' => 'nullable|array|min:1',
-            'naisPairs.*.front' => 'required|image|max:10240',
+            'naisPairs.*.front' => 'required_without:naisPairs.*.back|nullable|image|max:10240',
             'naisPairs.*.back' => 'nullable|image|max:10240',
 
+            // Joint accounts share one consent form, and the upload screen accepts either
+            // side of it; every other account type needs both sides.
             'privacyPairs' => $privacyExempt ? 'nullable|array' : 'required|array|min:1',
-            'privacyPairs.*.front' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
-            'privacyPairs.*.back' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
+            'privacyPairs.*.front' => match (true) {
+                $privacyExempt => 'nullable|image|max:10240',
+                $this->input('account_type') === 'Joint' => 'required_without:privacyPairs.*.back|nullable|image|max:10240',
+                default => 'required|image|max:10240',
+            },
+            'privacyPairs.*.back' => match (true) {
+                $privacyExempt, $this->input('account_type') === 'Joint' => 'nullable|image|max:10240',
+                default => 'required|image|max:10240',
+            },
 
             // Optional additional documents — keyed by person/account index (1-based)
             'otherDocs' => 'nullable|array',
@@ -164,7 +174,8 @@ class StoreCustomerRequest extends FormRequest
             'sigcardPairs.required' => 'Sigcard images are required.',
             'sigcardPairs.*.back.required' => 'Sigcard back image is required for each person.',
 
-            'naisPairs.*.front.required' => 'NAIS front image is required for each person.',
+            'naisPairs.*.front.required_without' => 'Please upload the front or back of each NAIS.',
+            'privacyPairs.*.front.required_without' => 'Please upload the front or back of each data privacy form.',
 
             'privacyPairs.required' => 'Data privacy images are required.',
             'privacyPairs.*.front.required' => 'Data privacy front image is required for each person.',

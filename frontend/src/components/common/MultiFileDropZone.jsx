@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { HiOutlinePhotograph, HiOutlineX } from "react-icons/hi";
+import { ACCEPTED_IMAGE_TYPES, imageFileProblem } from "../../utils/imageFile";
 
 const FileThumb = ({ file, index, onRemove }) => {
   const [src, setSrc] = useState(null);
@@ -40,10 +41,14 @@ const FileThumb = ({ file, index, onRemove }) => {
  */
 const MultiFileDropZone = ({ files = [], onChange, label, className = "" }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [errors, setErrors] = useState([]);
   const inputRef = useRef(null);
 
   const addFiles = (raw) => {
-    const images = Array.from(raw ?? []).filter((f) => f.type.startsWith("image/"));
+    const picked = Array.from(raw ?? []);
+    const problems = picked.map(imageFileProblem).filter(Boolean);
+    setErrors(problems);
+    const images = picked.filter((f) => !imageFileProblem(f));
     if (!images.length) return;
     onChange([...files, ...images]);
   };
@@ -97,10 +102,14 @@ const MultiFileDropZone = ({ files = [], onChange, label, className = "" }) => {
         )}
       </div>
 
+      {errors.map((msg) => (
+        <p key={msg} className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{msg}</p>
+      ))}
+
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={ACCEPTED_IMAGE_TYPES.join(",")}
         multiple
         className="hidden"
         onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
