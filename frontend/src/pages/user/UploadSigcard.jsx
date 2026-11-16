@@ -881,13 +881,13 @@ const UploadSigcard = () => {
           <div className="space-y-6">
             <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
             <p className="text-sm text-slate-500">Select the type of joint account.</p>
-            <div className="grid gap-5 lg:grid-cols-2">
+            <div className="grid gap-5 lg:grid-cols-2 items-stretch">
               {JOINT_TYPE_GROUPS.filter((g) => jointSubTypeConfig.some((c) => c.value === g.subType)).map((group) => {
                 const meta = JOINT_SUB_TYPE_META[group.subType] ?? {};
                 const Icon = meta.icon ?? HiOutlineUsers;
                 return (
-                  <div key={group.subType} className="rounded-2xl border-2 border-slate-200 bg-white p-4 space-y-3">
-                    <div className="flex items-center gap-3">
+                  <div key={group.subType} className="h-full flex flex-col gap-3 rounded-2xl border-2 border-slate-200 bg-white p-4">
+                    <div className="flex items-center gap-3 min-h-[3rem]">
                       <div className={`p-2.5 rounded-xl ${meta.iconBg ?? "bg-slate-500"}`}>
                         <Icon className="w-5 h-5 text-white" />
                       </div>
@@ -896,17 +896,17 @@ const UploadSigcard = () => {
                         <p className="text-xs text-slate-400">{group.note}</p>
                       </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid flex-1 gap-3 sm:grid-cols-2 auto-rows-fr">
                       {group.options.map((opt) => {
                         const isSelected = formData.jointSubType === group.subType && formData.jointArrangement === opt.arrangement;
                         return (
                           <motion.button key={opt.arrangement} type="button" whileTap={{ scale: 0.97 }}
                             onClick={() => setFormData((prev) => ({ ...prev, jointSubType: group.subType, jointArrangement: opt.arrangement }))}
-                            className={`relative flex flex-col items-start gap-1 p-4 rounded-xl border-2 text-left transition-all outline-none
+                            className={`relative h-full min-h-[7rem] flex flex-col items-start justify-start gap-1 p-4 rounded-xl border-2 text-left transition-all outline-none
                               ${isSelected ? `${meta.bg ?? "bg-slate-50"} ${meta.border ?? "border-slate-500"} ring-4 ${meta.ring ?? "ring-slate-500"}/20 shadow-md` : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"}`}
                           >
                             {isSelected && <div className="absolute top-2 right-2"><HiOutlineCheckCircle className="w-5 h-5 text-green-500" /></div>}
-                            <p className={`text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}>
+                            <p className={`pr-6 text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}>
                               {opt.label}
                             </p>
                             <p className="text-xs text-slate-500 leading-relaxed">{opt.description}</p>
