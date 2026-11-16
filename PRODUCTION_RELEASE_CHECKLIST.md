@@ -25,6 +25,7 @@ Each release adds a section at the top. Tick items off as they are done on produ
 | Upload boxes refuse photos over 10 MB / HEIC; joint Data Privacy and NAIS accept either side | 4d006bb |
 | Page reloads itself once if a screen file is missing after an update | 159a27c |
 | For the Account Of: Account Name and Organization keep capital letters exactly as typed | see git log |
+| For the Account Of: "Add Another Signature Card" (any number) for 3+ holders; extra cards (also Regular Joint's second card) now filed under Person 1 so they show on the profile | see git log |
 
 ### Before merging to `main`
 - [ ] **Check the deploy target folder exists on production.** `deploy-production.yml` copies to `DEPLOY_DIR: /home/rbtwebsrvr/projects/sigcard-system`. On the staging server that folder does not exist, and the staging deploy fails because of it. On production, run:
@@ -77,4 +78,5 @@ Each release adds a section at the top. Tick items off as they are done on produ
 - [ ] Customer profile of a For the Account Of account shows Account Name and Organization.
 
 ### Known follow-ups (not in this release)
-- The optional "second signature card front" is filed under person = number of pairs + 1, which may be a person who doesn't exist.
+- Regular Joint second signature cards saved BEFORE this release are filed under a person number that may not exist, so they may not show on the profile. Check with:
+  `SELECT customer_id, person_index FROM customer_documents WHERE document_type='sigcard_front' AND person_index > 1;`

@@ -432,6 +432,8 @@ const UploadSigcard = () => {
   const [corpSigBacks,         setCorpSigBacks]          = useState([null, null]);
   const [hasSecondJointFront,  setHasSecondJointFront]   = useState(false);
   const [secondJointFront,     setSecondJointFront]      = useState(null);
+  // "For the Account Of": extra signature cards when the holders' signatures need more than one card
+  const [faoExtraFronts,       setFaoExtraFronts]        = useState([]);
   const [isSubmitting,         setIsSubmitting]         = useState(false);
   const [uploadProgress,     setUploadProgress]     = useState(0);
   const [submitPhase,        setSubmitPhase]        = useState("idle");
@@ -515,6 +517,7 @@ const UploadSigcard = () => {
     }
     setHasSecondJointFront(false);
     setSecondJointFront(null);
+    setFaoExtraFronts([]);
   }, [formData.jointSubType, isITF, isNonITF]);
 
   // ITF roles: Sole Trustee → everyone after Person 1 is In-Trust-For.
@@ -679,7 +682,8 @@ const UploadSigcard = () => {
         );
       case "sigcard":
         if (isITF) return itfFiles.sigcardFronts.every((f) => !!f) && itfFiles.riskProfilings.every((f) => !!f);
-        if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back);
+        if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back) &&
+          (!isFAO || faoExtraFronts.every((f) => !!f));
         if (isSoleProprietorship) return !!files.sigcardPairs[0]?.front && !!files.sigcardPairs[0]?.back;
         if (isCorporate) return corpSigFronts.every((f) => f !== null) && corpSigBacks.every((f) => f !== null);
         return files.sigcardPairs.every((p) => p.front && p.back);
@@ -692,7 +696,7 @@ const UploadSigcard = () => {
       case "otherDocs": return true;
       default: return false;
     }
-  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF, isFAO, isJointTrustee]);
+  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF, isFAO, isJointTrustee, faoExtraFronts]);
 
   const handleNext = () => { if (isStepValid) { setDirection(1);  setStep((s) => Math.min(s + 1, activeSteps.length - 1)); } };
   const handlePrev = () => {                   setDirection(-1); setStep((s) => Math.max(s - 1, 0)); };
@@ -709,6 +713,7 @@ const UploadSigcard = () => {
     setCorpSigBacks([null, null]);
     setHasSecondJointFront(false);
     setSecondJointFront(null);
+    setFaoExtraFronts([]);
   };
 
   const handleSubmit = async () => {
@@ -829,9 +834,16 @@ const UploadSigcard = () => {
               if (pair.back)  fd.append(`${key}[${i}][back]`,  pair.back);
             });
           }
-          if (isNonITF && hasSecondJointFront && secondJointFront) {
-            fd.append(`sigcardPairs[${files.sigcardPairs.length}][front]`, secondJointFront);
-          }
+          // Extra signature card fronts are part of the shared card, so file them under
+          // person 1 (where the profile shows the joint account's signature cards).
+          const extraFronts = isFAO
+            ? faoExtraFronts.filter(Boolean)
+            : isNonITF && hasSecondJointFront && secondJointFront ? [secondJointFront] : [];
+          extraFronts.forEach((f, i) => {
+            const idx = files.sigcardPairs.length + i;
+            fd.append(`sigcardPairs[${idx}][front]`, f);
+            fd.append(`sigcardPairs[${idx}][person_index]`, 1);
+          });
           files.otherDocs.forEach((section, i) => section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f)));
         }
       }
@@ -1426,8 +1438,40 @@ const UploadSigcard = () => {
                 onChange={(f) => setPairFile("sigcardPairs", 0, "front", f)}
               />
 
-              {/* Second sigcard front prompt */}
-              {!hasSecondJointFront ? (
+              {/* For the Account Of: any number of extra signature cards */}
+              {isFAO ? (
+                <div className="space-y-4">
+                  {faoExtraFronts.map((f, i) => (
+                    <div key={i} className="space-y-3 rounded-2xl border-2 border-teal-200 bg-teal-50/50 p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-teal-700">Signature Card {i + 2}</p>
+                        <button type="button"
+                          onClick={() => setFaoExtraFronts((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                          <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                        </button>
+                      </div>
+                      <DocImageDropZone
+                        label={`SIGCARD ${i + 2}`}
+                        shape="landscape"
+                        file={f}
+                        onChange={(file) => setFaoExtraFronts((prev) => prev.map((x, idx) => (idx === i ? file : x)))}
+                      />
+                    </div>
+                  ))}
+                  <button type="button"
+                    onClick={() => setFaoExtraFronts((prev) => [...prev, null])}
+                    className="flex flex-col items-center justify-center gap-0.5 w-full px-4 py-3 text-teal-700 border-2 border-dashed border-teal-300 rounded-xl hover:border-teal-500 hover:bg-teal-50 transition-all">
+                    <span className="flex items-center gap-2 text-xs font-semibold">
+                      <HiOutlinePlus className="w-3.5 h-3.5" />
+                      Add Another Signature Card
+                    </span>
+                    <span className="text-[11px] font-normal text-slate-500">
+                      For accounts with 3 or more holders whose signatures don't fit on one card
+                    </span>
+                  </button>
+                </div>
+              ) : !hasSecondJointFront ? (
                 <button type="button"
                   onClick={() => setHasSecondJointFront(true)}
                   className="flex items-center justify-center gap-2 w-full px-4 py-3 text-xs font-semibold text-indigo-600 border-2 border-dashed border-indigo-300 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all">
