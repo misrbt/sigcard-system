@@ -28,6 +28,7 @@ import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
+import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isItfCustomer, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
 import { setNavigationGuard } from "../../utils/navigationGuard";
 import {
   getPendingStatusChange,
@@ -436,7 +437,7 @@ const RISK_OPTIONS = [
   { value: "High Risk",   label: "High Risk",   cls: "border-red-400 text-red-700 bg-red-50 ring-2 ring-red-400/20" },
 ];
 
-const inputCls = "w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent";
+const inputCls = "w-full px-3 py-2 text-sm text-gray-900 placeholder:text-slate-400 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent";
 
 const ModalShell = ({ title, subtitle, onClose, children, footer }) => (
   <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -500,7 +501,31 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
     lastname:     customer.lastname     ?? "",
     suffix:       customer.suffix       ?? "",
     company_name: customer.company_name ?? "",
+    joint_arrangement: customer.joint_arrangement ?? "",
   });
+  const arrangementOptions = customer.account_type === "Joint" ? (JOINT_ARRANGEMENTS_BY_SUB_TYPE[customer.joint_sub_type] ?? []) : [];
+  const isItfAcct = isItfCustomer(customer);
+  const isJointTrusteeAcct = isItfAcct && form.joint_arrangement === "Joint Trustee";
+  // Joint co-holders / corporate signatories (Person 2+). Names only — people
+  // can't be added or removed here because their documents are filed by person number.
+  const [holders, setHolders] = useState(
+    (customer.holders ?? []).map((h) => ({
+      firstname:  h.firstname  ?? "",
+      middlename: h.middlename ?? "",
+      lastname:   h.lastname   ?? "",
+      suffix:     h.suffix     ?? "",
+      risk_level: h.risk_level ?? "",
+      role:       h.role ?? "",
+    }))
+  );
+  const holderLabel = isCorporateType ? "Signatory" : "Account Holder";
+  const holderTitle = (h, i) => {
+    if (isItfAcct) return `Person ${i + 2} — ${isJointTrusteeAcct && h.role === "trustee" ? "Trustee" : "In-Trust-For"}`;
+    if (customer.account_type === "Joint") return `Person ${i + 2} — Secondary Account Holder`;
+    return `${holderLabel} ${i + 2}`;
+  };
+  const setHolder = (i, key, val) =>
+    setHolders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [key]: val } : h)));
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(customer.photo ? storageUrl(customer.photo) : null);
   const [removePhoto, setRemovePhoto] = useState(false);
@@ -515,9 +540,22 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
     try {
       const fd = new FormData();
       fd.append("_method", "PUT");
-      Object.entries(form).forEach(([k, v]) => { if (v !== null && v !== undefined) fd.append(k, v); });
+      Object.entries(form).forEach(([k, v]) => {
+        if (k === "joint_arrangement" && arrangementOptions.length === 0) return;
+        if (v !== null && v !== undefined) fd.append(k, v);
+      });
       if (photoFile) fd.append("photo", photoFile);
       if (removePhoto) fd.append("remove_photo", "1");
+      if (holders.length > 0) {
+        if (holders.some((h) => !h.firstname.trim() || !h.lastname.trim())) {
+          setError(`First and last name are required for every ${holderLabel.toLowerCase()}.`);
+          setSaving(false);
+          return;
+        }
+        holders.forEach((h, i) => {
+          Object.entries(h).forEach(([k, v]) => fd.append(`additionalPersons[${i}][${k}]`, v ?? ""));
+        });
+      }
       await api.post(`/customers/${customer.id}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       onSaved();
       onClose();
@@ -634,6 +672,59 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
           </div>
         </div>
       )}
+
+      {/* Joint arrangement — AND / OR (regular joint) or Sole / Joint Trustee (ITF) */}
+      {arrangementOptions.length > 0 && (
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+            {customer.joint_sub_type === "ITF" ? "ITF Type" : "Joint Account Type"}
+          </label>
+          <select value={form.joint_arrangement} onChange={(e) => setF("joint_arrangement", e.target.value)} className={inputCls}>
+            <option value="">Not set</option>
+            {arrangementOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Other joint account holders / corporate signatories */}
+      {holders.map((h, i) => (
+        <div key={i} className="space-y-2">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            {holderTitle(h, i)}
+          </p>
+          {isJointTrusteeAcct && (
+            <div className="flex gap-2">
+              {[{ value: "trustee", label: "Trustee" }, { value: "beneficiary", label: "In-Trust-For" }].map(({ value, label }) => (
+                <button key={value} type="button" onClick={() => setHolder(i, "role", value)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                    (h.role === "trustee" ? "trustee" : "beneficiary") === value
+                      ? "bg-purple-600 border-purple-600 text-white"
+                      : "bg-white border-slate-200 text-slate-600 hover:border-purple-300"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">First Name *</label>
+              <input value={h.firstname} onChange={(e) => setHolder(i, "firstname", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Middle Name</label>
+              <input value={h.middlename} onChange={(e) => setHolder(i, "middlename", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Last Name *</label>
+              <input value={h.lastname} onChange={(e) => setHolder(i, "lastname", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Suffix</label>
+              <input value={h.suffix} onChange={(e) => setHolder(i, "suffix", e.target.value)} className={inputCls} placeholder="Jr., Sr., III" />
+            </div>
+          </div>
+        </div>
+      ))}
 
       {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">{error}</div>}
     </ModalShell>
@@ -1633,8 +1724,8 @@ const CustomerView = ({ basePath = '/user' }) => {
                 <div className="flex items-start gap-3">
                   <HiOutlineTag className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Joint Sub Type</p>
-                    <p className="text-sm font-semibold text-slate-800">{customer.joint_sub_type ?? "—"}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Joint Account Type</p>
+                    <p className="text-sm font-semibold text-slate-800">{jointTypeLabel(customer)}</p>
                   </div>
                 </div>
               )}
@@ -1858,7 +1949,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                         {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
                       </p>
                       <p className="text-xs text-slate-400">
-                        {h.person_index === 1 ? "Primary Account Holder" : "Secondary Account Holder"}
+                        {jointPersonRole(customer, h.person_index, h)}
                       </p>
                     </div>
                     <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold flex-shrink-0 ${riskStyle[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>

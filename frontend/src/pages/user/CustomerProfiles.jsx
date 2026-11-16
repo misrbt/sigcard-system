@@ -30,8 +30,32 @@ import Swal from "sweetalert2";
 import api from "../../services/api";
 import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
 import { clearUploadResolved } from "../../utils/pendingStatusStorage";
+import RecentSearches from "../../components/common/RecentSearches";
+import { useRecentSearches } from "../../hooks/useRecentSearches";
+import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
 
 const PAGE_SIZE = 10;
+
+// Remembers the customer list search/filters/page for this browser tab so
+// pressing "Back" from a customer's page returns to the same search results.
+const listStateKey = (basePath) => `customerListState:${basePath}`;
+
+const loadListState = (basePath) => {
+  try {
+    const raw = sessionStorage.getItem(listStateKey(basePath));
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveListState = (basePath, state) => {
+  try {
+    sessionStorage.setItem(listStateKey(basePath), JSON.stringify(state));
+  } catch {
+    // Storage unavailable (private mode / quota) — the list simply won't be remembered.
+  }
+};
 
 const statusStyle = {
   active:      "bg-green-100 text-green-700 border border-green-300",
@@ -82,6 +106,30 @@ const formatDate = (iso) => {
 };
 
 const customerId = (id) => `C-${String(id).padStart(4, "0")}`;
+
+// Joint co-holders / corporate signatories for search results, flagging the
+// ones whose name matches what was typed (every word must appear in the name).
+const personName = (p) => [p.firstname, p.middlename, p.lastname, p.suffix].filter(Boolean).join(" ");
+
+const nameMatches = (p, query) => {
+  const words = query.trim().toLowerCase().split(/[\s,]+/).filter(Boolean);
+  if (words.length === 0) return false;
+  const name = personName(p).toLowerCase();
+  return words.every((w) => name.includes(w));
+};
+
+const searchResultPeople = (customer, query) => {
+  const isCorporate = customer.account_type === "Corporate";
+  const people = [];
+  // For corporate accounts the main row's name is the first signatory
+  // (full_name shows the company), so list it with the other signatories.
+  if (isCorporate && (customer.firstname || customer.lastname)) people.push(customer);
+  (customer.holders ?? []).forEach((h) => people.push(h));
+  return {
+    label: isCorporate ? "Signatories" : "Joint with",
+    people: people.map((p) => ({ name: personName(p), matched: nameMatches(p, query) })).filter((p) => p.name),
+  };
+};
 
 const initials = (customer) => {
   const f = customer?.firstname?.[0] ?? "";
@@ -682,6 +730,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                     </div>
                     <p className="text-xs text-white/80 font-medium flex-1 min-w-0 truncate">
                       {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
+                      <span className="ml-1.5 text-[10px] text-white/40">{jointPersonRole(customer, h.person_index, h)}</span>
                     </p>
                     <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${riskStyle[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
                       {h.risk_level}
@@ -702,7 +751,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
               {[
                 { icon: HiOutlineUser,           label: "Full Name",    value: customer.full_name },
                 { icon: HiOutlineCreditCard,      label: "Account Type", value: customer.account_type },
-                ...(isJoint ? [{ icon: HiOutlineTag, label: "Joint Sub Type", value: customer.joint_sub_type ?? "—" }] : []),
+                ...(isJoint ? [{ icon: HiOutlineTag, label: "Joint Account Type", value: jointTypeLabel(customer) }] : []),
                 { icon: HiOutlineDocumentText,    label: "Account No.",  value: customer.account_no ?? "—" },
                 ...(!isJoint && !isCorporate ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level ?? "—" }] : []),
                 { icon: HiOutlineCalendar,        label: "Date Opened",  value: customer.date_opened ? formatDate(customer.date_opened) : "—" },
@@ -1316,14 +1365,16 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
     lastname:     customer.lastname     ?? "",
     suffix:       customer.suffix       ?? "",
     account_type: customer.account_type ?? "Regular",
+    joint_arrangement: customer.joint_arrangement ?? "",
   });
   const [holders, setHolders] = useState(
     (customer.holders ?? []).map((h) => ({
+      role:       h.role ?? "",
       firstname:  h.firstname,
       middlename: h.middlename ?? "",
       lastname:   h.lastname,
       suffix:     h.suffix ?? "",
-      risk_level: h.risk_level,
+      risk_level: h.risk_level ?? "",
     }))
   );
   const { saving, save } = useModalSave(customer.id, onSaved, onClose);
@@ -1331,13 +1382,17 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
   const setHolder = (i, field, val) =>
     setHolders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
   const isJoint = form.account_type === "Joint";
+  const isItfAcct = isJoint && customer.joint_sub_type === "ITF";
+  const isJointTrusteeAcct = isItfAcct && form.joint_arrangement === "Joint Trustee";
+  const arrangementOptions = isJoint ? (JOINT_ARRANGEMENTS_BY_SUB_TYPE[customer.joint_sub_type] ?? []) : [];
 
   const handleSave = () => {
-    const payload = { ...form };
+    const payload = { ...form, joint_arrangement: isJoint ? (form.joint_arrangement || null) : null };
     if (isJoint) {
       payload.additionalPersons = holders.map((h) => ({
+        role: h.role || null,
         firstname: h.firstname, middlename: h.middlename,
-        lastname: h.lastname, suffix: h.suffix, risk_level: h.risk_level,
+        lastname: h.lastname, suffix: h.suffix, risk_level: h.risk_level || null,
       }));
     }
     save(payload);
@@ -1362,11 +1417,24 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
         </select>
       </div>
 
+      {/* Joint arrangement — AND / OR (regular joint) or Sole / Joint Trustee (ITF) */}
+      {arrangementOptions.length > 0 && (
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">
+            {customer.joint_sub_type === "ITF" ? "ITF Type" : "Joint Account Type"}
+          </label>
+          <select value={form.joint_arrangement} onChange={set("joint_arrangement")} className={editInputCls}>
+            <option value="">Not set</option>
+            {arrangementOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Primary holder */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">1</div>
-          <p className="text-xs font-bold text-slate-700">{isJoint ? "Person 1 — Primary Account Holder" : "Account Holder"}</p>
+          <p className="text-xs font-bold text-slate-700">{isJoint ? `Person 1 — ${jointPersonRole({ ...customer, account_type: form.account_type }, 1)}` : "Account Holder"}</p>
         </div>
         <div className="pl-3 border-l-2 border-slate-100 space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -1399,13 +1467,26 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
             <div key={i} className="space-y-3">
               <div className="flex items-center gap-2">
                 <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">{i + 2}</div>
-                <p className="text-xs font-bold text-slate-700">Person {i + 2} — Secondary Account Holder</p>
+                <p className="text-xs font-bold text-slate-700">Person {i + 2} — {isItfAcct ? (isJointTrusteeAcct && h.role === "trustee" ? "Trustee" : "In-Trust-For") : "Secondary Account Holder"}</p>
                 {holders.length > 1 && (
                   <button type="button" onClick={() => setHolders((prev) => prev.filter((_, idx) => idx !== i))}
                     className="ml-auto text-[11px] font-medium text-red-500 hover:text-red-700">Remove</button>
                 )}
               </div>
               <div className="pl-3 border-l-2 border-slate-100 space-y-3">
+                {isJointTrusteeAcct && (
+            <div className="flex gap-2">
+              {[{ value: "trustee", label: "Trustee" }, { value: "beneficiary", label: "In-Trust-For" }].map(({ value, label }) => (
+                <button key={value} type="button" onClick={() => setHolder(i, "role", value)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                    (h.role === "trustee" ? "trustee" : "beneficiary") === value
+                      ? "bg-purple-600 border-purple-600 text-white"
+                      : "bg-white border-slate-200 text-slate-600 hover:border-purple-300"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">First Name *</label>
@@ -1429,6 +1510,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Risk Level</label>
                   <select value={h.risk_level} onChange={(e) => setHolder(i, "risk_level", e.target.value)} className={editInputCls}>
+                    <option value="">Not set</option>
                     {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
                   </select>
                 </div>
@@ -1922,27 +2004,37 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const { hasPermission, user } = useAuth();
   const canEdit = hasPermission('edit-customers');
 
-  const initialTab = onlyTab ?? (searchParams.get("tab") ?? defaultTab);
+  const [saved] = useState(() => loadListState(basePath));
+
+  const initialTab = onlyTab ?? (searchParams.get("tab") ?? saved.activeTab ?? defaultTab);
   const [activeTab, setActiveTab]         = useState(initialTab);
 
   // Table view
   const [customers, setCustomers]         = useState([]);
   const [loading, setLoading]             = useState(false);
-  const [tableSearch, setTableSearch]     = useState("");
-  const [statusFilter, setStatusFilter]   = useState("all");
-  const [accountTypeFilter, setAccountTypeFilter] = useState("all");
-  const [riskLevelFilter, setRiskLevelFilter]     = useState("all");
-  const [branchFilter, setBranchFilter]           = useState("all");
+  const [tableSearch, setTableSearch]     = useState(saved.tableSearch ?? "");
+  // What's in the box right now; `tableSearch` follows it once typing pauses,
+  // so the list isn't reloaded (and the page doesn't jump) on every letter.
+  const [tableSearchInput, setTableSearchInput] = useState(saved.tableSearch ?? "");
+  useEffect(() => {
+    const t = setTimeout(() => setTableSearch(tableSearchInput.trim()), 400);
+    return () => clearTimeout(t);
+  }, [tableSearchInput]);
+  const applyTableSearchNow = (term) => { setTableSearchInput(term); setTableSearch(term.trim()); };
+  const [statusFilter, setStatusFilter]   = useState(saved.statusFilter ?? "all");
+  const [accountTypeFilter, setAccountTypeFilter] = useState(saved.accountTypeFilter ?? "all");
+  const [riskLevelFilter, setRiskLevelFilter]     = useState(saved.riskLevelFilter ?? "all");
+  const [branchFilter, setBranchFilter]           = useState(saved.branchFilter ?? "all");
 
   // Advanced filter — date opened / date uploaded, by month or custom range
-  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
-  const [dateFieldFilter, setDateFieldFilter]     = useState("opened"); // "opened" | "uploaded" | "status"
-  const [monthFilter, setMonthFilter]             = useState("");       // "YYYY-MM"
-  const [dateFromFilter, setDateFromFilter]       = useState("");
-  const [dateToFilter, setDateToFilter]           = useState("");
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(saved.showAdvancedFilter ?? false);
+  const [dateFieldFilter, setDateFieldFilter]     = useState(saved.dateFieldFilter ?? "opened"); // "opened" | "uploaded" | "status"
+  const [monthFilter, setMonthFilter]             = useState(saved.monthFilter ?? "");       // "YYYY-MM"
+  const [dateFromFilter, setDateFromFilter]       = useState(saved.dateFromFilter ?? "");
+  const [dateToFilter, setDateToFilter]           = useState(saved.dateToFilter ?? "");
   const hasAdvancedFilter = !!(monthFilter || dateFromFilter || dateToFilter);
-  const [sortDir, setSortDir]             = useState("asc");
-  const [page, setPage]                   = useState(1);
+  const [sortDir, setSortDir]             = useState(saved.sortDir ?? "asc");
+  const [page, setPage]                   = useState(saved.page ?? 1);
   const [totalPages, setTotalPages]       = useState(1);
   const [total, setTotal]                 = useState(0);
 
@@ -1958,10 +2050,16 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [quickQuery, setQuickQuery]               = useState("");
   const [quickResults, setQuickResults]           = useState([]);
   const [quickLoading, setQuickLoading]           = useState(false);
-  const [selectedCustomer, setSelectedCustomer]   = useState(null);
+  const [selectedCustomer, setSelectedCustomer]   = useState(saved.selectedCustomer ?? null);
   const [showDropdown, setShowDropdown]           = useState(false);
   const searchContainerRef                        = useRef(null);
   const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
+
+  // Recent search history for both search boxes
+  const tableHistory = useRecentSearches("customers-table");
+  const quickHistory = useRecentSearches("customers-quick");
+  const [tableSearchFocused, setTableSearchFocused] = useState(false);
+  const [quickSearchFocused, setQuickSearchFocused] = useState(false);
 
   const showAllBranchesFilter = basePath === "/admin" || basePath === "/compliance";
 
@@ -2027,7 +2125,24 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, showAllBranchesFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, hasAdvancedFilter]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
-  useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
+  // Reset to page 1 when filters change — but not on the first load, so a
+  // restored page number (coming back from a customer's page) is kept.
+  const filterSignature = JSON.stringify([tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
+  const lastFilterSignature = useRef(filterSignature);
+  useEffect(() => {
+    if (lastFilterSignature.current === filterSignature) return;
+    lastFilterSignature.current = filterSignature;
+    setPage(1);
+  }, [filterSignature, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
+
+  useEffect(() => {
+    saveListState(basePath, {
+      activeTab, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter,
+      showAdvancedFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, sortDir, page,
+      selectedCustomer,
+    });
+  }, [basePath, activeTab, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter,
+      showAdvancedFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, sortDir, page, selectedCustomer]);
 
   // ── Quick search (live) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -2155,10 +2270,22 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 <div className="relative flex-1 max-w-md">
                   <HiOutlineSearch className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
                   <input
-                    value={tableSearch}
-                    onChange={(e) => setTableSearch(e.target.value)}
+                    value={tableSearchInput}
+                    onChange={(e) => setTableSearchInput(e.target.value)}
+                    onFocus={() => setTableSearchFocused(true)}
+                    onBlur={() => { setTableSearchFocused(false); tableHistory.addSearch(tableSearchInput); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { applyTableSearchNow(tableSearchInput); tableHistory.addSearch(tableSearchInput); setTableSearchFocused(false); } }}
+                    autoComplete="off"
                     placeholder="Search by name, account no., or branch…"
                     className="w-full pl-12 pr-4 py-3 text-sm text-gray-900 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                  />
+                  <RecentSearches
+                    items={tableHistory.recentSearches}
+                    query={tableSearchInput}
+                    visible={tableSearchFocused}
+                    onPick={(term) => { applyTableSearchNow(term); tableHistory.addSearch(term); setTableSearchFocused(false); }}
+                    onRemove={tableHistory.removeSearch}
+                    onClear={tableHistory.clearSearches}
                   />
                 </div>
                 <div className="flex gap-3 flex-wrap">
@@ -2359,8 +2486,8 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {loading
+                  <tbody className={`divide-y divide-slate-100 bg-white transition-opacity ${loading && customers.length > 0 ? "opacity-50" : ""}`}>
+                    {loading && customers.length === 0
                       ? [...Array(5)].map((_, i) => <SkeletonRow key={i} />)
                       : customers.length === 0
                       ? (
@@ -2377,9 +2504,9 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                       : customers.map((c, i) => (
                         <motion.tr
                           key={c.id}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: i * 0.03 }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: i * 0.02 }}
                           className="hover:bg-blue-50/40 transition-colors"
                         >
                           {/* Full Name */}
@@ -2556,9 +2683,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   <input
                     value={quickQuery}
                     onChange={(e) => { setQuickQuery(e.target.value); setSelectedCustomer(null); }}
-                    onFocus={() => { if (quickResults.length > 0 && quickQuery.trim()) setShowDropdown(true); }}
+                    onFocus={() => { setQuickSearchFocused(true); if (quickResults.length > 0 && quickQuery.trim()) setShowDropdown(true); }}
+                    onBlur={() => setQuickSearchFocused(false)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && quickResults.length > 0) {
+                        quickHistory.addSearch(quickQuery);
                         setSelectedCustomer(quickResults[0]);
                         setShowDropdown(false);
                         setQuickQuery("");
@@ -2567,6 +2696,13 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     placeholder="Type a customer name — results appear instantly…"
                     autoComplete="off"
                     className="w-full pl-12 pr-10 py-4 text-base text-gray-900 border-2 border-slate-200 rounded-2xl focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                  />
+                  <RecentSearches
+                    items={quickHistory.recentSearches}
+                    visible={quickSearchFocused && !quickQuery.trim()}
+                    onPick={(term) => { setQuickQuery(term); setSelectedCustomer(null); quickHistory.addSearch(term); }}
+                    onRemove={quickHistory.removeSearch}
+                    onClear={quickHistory.clearSearches}
                   />
 
                   {/* Auto-suggest dropdown */}
@@ -2600,7 +2736,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                   initial={{ opacity: 0, x: -6 }}
                                   animate={{ opacity: 1, x: 0 }}
                                   transition={{ delay: i * 0.02 }}
-                                  onClick={() => { setSelectedCustomer(c); setShowDropdown(false); setQuickQuery(""); }}
+                                  onClick={() => { quickHistory.addSearch(quickQuery); setSelectedCustomer(c); setShowDropdown(false); setQuickQuery(""); }}
                                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 text-left border-b border-slate-100 last:border-0 transition-colors group"
                                 >
                                   <div className="w-9 h-9 rounded-full flex-shrink-0 overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
@@ -2614,6 +2750,25 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                     <p className="text-xs text-slate-400 truncate">
                                       {c.account_no ? `Acct: ${c.account_no} · ` : ""}{c.branch?.branch_name ?? "No Branch"} · {c.account_type}
                                     </p>
+                                    {(() => {
+                                      const { label, people } = searchResultPeople(c, quickQuery);
+                                      if (people.length === 0) return null;
+                                      return (
+                                        <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-500">
+                                          <span className="font-semibold text-slate-400">{label}:</span>
+                                          {people.map((p, idx) => (
+                                            <span
+                                              key={idx}
+                                              className={p.matched
+                                                ? "px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 font-semibold"
+                                                : "px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600"}
+                                            >
+                                              {p.name}
+                                            </span>
+                                          ))}
+                                        </p>
+                                      );
+                                    })()}
                                   </div>
                                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
                                     {c.status}
@@ -2630,7 +2785,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 </div>
 
                 {/* Empty state (no query, no selection) */}
-                {!quickQuery.trim() && !selectedCustomer && (
+                {!selectedCustomer && (
                   <div className="text-center py-10 mt-2">
                     <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center mb-3">
                       <HiOutlineSearch className="w-8 h-8 text-blue-500" />

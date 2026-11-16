@@ -6,6 +6,7 @@ use App\Enums\AccountType;
 use App\Enums\CorporateSubType;
 use App\Enums\CustomerStatus;
 use App\Enums\DocumentType;
+use App\Enums\JointArrangement;
 use App\Enums\JointSubType;
 use App\Enums\RiskLevel;
 use App\Enums\UserStatus;
@@ -25,6 +26,7 @@ class ConfigController extends Controller
             'customer_statuses' => CustomerStatus::values(),
             'account_types' => AccountType::values(),
             'joint_sub_types' => JointSubType::values(),
+            'joint_arrangements' => JointArrangement::values(),
             'corporate_sub_types' => CorporateSubType::values(),
             'risk_levels' => RiskLevel::values(),
             'document_types' => DocumentType::values(),

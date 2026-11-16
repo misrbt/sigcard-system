@@ -14,7 +14,7 @@ const shrinkImage = (file) =>
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const scale = Math.min(1, 800 / img.width, 900 / img.height);
+      const scale = Math.min(1, 2400 / img.width, 2400 / img.height);
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
@@ -25,7 +25,7 @@ const shrinkImage = (file) =>
           resolve(blob ? new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }) : file);
         },
         "image/jpeg",
-        0.8
+        0.9
       );
     };
     img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };

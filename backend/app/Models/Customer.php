@@ -33,6 +33,7 @@ class Customer extends Model
         'company_name',
         'account_type',
         'joint_sub_type',
+        'joint_arrangement',
         'corporate_sub_type',
         'risk_level',
         'status',
@@ -61,7 +62,7 @@ class Customer extends Model
             ->useLogName('customer')
             ->logOnly([
                 'account_no', 'date_opened', 'firstname', 'middlename', 'lastname', 'suffix', 'company_name',
-                'account_type', 'joint_sub_type', 'corporate_sub_type', 'risk_level', 'status', 'branch_id',
+                'account_type', 'joint_sub_type', 'joint_arrangement', 'corporate_sub_type', 'risk_level', 'status', 'branch_id',
             ])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs();

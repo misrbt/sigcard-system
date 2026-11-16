@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\JointArrangement;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreCustomerRequest extends FormRequest
 {
@@ -44,6 +46,7 @@ class StoreCustomerRequest extends FormRequest
             'suffix' => 'nullable|string|max:50',
             'account_type' => 'required|in:Regular,Joint,Corporate',
             'joint_sub_type' => 'required_if:account_type,Joint|nullable|in:ITF,Non-ITF',
+            'joint_arrangement' => ['required_if:account_type,Joint', 'nullable', Rule::in(JointArrangement::valuesForSubType($this->input('joint_sub_type')))],
             'corporate_sub_type' => 'required_if:account_type,Corporate|nullable|in:Corporate,Sole Proprietorship',
             'risk_level' => 'required|in:Low Risk,Medium Risk,High Risk',
             'branch_id' => 'nullable|exists:branches,id',
@@ -66,6 +69,7 @@ class StoreCustomerRequest extends FormRequest
             'additionalPersons.*.middlename' => 'nullable|string|max:255',
             'additionalPersons.*.lastname' => 'required_with:additionalPersons|string|max:255',
             'additionalPersons.*.suffix' => 'nullable|string|max:50',
+            'additionalPersons.*.role' => 'nullable|in:trustee,beneficiary',
             'additionalPersons.*.risk_level' => 'nullable|in:Low Risk,Medium Risk,High Risk',
 
             // Document pairs — each pair has a front and back image.
@@ -97,16 +101,29 @@ class StoreCustomerRequest extends FormRequest
             if ($accountType === 'Joint') {
                 $subType = $this->input('joint_sub_type');
 
-                // ITF: 2 or more holders (primary + 1 or more additional)
-                if ($subType === 'ITF') {
-                    if (count($this->input('additionalPersons', [])) < 1) {
+                $persons = $this->input('additionalPersons', []) ?: [];
+
+                // Every joint account (ITF or regular AND/OR) has 2 or more people.
+                if (count($persons) < 1) {
+                    $validator->errors()->add(
+                        'additionalPersons',
+                        $subType === 'ITF'
+                            ? 'ITF accounts require a trustee and at least one In-Trust-For person.'
+                            : 'Joint accounts require at least 2 account holders.'
+                    );
+                }
+
+                // Joint Trustee: Person 1 + at least one more trustee, and at least one In-Trust-For.
+                if ($subType === 'ITF' && $this->input('joint_arrangement') === JointArrangement::JointTrustee->value) {
+                    $roles = array_column($persons, 'role');
+
+                    if (! in_array('trustee', $roles, true) || ! in_array('beneficiary', $roles, true)) {
                         $validator->errors()->add(
                             'additionalPersons',
-                            'ITF joint accounts require at least 2 account holders.'
+                            'A Joint Trustee account needs at least 2 trustees and at least one In-Trust-For person.'
                         );
                     }
                 }
-                // Non-ITF: one customer with one or more accounts — no additional persons required
             }
 
             if ($accountType === 'Corporate' && $this->input('corporate_sub_type') !== 'Sole Proprietorship') {
@@ -130,6 +147,8 @@ class StoreCustomerRequest extends FormRequest
             'account_type.in' => 'Account type must be Regular, Joint, or Corporate.',
             'joint_sub_type.required_if' => 'Joint sub-type is required for Joint accounts.',
             'joint_sub_type.in' => 'Joint sub-type must be ITF or Non-ITF.',
+            'joint_arrangement.required_if' => 'Please choose AND / OR (regular joint) or Sole / Joint Trustee (ITF).',
+            'joint_arrangement.in' => 'Regular joint accounts must be AND or OR; ITF accounts must be Sole Trustee or Joint Trustee.',
             'corporate_sub_type.required_if' => 'Corporate sub-type is required for Corporate accounts.',
             'corporate_sub_type.in' => 'Corporate sub-type must be Corporate or Sole Proprietorship.',
             'risk_level.required' => 'Risk level is required.',

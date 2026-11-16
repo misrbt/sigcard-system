@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\JointArrangement;
+use App\Enums\JointSubType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AddCustomerAccountRequest;
 use App\Http\Requests\CheckCustomerNameRequest;
@@ -16,9 +18,9 @@ use App\Models\User;
 use App\Services\ThumbmarkSearchService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -52,15 +54,8 @@ class CustomerController extends Controller
             $query->where('risk_level', $request->risk_level);
         }
 
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('firstname', 'like', "%{$search}%")
-                    ->orWhere('lastname', 'like', "%{$search}%")
-                    ->orWhere('middlename', 'like', "%{$search}%")
-                    ->orWhere('company_name', 'like', "%{$search}%")
-                    ->orWhere('account_no', 'like', "%{$search}%");
-            });
+        if ($request->filled('search')) {
+            $this->applyCustomerSearch($query, (string) $request->search);
         }
 
         $dateColumn = match ($request->date_field) {
@@ -111,6 +106,7 @@ class CustomerController extends Controller
                 'company_name' => $request->company_name,
                 'account_type' => $request->account_type,
                 'joint_sub_type' => $request->joint_sub_type,
+                'joint_arrangement' => $request->account_type === 'Joint' ? $request->joint_arrangement : null,
                 'corporate_sub_type' => $request->corporate_sub_type,
                 'risk_level' => $request->risk_level,
                 'status' => $request->status ?? 'active',
@@ -141,6 +137,7 @@ class CustomerController extends Controller
                 CustomerHolder::create([
                     'customer_id' => $customer->id,
                     'person_index' => $index + 2, // Person 1 is in customers table
+                    'role' => $this->holderRoleFor($request->joint_sub_type, $request->joint_arrangement, $person['role'] ?? null),
                     'firstname' => $person['firstname'],
                     'middlename' => $person['middlename'] ?? null,
                     'lastname' => $person['lastname'],
@@ -300,6 +297,95 @@ class CustomerController extends Controller
      * with the same first + last name already exists, so the same person isn't
      * enrolled twice under a new sigcard record.
      */
+    /**
+     * Update joint co-holders / corporate signatories in place (matched by
+     * person number) so the audit log records each name change, add any new
+     * ones, and remove any that were taken off.
+     *
+     * @param  array<int, array{firstname: string, middlename?: ?string, lastname: string, suffix?: ?string, risk_level?: ?string}>  $persons
+     */
+    private function syncAdditionalHolders(Customer $customer, array $persons): void
+    {
+        $existing = $customer->holders()->get()->keyBy('person_index');
+
+        foreach ($persons as $index => $person) {
+            $personIndex = $index + 2;
+            $attributes = [
+                'role' => $this->holderRoleFor($customer->joint_sub_type, $customer->joint_arrangement, $person['role'] ?? null),
+                'firstname' => $person['firstname'],
+                'middlename' => $person['middlename'] ?? null,
+                'lastname' => $person['lastname'],
+                'suffix' => $person['suffix'] ?? null,
+                'risk_level' => $person['risk_level'] ?? null,
+            ];
+
+            if ($holder = $existing->get($personIndex)) {
+                $holder->update($attributes);
+            } else {
+                $customer->holders()->create(['person_index' => $personIndex] + $attributes);
+            }
+        }
+
+        $customer->holders()->where('person_index', '>', count($persons) + 1)->get()->each->delete();
+    }
+
+    /**
+     * ITF holders (Person 2+) are "beneficiary" (In-Trust-For) unless the
+     * account has joint trustees and staff marked them "trustee". Non-ITF
+     * accounts don't use roles.
+     */
+    private function holderRoleFor(?string $jointSubType, ?string $jointArrangement, ?string $requestedRole): ?string
+    {
+        if ($jointSubType !== JointSubType::ITF->value) {
+            return null;
+        }
+
+        if ($jointArrangement === JointArrangement::JointTrustee->value && $requestedRole === 'trustee') {
+            return 'trustee';
+        }
+
+        return 'beneficiary';
+    }
+
+    /**
+     * Match customers by name, company name, or account number — including
+     * joint co-holders and corporate signatories (customer_holders).
+     *
+     * Every word typed must appear in one of the person's name fields, so
+     * "Juan Cruz" finds "Juan Dela Cruz" whether he is the primary holder
+     * or a co-holder/signatory.
+     */
+    private function applyCustomerSearch(Builder $query, string $search): void
+    {
+        $search = trim($search);
+        $words = array_values(array_filter(preg_split('/[\s,]+/', $search)));
+
+        if ($words === []) {
+            return;
+        }
+
+        $matchesAllWords = function (Builder $personQuery) use ($words): void {
+            foreach ($words as $word) {
+                $personQuery->where(function (Builder $wordQuery) use ($word) {
+                    $wordQuery->where('firstname', 'like', "%{$word}%")
+                        ->orWhere('middlename', 'like', "%{$word}%")
+                        ->orWhere('lastname', 'like', "%{$word}%")
+                        ->orWhere('suffix', 'like', "%{$word}%");
+                });
+            }
+        };
+
+        $query->where(function (Builder $q) use ($search, $matchesAllWords) {
+            $q->where($matchesAllWords)
+                ->orWhere('company_name', 'like', "%{$search}%")
+                ->orWhere('account_no', 'like', "%{$search}%")
+                ->orWhereHas('holders', $matchesAllWords)
+                ->orWhereHas('accounts', function (Builder $accountQuery) use ($search) {
+                    $accountQuery->where('account_no', 'like', "%{$search}%");
+                });
+        });
+    }
+
     public function checkDuplicateName(CheckCustomerNameRequest $request): JsonResponse
     {
         $this->authorize('view-customers');
@@ -363,6 +449,7 @@ class CustomerController extends Controller
                 'lastname',
                 'suffix',
                 'account_type',
+                'joint_arrangement',
                 'risk_level',
                 'status',
                 'branch_id',
@@ -379,6 +466,7 @@ class CustomerController extends Controller
                 'suffix',
                 'company_name',
                 'account_type',
+                'joint_arrangement',
                 'risk_level',
                 'status',
                 'status_date',
@@ -442,19 +530,7 @@ class CustomerController extends Controller
 
             // Sync additional holders when provided
             if ($request->has('additionalPersons')) {
-                $customer->holders()->delete();
-
-                foreach ($request->input('additionalPersons', []) as $index => $person) {
-                    CustomerHolder::create([
-                        'customer_id' => $customer->id,
-                        'person_index' => $index + 2,
-                        'firstname' => $person['firstname'],
-                        'middlename' => $person['middlename'] ?? null,
-                        'lastname' => $person['lastname'],
-                        'suffix' => $person['suffix'] ?? null,
-                        'risk_level' => $person['risk_level'] ?? null,
-                    ]);
-                }
+                $this->syncAdditionalHolders($customer, array_values($request->input('additionalPersons') ?? []));
             }
 
             $accountStatus = $request->input('account_status');
@@ -1260,6 +1336,10 @@ class CustomerController extends Controller
      *
      * Head Office customers are stored without a branch sub-folder.
      */
+    private const DOCUMENT_MAX_DIMENSION = 2400;
+
+    private const DOCUMENT_JPEG_QUALITY = 90;
+
     private ?ImageManager $imageManager = null;
 
     private function imageManager(): ImageManager
@@ -1281,9 +1361,10 @@ class CustomerController extends Controller
         $image = $this->imageManager()->read($file->getRealPath());
 
         // Scale down only — aspect ratio always preserved (object-fit: contain).
-        $image->scaleDown(width: 800, height: 900);
+        // Kept large enough that signatures and fine print stay sharp when staff zoom in.
+        $image->scaleDown(width: self::DOCUMENT_MAX_DIMENSION, height: self::DOCUMENT_MAX_DIMENSION);
 
-        $encoded = $image->toJpeg(quality: 80);
+        $encoded = $image->toJpeg(quality: self::DOCUMENT_JPEG_QUALITY);
 
         // ── Build organised path ─────────────────────────────────────────────
         $customer->loadMissing('branch');
