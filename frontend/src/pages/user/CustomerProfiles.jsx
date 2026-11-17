@@ -1368,7 +1368,10 @@ const EditChoiceModal = ({ customer, onClose, onPick }) => (
         </div>
         <div>
           <p className="text-sm font-bold text-slate-800">Account Info</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Risk level, account no., dates</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Risk level, account no., dates
+            {(customer.accounts ?? []).length > 0 && ` · all ${(customer.accounts ?? []).length + 1} accounts`}
+          </p>
         </div>
       </button>
     </div>
@@ -1562,58 +1565,65 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
   );
 };
 
-// Edit account details — risk level, account no., dates (no status)
+// Edit account details — risk level, account no., dates. Every account of the customer can be
+// edited in one go (same as the customer profile page): switch between accounts, then one Save
+// stores each account that was changed.
 const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
-  // Build all accounts list
-  const allAccounts = [
-    { id: null, type: "primary", label: "Primary Account", account_no: customer.account_no, risk_level: customer.risk_level, date_opened: customer.date_opened, date_updated: customer.date_updated, status: customer.status },
-    ...(customer.accounts ?? []).map((a, i) => ({
-      id: a.id, type: "additional", label: `Account ${i + 2}`,
-      account_no: a.account_no, risk_level: a.risk_level,
-      date_opened: a.date_opened, date_updated: a.date_updated, status: a.status,
-    })),
-  ];
+  const isJointType     = customer.account_type === "Joint";
+  const isCorporateType = customer.account_type === "Corporate";
+  const isSolePropType  = isCorporateType && customer.corporate_sub_type === "Sole Proprietorship";
+  // Joint and corporate accounts keep a risk level per person, not per account.
+  const showRisk        = !isJointType && (!isCorporateType || isSolePropType);
 
-  const isMulti = allAccounts.length > 1;
-
-  const [step, setStep] = useState(isMulti ? "select" : "edit");
-  const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
-  const [saving, setSaving] = useState(false);
-
-  const initForm = (acct) => ({
-    risk_level:   acct.risk_level   ?? "Low Risk",
-    account_no:   acct.account_no   ?? "",
-    date_opened:  acct.date_opened  ? acct.date_opened.substring(0, 10)  : "",
-    date_updated: acct.date_updated ? acct.date_updated.substring(0, 10) : "",
+  const toForm = (a) => ({
+    risk_level:   a.risk_level   ?? "Low Risk",
+    account_no:   a.account_no   ?? "",
+    date_opened:  a.date_opened  ? String(a.date_opened).substring(0, 10)  : "",
+    date_updated: a.date_updated ? String(a.date_updated).substring(0, 10) : "",
   });
+  const accounts = [
+    { idx: 1, id: null, status: customer.status, original: toForm(customer) },
+    ...(customer.accounts ?? []).map((a, i) => ({ idx: i + 2, id: a.id, status: a.status, original: toForm(a) })),
+  ];
+  const hasMany = accounts.length > 1;
 
-  const [form, setForm] = useState(isMulti ? null : initForm(allAccounts[0]));
+  const [forms, setForms]   = useState(() => Object.fromEntries(accounts.map((a) => [a.idx, { ...a.original }])));
+  const [active, setActive] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState(null);
 
-  const handleSelectAcct = (acct) => {
-    setSelectedAcct(acct);
-    setForm(initForm(acct));
-    setStep("edit");
-  };
-
-  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  const form    = forms[active];
+  const set     = (field) => (e) => setForms((prev) => ({ ...prev, [active]: { ...prev[active], [field]: e.target.value } }));
+  const isDirty = (a) => JSON.stringify(forms[a.idx]) !== JSON.stringify(a.original);
+  const changed = accounts.filter(isDirty);
+  const acctName = (a) => (a.idx === 1 ? "Primary Account" : `Account ${a.idx}`);
 
   const handleSave = async () => {
+    if (changed.length === 0) { onClose(); return; }
     setSaving(true);
+    setError(null);
+    const saved = [];
     try {
-      if (selectedAcct.type === "primary") {
-        await api.put(`/customers/${customer.id}`, form);
-      } else {
-        await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, form);
+      for (const a of changed) {
+        const values = showRisk ? forms[a.idx] : (({ risk_level: _r, ...rest }) => rest)(forms[a.idx]);
+        const payload = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v === "" ? null : v]));
+        if (a.id) await api.put(`/customers/${customer.id}/accounts/${a.id}`, payload);
+        else      await api.put(`/customers/${customer.id}`, payload);
+        saved.push(a);
       }
       await Swal.fire({
-        icon: "success", title: "Account Updated", text: "Changes have been saved.",
-        confirmButtonColor: "#2563eb", timer: 2000, timerProgressBar: true,
+        icon: "success", title: changed.length > 1 ? `${changed.length} Accounts Updated` : "Account Updated",
+        text: "Changes have been saved.", confirmButtonColor: "#2563eb", timer: 2000, timerProgressBar: true,
       });
       onSaved();
       onClose();
     } catch (err) {
-      const msg = err?.response?.data?.message ?? "Something went wrong.";
-      Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
+      const data = err?.response?.data;
+      const msg = data?.errors ? Object.values(data.errors).flat().join("\n") : data?.message ?? "Something went wrong.";
+      setError(saved.length
+        ? `${saved.map((a) => forms[a.idx].account_no || acctName(a)).join(", ")} saved. The next account could not be saved:\n${msg}`
+        : msg);
+      if (saved.length) onSaved(); // accounts saved before the error should still show
     } finally {
       setSaving(false);
     }
@@ -1621,75 +1631,74 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
 
   return (
     <ProfileModalShell
-      title={step === "select" ? "Select Account" : "Edit Account Info"}
+      title="Edit Account Info"
       subtitle={`${customerId(customer.id)} • ${customer.full_name}`}
       onClose={onClose}
-      onBack={step === "select" ? onBack : (isMulti ? () => setStep("select") : onBack)}
-      onSave={step === "edit" ? handleSave : null}
+      onBack={onBack}
+      onSave={handleSave}
       saving={saving}
     >
-      {/* Step: account picker */}
-      {step === "select" && (
+      {/* Which account — shown when the customer has more than one */}
+      {hasMany && (
         <div className="space-y-2">
-          <p className="text-xs text-slate-500 font-medium">Which account would you like to edit?</p>
-          {allAccounts.map((acct, i) => (
-            <button
-              key={acct.id ?? "primary"}
-              onClick={() => handleSelectAcct(acct)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
-            >
-              <span className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">{i + 1}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-bold text-slate-800">{acct.label}</span>
-                  {acct.type === "primary" && (
-                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Primary</span>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Select Account</p>
+          <div className="flex flex-wrap gap-2">
+            {accounts.map((a) => {
+              const isActive = a.idx === active;
+              return (
+                <button key={a.idx} type="button" onClick={() => setActive(a.idx)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${
+                    isActive ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                  }`}>
+                  <HiOutlineCreditCard className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{forms[a.idx].account_no || `Account ${a.idx}`}</span>
+                  {a.idx === 1 && (
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>Primary</span>
                   )}
-                </div>
-                <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status ?? "—"}</span>
-                <p className="text-[10px] text-slate-400 mt-0.5">{acct.risk_level ?? "—"}</p>
-              </div>
-              <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
-            </button>
-          ))}
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase ${isActive ? "bg-white/20 text-white" : (statusStyle[a.status] ?? "bg-slate-100 text-slate-500")}`}>{a.status ?? "—"}</span>
+                  {isDirty(a) && <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-white" : "bg-amber-500"}`} title="Changed" />}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Changes to each account are kept while you switch. Save stores every changed account
+            {changed.length > 0 ? ` (${changed.length} changed)` : ""}.
+          </p>
         </div>
       )}
 
-      {/* Step: edit form */}
-      {step === "edit" && form && (
-        <>
-          {isMulti && (
-            <div className="px-3 py-2 rounded-xl bg-blue-50 border border-blue-100">
-              <p className="text-[11px] text-slate-500">Editing: <span className="font-bold text-slate-800">{selectedAcct.label}</span>
-                {selectedAcct.account_no && <span className="font-mono ml-1">({selectedAcct.account_no})</span>}
-              </p>
-            </div>
-          )}
+      <div className="space-y-3">
+        {hasMany && (
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Account Details — {acctName(accounts.find((a) => a.idx === active))}
+          </p>
+        )}
+        {showRisk && (
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Risk Level</label>
             <select value={form.risk_level} onChange={set("risk_level")} className={editInputCls}>
               {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Account No.</label>
-              <input value={form.account_no} onChange={set("account_no")} placeholder="e.g. 1234-5678-9012" maxLength={100} className={editInputCls} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Date Opened</label>
-              <input type="date" value={form.date_opened} onChange={set("date_opened")} className={editInputCls} />
-            </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Account No.</label>
+            <input value={form.account_no} onChange={set("account_no")} placeholder="e.g. 1234-5678-9012" maxLength={100} className={editInputCls} />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Date Updated <span className="font-normal text-slate-400">(Optional)</span></label>
-            <input type="date" value={form.date_updated} onChange={set("date_updated")} className={editInputCls} />
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Date Opened</label>
+            <input type="date" value={form.date_opened} onChange={set("date_opened")} className={editInputCls} />
           </div>
-        </>
-      )}
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">Date Updated <span className="font-normal text-slate-400">(Optional)</span></label>
+          <input type="date" value={form.date_updated} onChange={set("date_updated")} className={editInputCls} />
+        </div>
+      </div>
+
+      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600 whitespace-pre-line">{error}</div>}
     </ProfileModalShell>
   );
 };
