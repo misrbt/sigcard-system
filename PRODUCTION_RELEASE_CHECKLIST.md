@@ -100,6 +100,8 @@ No `.env` change. **One migration** (the deploy runs it):
 - [ ] Browser check: a Joint and a Corporate customer profile show the numbered layout (signing rule / company box, ① Signature Card, ② people, ③ Account Documents). An Individual account looks unchanged.
 - [ ] Browser check: Regular Joint upload → NAIS step → **Add Another NAIS** → save → profile shows NAIS Set 1 and Set 2.
 - [ ] Browser check: Edit Docs → add another NAIS on an account that already has one → **both** still show on the profile afterwards.
+- [ ] Browser check (log in as **Admin**): **Branch Documents** and the **Customer Profiles quick view** show the same numbered layout for a Joint and a Corporate customer (commit 323282b).
+- [ ] Browser check: Customer Profiles → a customer with 2+ accounts → **Edit Info → Account Details** lists every account; change two accounts, press Save once, and both are updated (commit 4f9740e).
 
 ### Known follow-ups (not in this release)
 - Regular Joint second signature cards saved BEFORE this release are filed under a person number that may not exist, so they may not show on the profile. Check with:
