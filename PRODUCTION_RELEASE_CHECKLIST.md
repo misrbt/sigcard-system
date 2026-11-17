@@ -87,6 +87,20 @@ Each release adds a section at the top. Tick items off as they are done on produ
 - [ ] Customer profile of a For the Account Of account shows Account Name and Organization.
 - [ ] For the Account Of with 3 holders: add 2 extra signature cards on upload → profile shows Person 1 "Front (3)"; Edit Docs shows Sigcard Front 1–3.
 
+### November 17, 2026 additions (layout by account type, "Add Another NAIS", photo-overwrite fix, dormancy reminder)
+No `.env` change. **One migration** (the deploy runs it):
+- [ ] Migration `2026_11_17_020413_create_dormancy_reminder_acknowledgments_table`: adds the table `dormancy_reminder_acknowledgments`, which remembers reminders that staff have already seen. New table only; existing data is not touched.
+- [ ] Browser check (log in as a **User**, **Manager** or **Cashier**): the home page shows "customers need updating" if any active account is 2+ years past its Date Opened / Date Updated. Open one: the reminder pop-up appears once, then **Compliance → Audit Logs** shows "Dormancy reminder seen", and that customer is no longer on the home page list.
+- [ ] **After deploy, find photos lost to the old overwrite problem** (two records sharing one file, so only the newer photo survived). Read-only query, safe to run:
+  ```sql
+  SELECT customer_id, file_path, COUNT(*) AS records, GROUP_CONCAT(id) AS document_ids
+  FROM customer_documents GROUP BY file_path HAVING COUNT(*) > 1;
+  ```
+  Give the list to the branches. Staff re-upload the missing photo in **Edit Docs** for each customer. The fix stops new cases; it cannot bring back photos that were already overwritten.
+- [ ] Browser check: a Joint and a Corporate customer profile show the numbered layout (signing rule / company box, ① Signature Card, ② people, ③ Account Documents). An Individual account looks unchanged.
+- [ ] Browser check: Regular Joint upload → NAIS step → **Add Another NAIS** → save → profile shows NAIS Set 1 and Set 2.
+- [ ] Browser check: Edit Docs → add another NAIS on an account that already has one → **both** still show on the profile afterwards.
+
 ### Known follow-ups (not in this release)
 - Regular Joint second signature cards saved BEFORE this release are filed under a person number that may not exist, so they may not show on the profile. Check with:
   `SELECT customer_id, person_index FROM customer_documents WHERE document_type='sigcard_front' AND person_index > 1;`

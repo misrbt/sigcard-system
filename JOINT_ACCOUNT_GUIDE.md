@@ -30,7 +30,7 @@ The customer list shows these accounts under their **Account Name**, and staff c
 |---|---|---|
 | **Signature Card** | One card shared by everyone. For the Account Of can **add more cards** ("Add Another Signature Card") when 3 or more holders don't fit on one card. Regular Joint can add one second card. | Shared cards, one or more |
 | **Risk Profiling** | **One per person** (Primary and each Secondary) | Shared list, one or more |
-| **NAIS** (optional) | One per account | Shared |
+| **NAIS** (optional) | One per account. **Add Another NAIS** adds more (new customer upload, Edit Docs, status-change upload). | Shared, one or more |
 | **Data Privacy** | One shared form; either side is enough | Shared; either side is enough |
 | **Other Documents** (optional) | Per account | Shared |
 
@@ -86,7 +86,7 @@ It always shows a **preview first**. Nothing changes until IT runs it again with
 |---|---|---|
 | `sigcard_front` | 1, including extra cards (sent with `person_index=1` since commit 9dd6a91) | 1 |
 | `sigcard_back` (Risk Profiling) | 1 … N, one per person (since e20a009) | 1 |
-| `nais_*` | Per account: pair *i* → *i+1* | 1 |
+| `nais_*` | Per account: pair *i* → *i+1*. Extra NAIS ("Add Another NAIS", Nov 17 2026) → 1 | 1 |
 | `privacy_*` | 1 | 1 |
 | `other` | Per account index | 1 |
 
@@ -105,6 +105,7 @@ The backend (`CustomerController::storePairs`) uses the `person_index` sent with
 | 9dd6a91 | FAO "Add Another Signature Card"; extra cards filed under person 1 |
 | 43013e0 | Extra cards in the status-change upload panel; Edit Docs heading |
 | (this guide) | `sigcard:repair-joint-data` command |
+| Nov 17, 2026 | "Add Another NAIS" for Regular Joint / FAO. Unique image file names (a 2nd image for the same person no longer overwrites the 1st). Replacing one image no longer hides its siblings. Edit Docs "Add Another" adds instead of archiving every existing document of that type. |
 
 ### 2.4 Running the repair tool
 
@@ -128,6 +129,8 @@ php artisan sigcard:repair-joint-data --apply    # makes the fix (moves hidden s
 **Staging, applied (Nov 16, 2026):** document 230 (customer #30) was moved from person 3 to person 1 and logged. A re-run found nothing left to fix. The "Not set" accounts and #4 are still waiting for staff.
 
 ### 2.5 Known limits
+
+- **Images lost before Nov 17, 2026:** when an account had two images of the same kind for the same person (for example two ITF signature cards), both records pointed to one file, so only the second image survived. On staging this affects customers #17, #22 and #25 (ITF). Those images must be uploaded again in Edit Docs. To find affected records: `select file_path, count(*), group_concat(id) from customer_documents group by file_path having count(*) > 1;`
 
 - Joint type (`joint_sub_type`) can't be changed after creation from the screens; `UpdateCustomerRequest` does not accept it.
 - **Edit Docs** shows one signature-card slot per two holders, or more if more cards are already saved. A card put into an *empty* slot there is filed under person 2, 3… (so it doesn't overwrite card 1). It still shows up under that person on the profile.

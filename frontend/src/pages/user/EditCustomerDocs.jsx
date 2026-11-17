@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,6 +21,8 @@ import {
 } from "react-icons/hi";
 import Swal from "sweetalert2";
 import api from "../../services/api";
+import { AccountStructureBanner, CompanyCard, PersonCard, StepHeading } from "../../components/customer/AccountStructure";
+import { accountPeople, cardGridCls, groupPeople, personTone } from "../../utils/accountStructure";
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -77,7 +79,7 @@ const ACCENT = {
 };
 
 // ── Image card ────────────────────────────────────────────────────────────────
-const ImageCard = ({ doc, side, accent, preview, uploading, uploaded, onFileChange, readOnly = false, isDormant = false }) => {
+const ImageCard = ({ doc, side, title = null, accent, preview, uploading, uploaded, onFileChange, readOnly = false }) => {
   const inputRef = useRef(null);
   const ac  = ACCENT[accent];
   const src = preview
@@ -98,7 +100,7 @@ const ImageCard = ({ doc, side, accent, preview, uploading, uploaded, onFileChan
     <div className="flex flex-col gap-2">
       {/* Card header */}
       <div className="flex items-center justify-between px-0.5">
-        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{side} Side</span>
+        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{title ?? `${side} Side`}</span>
         <AnimatePresence mode="wait">
           {readOnly && doc && (
             <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-400">
@@ -126,7 +128,7 @@ const ImageCard = ({ doc, side, accent, preview, uploading, uploaded, onFileChan
         className={`relative group w-full aspect-[3/4] rounded-2xl overflow-hidden border-2 bg-slate-50 transition-all duration-200 ${blocked ? "cursor-default" : "cursor-pointer"} ${borderCls} ${uploading ? "cursor-wait" : ""}`}
       >
         {src ? (
-          <img src={src} alt={side} className={`w-full h-full object-contain transition-all${readOnly ? " opacity-70" : ""}${isDormant ? " blur-md" : ""}`} />
+          <img src={src} alt={side} className={`w-full h-full object-contain transition-all${readOnly ? " opacity-70" : ""}`} />
         ) : (
           <div className={`flex flex-col items-center justify-center h-full gap-3 select-none ${ac.bg}`}>
             <div className="w-12 h-12 rounded-2xl bg-white/70 flex items-center justify-center shadow-sm">
@@ -139,17 +141,8 @@ const ImageCard = ({ doc, side, accent, preview, uploading, uploaded, onFileChan
           </div>
         )}
 
-        {/* Dormant blur overlay */}
-        {isDormant && src && (
-          <div className="absolute inset-0 bg-yellow-900/10 flex items-end justify-center pb-3">
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-900/60 backdrop-blur-sm">
-              <span className="text-[10px] font-semibold text-yellow-100">Dormant</span>
-            </div>
-          </div>
-        )}
-
         {/* Lock overlay for historical docs */}
-        {readOnly && !isDormant && src && (
+        {readOnly && src && (
           <div className="absolute inset-0 bg-slate-900/10 flex items-end justify-center pb-3">
             <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800/60 backdrop-blur-sm">
               <HiOutlineLockClosed className="w-3 h-3 text-white/80" />
@@ -209,13 +202,30 @@ const ImageCard = ({ doc, side, accent, preview, uploading, uploaded, onFileChan
   );
 };
 
+// ── Numbered section card (joint / business account structure) ───────────────
+const StepCard = ({ id, n, title, badge, note, hint = true, children }) => (
+  <div id={id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="px-5 pt-4 pb-1 border-b border-slate-100">
+      <StepHeading n={n} title={title} badge={badge} note={note} />
+    </div>
+    <div className="px-5 py-5 space-y-5">
+      {children}
+      {hint && (
+        <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+          <HiOutlinePhotograph className="w-3.5 h-3.5" /> Click an image to replace · JPEG, PNG · max 10 MB
+        </p>
+      )}
+    </div>
+  </div>
+);
+
 // ── New pair upload card (for "Add Another") ─────────────────────────────────
-const NewPairUploadCard = ({ file, side, accent, onFileChange }) => {
+const NewPairUploadCard = ({ file, side, title = null, accent, onFileChange }) => {
   const inputRef = useRef(null);
   const ac = ACCENT[accent];
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{side} Side</span>
+      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{title ?? `${side} Side`}</span>
       <div
         onClick={() => inputRef.current?.click()}
         className={`relative group w-full aspect-[3/4] rounded-2xl overflow-hidden border-2 bg-slate-50 transition-all duration-200 cursor-pointer ${
@@ -480,9 +490,32 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
   // For ITF all docs are shared; for Non-ITF only privacy is shared
   const isSharedDoc = (groupKey) => {
     if (isITF) return true; // all doc types shared for ITF
-    if (isNonITF && groupKey === "privacy") return true;
+    if (isNonITF && (groupKey === "privacy" || groupKey === "nais")) return true;
     return false;
   };
+
+  // Joint and business accounts are laid out by structure:
+  //   banner → ① Signature Card → ② people (each with their own Risk Profiling) → ③ Account Documents
+  const isStructured = isJoint || isCorporate;
+  const isSoleProp   = isCorporate && customer?.corporate_sub_type === "Sole Proprietorship";
+  const people       = accountPeople(customer);
+  const personInfo   = (pi) => people.find((p) => p.person_index === pi) ?? { person_index: pi, name: "", role: `Person ${pi}` };
+
+  // One upload slot. `key` is the same pending key the save step already understands
+  // ("<type>__<docId>" for an existing image, "<type>__pi_<n>" / "<type>__1__p<n>" for an empty one).
+  const slot = (doc, key, side, { title = null, readOnly = false, accent = "blue" } = {}) => (
+    <ImageCard
+      doc={doc} side={side} title={title} accent={accent}
+      readOnly={readOnly}
+      preview={pending[key] ?? null}
+      uploaded={!!uploaded[key]}
+      uploading={uploading.has(key)}
+      onFileChange={(f) => {
+        setPending((p) => ({ ...p, [key]: f }));
+        setUploaded((p) => { const n = { ...p }; delete n[key]; return n; });
+      }}
+    />
+  );
 
   // Build person/account list depending on account type
   // Joint: persons = primary customer (1) + joint holders (2, 3…)
@@ -546,11 +579,6 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
   ] : [];
   const showAccountTabs = allAccounts.length >= 2;
 
-  // Dormant: blur docs and block upload for the active account when status is dormant
-  const activeStatus = showAccountTabs
-    ? (allAccounts.find((a) => a.acctIndex === activePerson)?.status ?? customer?.status)
-    : customer?.status;
-  const isDormant = activeStatus === "dormant";
 
   // Ensure activePerson is valid
   useEffect(() => {
@@ -626,6 +654,21 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
         }
       }
     }
+    // An empty slot inside a set ("<type>__<pi>__p<n>") with nothing saved in it yet is a new
+    // document next to the existing ones (e.g. NAIS 2 back), so add it instead of replacing
+    // the person's other image of the same kind.
+    const addedSlotKeys = [];
+    const replaceEntries = entries.filter(([key, file]) => {
+      const parts = key.split("__");
+      if (parts.length <= 2) return true;
+      const pi = parseInt(parts[1]);
+      pairEntries.push({ type: parts[0], pi: Number.isFinite(pi) && pi > 0 ? pi : 1, file });
+      addedSlotKeys.push(key);
+      return false;
+    });
+    entries.length = 0;
+    entries.push(...replaceEntries);
+
     const total = entries.length + pairEntries.length + newOtherFiles.length;
     if (total === 0) return;
 
@@ -753,6 +796,9 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
         try {
           const fd = new FormData();
           fd.append("_method", "PUT");
+          const { account_status: pairStatus, status_log_id: pairLogId } = getStatusContext(pairEntries[0]?.pi ?? 1);
+          if (pairStatus) fd.append("account_status", pairStatus);
+          if (pairLogId)  fd.append("status_log_id",  String(pairLogId));
           for (const [fdKey, items] of Object.entries(grouped)) {
             // Group front/back into pair indices
             let pairIdx = 0;
@@ -769,6 +815,13 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
           });
           setCustomer(data.customer);
           done += pairEntries.length;
+          if (addedSlotKeys.length) {
+            setPending((prev) => {
+              const next = { ...prev };
+              addedSlotKeys.forEach((k) => delete next[k]);
+              return next;
+            });
+          }
         } catch {
           failed += pairEntries.length;
           done += pairEntries.length;
@@ -1031,198 +1084,100 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
           </div>
         )}
 
-        {/* Dormant notice banner */}
-        {isDormant && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-yellow-50 border border-yellow-300 shadow-sm">
-            <div className="w-8 h-8 rounded-xl bg-yellow-100 flex items-center justify-center flex-shrink-0">
-              <HiOutlineLockClosed className="w-4 h-4 text-yellow-600" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-yellow-800">Dormant Account</p>
-              <p className="text-xs text-yellow-600 mt-0.5">
-                This account is dormant. Document images are blurred for display.
-              </p>
-            </div>
-          </div>
-        )}
 
-        <div className="w-full">
+        <div className="w-full space-y-5">
 
-            {DOC_GROUPS.map((group) => {
+            <AccountStructureBanner customer={customer} />
+
+            {DOC_GROUPS.map((group) => (
+              <Fragment key={group.key}>
+              {group.key === "nais" && isStructured && (
+                <div className="pt-2">
+                  <StepHeading n={3} title="Account Documents" badge={isJoint ? "Shared by all holders" : null} note="NAIS and Data Privacy" />
+                </div>
+              )}
+              {(() => {
               const shared = isSharedDoc(group.key);
               const ac = ACCENT[group.accent];
 
-              // ── Corporate Sigcard: shared fronts grid + per-signatory backs ──
+              // ── Corporate / Sole Proprietorship: ① signature card(s)  ② signatories (+ the company itself) ──
               if (isCorporate && group.key === "sigcard") {
-              const existingFronts = getAllDocsOfType(group.front);
-              const addedPairs = newPairs["sigcard"] ?? [];
-              const latestFrontsC  = existingFronts.filter((d) => isLatestDoc(d));
-              const histFrontsC    = existingFronts.filter((d) => !isLatestDoc(d));
-              const corpHistKey    = "corp-fronts";
-              const isCorpHistOpen = histExpanded[corpHistKey] ?? false;
-              const editableFronts = latestFrontsC.length > 0 ? latestFrontsC : [null];
+                const existingFronts = getAllDocsOfType(group.front);
+                const addedPairs     = newPairs["sigcard"] ?? [];
+                const latestFrontsC  = existingFronts.filter((d) => isLatestDoc(d));
+                const editableFronts = latestFrontsC.length > 0 ? latestFrontsC : [null];
+                const frontTotal     = editableFronts.length + addedPairs.length;
+                const ceIdx          = allPersons.length + 1; // the company's own Risk Profiling
+                const ceDoc          = getDoc(group.back, ceIdx);
+                const ceKey          = ceDoc ? `${group.back}__${ceDoc.id}` : `${group.back}__${personKey(ceIdx)}`;
 
-              return (
-                <div key={group.key} id="section-sigcard" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="flex items-center px-5 py-3.5 border-b border-slate-100 gap-2.5">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${ac.bg}`}>
-                      <HiOutlineDocumentText className={`w-4 h-4 ${ac.icon}`} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-800">Signature Card</h3>
-                      <p className="text-[10px] text-slate-400">Corporate — Shared fronts + per-signatory backs</p>
-                    </div>
-                  </div>
-
-                    <div className="px-5 py-5 space-y-6">
-                      {/* ── Shared Fronts (person_index=1) ── */}
-                      <div className="space-y-3">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">SIGCARD (Shared)</p>
-                        {editableFronts.map((frontDoc, pairIdx) => {
-                          const frontKey = frontDoc ? `${group.front}__${frontDoc.id}` : `${group.front}__1__p${pairIdx}`;
-                          return (
-                            <div key={pairIdx} className="space-y-2">
-                              {(editableFronts.length + addedPairs.length) > 1 && (
-                                <p className="text-xs font-medium text-slate-400">Front {pairIdx + 1}</p>
-                              )}
-                              <div className="grid grid-cols-2 gap-4">
-                                <ImageCard
-                                  doc={frontDoc} side="Front" accent={group.accent}
-                                  readOnly={false} isDormant={isDormant}
-                                  preview={pending[frontKey] ?? null}
-                                  uploaded={!!uploaded[frontKey]}
-                                  uploading={uploading.has(frontKey)}
-                                  onFileChange={(f) => {
-                                    setPending((p) => ({ ...p, [frontKey]: f }));
-                                    setUploaded((p) => { const n = { ...p }; delete n[frontKey]; return n; });
-                                  }}
-                                />
-                                <div />
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {/* Historical fronts — collapsible */}
-                        {showHistoryInEdit && histFrontsC.length > 0 && (
-                          <div className="border border-slate-200 rounded-xl overflow-hidden">
-                            <button
-                              onClick={() => setHistExpanded((p) => ({ ...p, [corpHistKey]: !isCorpHistOpen }))}
-                              className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-left transition-colors"
-                            >
-                              <div className="flex items-center gap-2">
-                                <HiOutlineLockClosed className="w-3.5 h-3.5 text-slate-400" />
-                                <span className="text-xs font-semibold text-slate-500">Previous Uploads</span>
-                                <span className="text-[10px] text-slate-400">({histFrontsC.length} front{histFrontsC.length !== 1 ? "s" : ""})</span>
-                              </div>
-                              <HiOutlineChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isCorpHistOpen ? "rotate-180" : ""}`} />
-                            </button>
-                            {isCorpHistOpen && (
-                              <div className="px-4 py-4 space-y-4 bg-slate-50/50 border-t border-slate-100">
-                                {histFrontsC.map((frontDoc, i) => (
-                                  <div key={i} className="space-y-2">
-                                    {histFrontsC.length > 1 && <p className="text-xs font-medium text-slate-400">Front {i + 1}</p>}
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <ImageCard doc={frontDoc} side="Front" accent={group.accent} readOnly={true} isDormant={isDormant}
-                                        preview={null} uploaded={false} uploading={false} onFileChange={() => {}} />
-                                      <div />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* New front pairs added via "Add Another" */}
-                        {addedPairs.map((pair, pairIdx) => (
-                          <div key={`new-front-${pairIdx}`} className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs font-medium text-slate-400">Front {existingFronts.length + pairIdx + 1}</p>
-                              <button type="button" onClick={() => setNewPairs((prev) => ({
-                                ...prev, sigcard: (prev.sigcard ?? []).filter((_, i) => i !== pairIdx),
-                              }))}
-                                className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
-                                <HiOutlineX className="w-3.5 h-3.5" /> Remove
-                              </button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                              <NewPairUploadCard file={pair.front} side="Front" accent={group.accent}
-                                onFileChange={(f) => setNewPairs((prev) => {
-                                  const pairs = [...(prev.sigcard ?? [])];
-                                  pairs[pairIdx] = { ...pairs[pairIdx], front: f };
-                                  return { ...prev, sigcard: pairs };
-                                })} />
-                              <div />
-                            </div>
+                return (
+                  <div key={group.key} className="space-y-5">
+                    <StepCard id="section-sigcard" n={1} title="Signature Card" badge={isSoleProp ? null : "Company signature card"}
+                      note={frontTotal > 1 ? `${frontTotal} cards` : null}>
+                      <div className={cardGridCls(frontTotal)}>
+                        {editableFronts.map((frontDoc, pairIdx) => (
+                          <div key={pairIdx}>
+                            {slot(frontDoc, frontDoc ? `${group.front}__${frontDoc.id}` : `${group.front}__1__p${pairIdx}`, "Front",
+                              { title: frontTotal > 1 ? `Signature Card ${pairIdx + 1}` : "Signature Card" })}
                           </div>
                         ))}
-
-                        {/* Add Another Sigcard Front button — only when 3+ signatories */}
-                        {allPersons.length >= 3 && (
-                          <button type="button" onClick={() => setNewPairs((prev) => ({
-                            ...prev, sigcard: [...(prev.sigcard ?? []), { front: null, back: null }],
-                          }))}
-                            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all">
-                            <HiOutlinePlus className="w-3.5 h-3.5" />
-                            Add Another SIGCARD
-                          </button>
-                        )}
+                        {addedPairs.map((pair, pairIdx) => (
+                          <div key={`new-front-${pairIdx}`} className="space-y-1">
+                            <NewPairUploadCard file={pair.front} side="Front" title={`Signature Card ${editableFronts.length + pairIdx + 1}`} accent={group.accent}
+                              onFileChange={(f) => setNewPairs((prev) => {
+                                const pairs = [...(prev.sigcard ?? [])];
+                                pairs[pairIdx] = { ...pairs[pairIdx], front: f };
+                                return { ...prev, sigcard: pairs };
+                              })} />
+                            <button type="button" onClick={() => setNewPairs((prev) => ({
+                              ...prev, sigcard: (prev.sigcard ?? []).filter((_, i) => i !== pairIdx),
+                            }))}
+                              className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                              <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                            </button>
+                          </div>
+                        ))}
                       </div>
+                      {/* Add Another Signature Card — only when 3+ signatories */}
+                      {allPersons.length >= 3 && (
+                        <button type="button" onClick={() => setNewPairs((prev) => ({
+                          ...prev, sigcard: [...(prev.sigcard ?? []), { front: null, back: null }],
+                        }))}
+                          className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all">
+                          <HiOutlinePlus className="w-3.5 h-3.5" />
+                          Add Another Signature Card
+                        </button>
+                      )}
+                    </StepCard>
 
-                      {/* ── Divider ── */}
-                      <div className="flex items-center gap-2">
-                        <div className="h-px flex-1 bg-slate-200" />
-                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Risk Profiling — per signatory</p>
-                        <div className="h-px flex-1 bg-slate-200" />
-                      </div>
-
-                      {/* ── Per-signatory Backs + Corporate entity back ── */}
-                      <div className="grid grid-cols-2 gap-4">
+                    <StepCard n={2} title={isSoleProp ? "Proprietor" : "Authorized Signatories"}
+                      note={isSoleProp ? "the owner's Risk Profiling" : `${allPersons.length} signatories · each signatory's own Risk Profiling, plus the company's`}>
+                      <div className={isSoleProp ? "w-full max-w-sm mx-auto" : "grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"}>
                         {allPersons.map((person) => {
+                          const info    = personInfo(person.index);
                           const backDoc = getDoc(group.back, person.index);
                           const backKey = backDoc ? `${group.back}__${backDoc.id}` : `${group.back}__${personKey(person.index)}`;
                           return (
-                            <div key={person.index} className="space-y-2">
-                              <div className="flex items-center gap-1.5">
-                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${person.index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>{person.index}</div>
-                                <p className="text-xs font-semibold text-slate-600 truncate">{person.name || person.label}</p>
-                              </div>
-                              <ImageCard doc={backDoc} side="Back" accent={group.accent} readOnly={!isLatestDoc(backDoc)} isDormant={isDormant}
-                                preview={pending[backKey] ?? null} uploaded={!!uploaded[backKey]} uploading={uploading.has(backKey)}
-                                onFileChange={(f) => { setPending((p) => ({ ...p, [backKey]: f })); setUploaded((p) => { const n = { ...p }; delete n[backKey]; return n; }); }} />
-                            </div>
+                            <PersonCard key={person.index} number={person.index} name={info.name || person.label} role={info.role}
+                              tone={personTone(customer, person.index)}>
+                              {slot(backDoc, backKey, "Back", { title: "Risk Profiling", readOnly: !isLatestDoc(backDoc) })}
+                            </PersonCard>
                           );
                         })}
-                        {/* Corporate entity back — person_index = numSignatories + 1 */}
-                        {(() => {
-                          const ceIdx = allPersons.length + 1;
-                          const ceDoc = getDoc(group.back, ceIdx);
-                          if (!ceDoc) return null;
-                          const ceKey = `${group.back}__${ceDoc.id}`;
-                          return (
-                            <div key="corp-entity" className="space-y-2">
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 bg-blue-700">C</div>
-                                <p className="text-xs font-semibold text-slate-600 truncate">Corporate</p>
-                              </div>
-                              <ImageCard doc={ceDoc} side="Back" accent={group.accent} readOnly={!isLatestDoc(ceDoc)} isDormant={isDormant}
-                                preview={pending[ceKey] ?? null} uploaded={!!uploaded[ceKey]} uploading={uploading.has(ceKey)}
-                                onFileChange={(f) => { setPending((p) => ({ ...p, [ceKey]: f })); setUploaded((p) => { const n = { ...p }; delete n[ceKey]; return n; }); }} />
-                            </div>
-                          );
-                        })()}
+                        {!isSoleProp && (
+                          <CompanyCard customer={customer}>
+                            {slot(ceDoc, ceKey, "Back", { title: "Risk Profiling", readOnly: !isLatestDoc(ceDoc) })}
+                          </CompanyCard>
+                        )}
                       </div>
-
-                      <p className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
-                        <HiOutlinePhotograph className="w-3.5 h-3.5" /> Click an image to replace · JPEG, PNG · max 10 MB
-                      </p>
-                    </div>
+                    </StepCard>
                   </div>
                 );
               } // end corporate sigcard
 
               // ── Joint Non-ITF: ceil(N/2) shared fronts + per-holder backs ───
-              if (isNonITF && (group.key === "sigcard" || group.key === "nais")) {
+              if (isNonITF && group.key === "sigcard") {
                 const totalPersons  = allPersons.length;
                 const frontCount    = Math.ceil(totalPersons / 2);
                 const existingFronts = getAllDocsOfType(group.front);
@@ -1246,6 +1201,48 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
 
                 const jnHistKey    = `jn-${group.key}-fronts`;
                 const isJnHistOpen = histExpanded[jnHistKey] ?? false;
+
+                if (group.key === "sigcard") {
+                  return (
+                    <div key={group.key} className="space-y-5">
+                      <StepCard id="section-sigcard" n={1} title="Signature Card" badge="Shared by all holders"
+                        note={displayFrontCount > 1 ? `${displayFrontCount} cards` : null}>
+                        <div className={cardGridCls(displayFrontCount)}>
+                          {Array.from({ length: displayFrontCount }).map((_, idx) => {
+                            const frontDoc = latestFronts[idx] ?? null;
+                            const frontKey = frontDoc
+                              ? `${group.front}__${frontDoc.id}`
+                              : `${group.front}__${personKey(emptyFrontPIs[idx - latestFronts.length])}`;
+                            return (
+                              <div key={idx}>
+                                {slot(frontDoc, frontKey, "Front", {
+                                  title: displayFrontCount > 1 ? `Signature Card ${idx + 1}` : "Signature Card",
+                                  readOnly: frontDoc ? !isLatestDoc(frontDoc) : false,
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </StepCard>
+
+                      <StepCard n={2} title="Account Holders" note={`${totalPersons} people · each person's own Risk Profiling`}>
+                        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                          {allPersons.map((person) => {
+                            const info    = personInfo(person.index);
+                            const backDoc = getDoc(group.back, person.index);
+                            const backKey = backDoc ? `${group.back}__${backDoc.id}` : `${group.back}__${personKey(person.index)}`;
+                            return (
+                              <PersonCard key={person.index} number={person.index} name={info.name || person.label}
+                                role={info.role} risk={info.risk_level} tone={personTone(customer, person.index)}>
+                                {slot(backDoc, backKey, "Back", { title: "Risk Profiling", readOnly: !isLatestDoc(backDoc) })}
+                              </PersonCard>
+                            );
+                          })}
+                        </div>
+                      </StepCard>
+                    </div>
+                  );
+                }
 
                 return (
                   <div key={group.key} id={`section-${group.key}`} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1291,7 +1288,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                 <ImageCard
                                   doc={frontDoc} side="Front" accent={group.accent}
                                   readOnly={frontDoc ? !isLatestDoc(frontDoc) : false}
-                                  isDormant={isDormant}
+                                 
                                   preview={pending[frontKey] ?? null}
                                   uploaded={!!uploaded[frontKey]}
                                   uploading={uploading.has(frontKey)}
@@ -1323,7 +1320,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                             {isJnHistOpen && (
                               <div className="px-4 py-4 space-y-4 bg-slate-50/50 border-t border-slate-100">
                                 {histFronts.map((hDoc) => (
-                                  <ImageCard key={hDoc.id} doc={hDoc} side="Front" accent={group.accent} readOnly isDormant={isDormant} />
+                                  <ImageCard key={hDoc.id} doc={hDoc} side="Front" accent={group.accent} readOnly />
                                 ))}
                               </div>
                             )}
@@ -1353,7 +1350,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                 <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${person.index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>{person.index}</div>
                                 <p className="text-xs font-semibold text-slate-600 truncate">{person.name || person.label}</p>
                               </div>
-                              <ImageCard doc={backDoc} side="Back" accent={group.accent} readOnly={!isLatestDoc(backDoc)} isDormant={isDormant}
+                              <ImageCard doc={backDoc} side="Back" accent={group.accent} readOnly={!isLatestDoc(backDoc)}
                                 preview={pending[backKey] ?? null} uploaded={!!uploaded[backKey]} uploading={uploading.has(backKey)}
                                 onFileChange={(f) => { setPending((p) => ({ ...p, [backKey]: f })); setUploaded((p) => { const n = { ...p }; delete n[backKey]; return n; }); }} />
                             </div>
@@ -1372,8 +1369,11 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
               // ── Shared doc or Corporate non-sigcard (always pi=1) ────────────
               if (shared || isCorporate) {
                 const personIdx = 1;
-                const existingFronts = getAllDocs(group.front, personIdx);
-                const existingBacks  = getAllDocs(group.back,  personIdx);
+                // Regular Joint / FAO NAIS: show every NAIS on the account, including older ones
+                // that were filed under a person number other than 1.
+                const allPersonsNais = isNonITF && group.key === "nais";
+                const existingFronts = allPersonsNais ? getAllDocsOfType(group.front) : getAllDocs(group.front, personIdx);
+                const existingBacks  = allPersonsNais ? getAllDocsOfType(group.back)  : getAllDocs(group.back,  personIdx);
                 const addedPairs     = newPairs[group.key] ?? [];
 
                 const hasFront = existingFronts.length > 0;
@@ -1386,8 +1386,15 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                           <HiOutlineDocumentText className={`w-4 h-4 ${ac.icon}`} />
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-slate-800">{group.label}</h3>
-                          <p className="text-[10px] text-slate-400">{shared ? "Shared — Front & Back" : "Front & Back"}</p>
+                          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                            {isITF && group.key === "sigcard" && (
+                              <span className="w-6 h-6 rounded-full bg-slate-800 text-white text-[11px] font-bold flex items-center justify-center">1</span>
+                            )}
+                            {group.label}
+                          </h3>
+                          <p className="text-[10px] text-slate-400">
+                            {isITF && group.key === "sigcard" ? "Shared — Signature Card & Risk Profiling" : shared ? "Shared — Front & Back" : "Front & Back"}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1426,7 +1433,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                 <div className="grid grid-cols-2 gap-4">
                                   <ImageCard
                                     doc={frontDoc} side="Front" accent={group.accent}
-                                    readOnly={false} isDormant={isDormant}
+                                    readOnly={false}
                                     preview={pending[frontKey] ?? null}
                                     uploaded={!!uploaded[frontKey]}
                                     uploading={uploading.has(frontKey)}
@@ -1437,7 +1444,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                   />
                                   <ImageCard
                                     doc={backDoc} side="Back" accent={group.accent}
-                                    readOnly={false} isDormant={isDormant}
+                                    readOnly={false}
                                     preview={pending[backKey] ?? null}
                                     uploaded={!!uploaded[backKey]}
                                     uploading={uploading.has(backKey)}
@@ -1473,9 +1480,9 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                       <div key={i} className="space-y-2">
                                         {histPairCount > 1 && <p className="text-xs font-medium text-slate-400">{group.label} {i + 1}</p>}
                                         <div className="grid grid-cols-2 gap-4">
-                                          <ImageCard doc={frontDoc} side="Front" accent={group.accent} readOnly={true} isDormant={isDormant}
+                                          <ImageCard doc={frontDoc} side="Front" accent={group.accent} readOnly={true}
                                             preview={null} uploaded={false} uploading={false} onFileChange={() => {}} />
-                                          <ImageCard doc={backDoc} side="Back" accent={group.accent} readOnly={true} isDormant={isDormant}
+                                          <ImageCard doc={backDoc} side="Back" accent={group.accent} readOnly={true}
                                             preview={null} uploaded={false} uploading={false} onFileChange={() => {}} />
                                         </div>
                                       </div>
@@ -1551,13 +1558,13 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                               <div className="grid grid-cols-2 gap-4">
                                 <ImageCard
                                   doc={frontLatest} side="Front" accent={group.accent}
-                                  readOnly={false} isDormant={isDormant}
+                                  readOnly={false}
                                   preview={getPendingFile(group.front, personIdx)} uploaded={isUploaded(group.front, personIdx)} uploading={isUploading(group.front, personIdx)}
                                   onFileChange={(f) => setPendingFile(group.front, personIdx, f)}
                                 />
                                 <ImageCard
                                   doc={backLatest} side="Back" accent={group.accent}
-                                  readOnly={false} isDormant={isDormant}
+                                  readOnly={false}
                                   preview={getPendingFile(group.back, personIdx)} uploaded={isUploaded(group.back, personIdx)} uploading={isUploading(group.back, personIdx)}
                                   onFileChange={(f) => setPendingFile(group.back, personIdx, f)}
                                 />
@@ -1593,7 +1600,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                                   doc={frontHist}
                                                   side="Front"
                                                   accent={group.accent}
-                                                  readOnly={true} isDormant={isDormant}
+                                                  readOnly={true}
                                                   preview={null}
                                                   uploaded={false}
                                                   uploading={false}
@@ -1603,7 +1610,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                                   doc={backHist}
                                                   side="Back"
                                                   accent={group.accent}
-                                                  readOnly={true} isDormant={isDormant}
+                                                  readOnly={true}
                                                   preview={null}
                                                   uploaded={false}
                                                   uploading={false}
@@ -1688,7 +1695,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                               doc={latestFront}
                               side="Front"
                               accent={group.accent}
-                              readOnly={false} isDormant={isDormant}
+                              readOnly={false}
                               preview={pending[frontKey] ?? null}
                               uploaded={!!uploaded[frontKey]}
                               uploading={uploading.has(frontKey)}
@@ -1701,7 +1708,7 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                               doc={latestBack}
                               side="Back"
                               accent={group.accent}
-                              readOnly={false} isDormant={isDormant}
+                              readOnly={false}
                               preview={pending[backKey] ?? null}
                               uploaded={!!uploaded[backKey]}
                               uploading={uploading.has(backKey)}
@@ -1728,9 +1735,9 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                                 <div className="px-4 py-4 bg-slate-50/50 border-t border-slate-100 space-y-4">
                                   {Array.from({ length: histPairCount }).map((_, i) => (
                                     <div key={i} className="grid grid-cols-2 gap-4">
-                                      <ImageCard doc={histFrontDocs[i] ?? null} side="Front" accent={group.accent} readOnly={true} isDormant={isDormant}
+                                      <ImageCard doc={histFrontDocs[i] ?? null} side="Front" accent={group.accent} readOnly={true}
                                         preview={null} uploaded={false} uploading={false} onFileChange={() => {}} />
-                                      <ImageCard doc={histBackDocs[i] ?? null} side="Back" accent={group.accent} readOnly={true} isDormant={isDormant}
+                                      <ImageCard doc={histBackDocs[i] ?? null} side="Back" accent={group.accent} readOnly={true}
                                         preview={null} uploaded={false} uploading={false} onFileChange={() => {}} />
                                     </div>
                                   ))}
@@ -1749,7 +1756,25 @@ const EditCustomerDocs = ({ basePath = "/user" }) => {
                   </div>
                 </div>
               );
-            })}
+              })()}
+              {group.key === "sigcard" && isITF && (
+                <StepCard n={2} title="Account Holders" hint={false}
+                  note={`${people.length} people · documents for this account are shared`}>
+                  {groupPeople(customer, people).map((grp) => (
+                    <div key={grp.title}>
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">{grp.title} ({grp.people.length})</p>
+                      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                        {grp.people.map((p) => (
+                          <PersonCard key={p.person_index} number={p.person_index} name={p.name || `Person ${p.person_index}`}
+                            role={p.role} risk={p.risk_level} tone={personTone(customer, p.person_index)} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </StepCard>
+              )}
+              </Fragment>
+            ))}
 
               {/* Other docs section */}
               <div id="section-other" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

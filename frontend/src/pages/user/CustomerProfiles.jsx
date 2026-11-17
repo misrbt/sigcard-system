@@ -33,6 +33,9 @@ import { clearUploadResolved } from "../../utils/pendingStatusStorage";
 import RecentSearches from "../../components/common/RecentSearches";
 import { useRecentSearches } from "../../hooks/useRecentSearches";
 import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isFaoCustomer, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
+import { DORMANCY_REMINDER_YEARS, dormancyRemindersForCustomer, showsDormancyReminder } from "../../utils/dormancyReminder";
+import { corporateViewerImages, jointViewerImages } from "../../utils/accountDocuments";
+import { CorporateDocumentsLayout, JointDocumentsLayout } from "../../components/customer/AccountDocumentsLayout";
 
 const PAGE_SIZE = 10;
 
@@ -138,6 +141,23 @@ const initials = (customer) => {
 };
 
 // ── AccountsCell — collapsed summary, expandable on click ────────────────────
+// Small "Needs update" label: an Active / Reactivated account not updated for 2+ years.
+const NeedsUpdatePill = ({ c }) => {
+  const { getPrimaryRole } = useAuth();
+  const reminders = showsDormancyReminder(getPrimaryRole()) ? dormancyRemindersForCustomer(c) : [];
+  if (!reminders.length) return null;
+  const title = reminders
+    .map((r) => `${r.accountNo ?? `Account ${r.acctIndex}`}: ${r.basisLabel} ${formatDate(r.basisDate.toISOString())} (${r.elapsed} ago)`)
+    .join("\n");
+  return (
+    <span title={`Not updated for ${DORMANCY_REMINDER_YEARS}+ years, may soon become dormant:\n${title}`}
+      className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-300 whitespace-nowrap">
+      <HiOutlineCalendar className="w-2.5 h-2.5" />
+      Needs update{reminders.length > 1 ? ` (${reminders.length})` : ""}
+    </span>
+  );
+};
+
 const AccountsCell = ({ c }) => {
   const [open, setOpen] = useState(false);
   const allAccts = [
@@ -146,11 +166,17 @@ const AccountsCell = ({ c }) => {
   ];
 
   if (allAccts.length === 1) {
-    return <span className="text-[11px] text-slate-600 font-mono">{c.account_no ?? "—"}</span>;
+    return (
+      <div className="min-w-0">
+        <span className="text-[11px] text-slate-600 font-mono">{c.account_no ?? "—"}</span>
+        <div><NeedsUpdatePill c={c} /></div>
+      </div>
+    );
   }
 
   return (
     <div className="min-w-0">
+      <div className="mb-1"><NeedsUpdatePill c={c} /></div>
       {/* Collapsed pill — click to expand */}
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
@@ -180,7 +206,7 @@ const AccountsCell = ({ c }) => {
 };
 
 // ── Image Viewer (fullscreen carousel + zoom/pan) ────────────────────────────
-const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) => {
+const ImageViewer = ({ images, initialIndex = 0, onClose }) => {
   const [idx, setIdx]       = useState(initialIndex);
   const [zoom, setZoom]     = useState(1);
   const [pan, setPan]       = useState({ x: 0, y: 0 });
@@ -286,7 +312,6 @@ const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) =
             maxWidth: "90vw",
             maxHeight: "75vh",
             objectFit: "contain",
-            filter: isDormant ? "blur(12px)" : "none",
           }}
         />
       </div>
@@ -477,6 +502,10 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       ? baseDocs.filter((d) => d.person_index === activeAcctIdx)
       : baseDocs;
 
+    // Joint and business accounts: same order as the structured layout on screen.
+    if (customer.account_type === "Joint") return { images: jointViewerImages(customer, viewDocs), index: 0 };
+    if (customer.account_type === "Corporate") return { images: corporateViewerImages(customer, baseDocs, viewDocs), index: 0 };
+
     // Grouped: sigcard/nais/privacy per person
     const persons = [...new Set(
       viewDocs
@@ -508,6 +537,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
   const openViewer = (docType, personIndex) => {
     const { images, index } = buildImages(docType, personIndex);
     if (images.length) setViewer({ images, index });
+  };
+
+  const openViewerByPath = (filePath) => {
+    const { images } = buildImages();
+    const idx = images.findIndex((img) => img.src === storageUrl(filePath));
+    if (images.length) setViewer({ images, index: Math.max(idx, 0) });
   };
 
   if (loading) {
@@ -644,7 +679,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
   return (
     <>
       {viewer && (
-        <ImageViewer images={viewer.images} initialIndex={viewer.index} onClose={() => setViewer(null)} isDormant={isDormant} />
+        <ImageViewer images={viewer.images} initialIndex={viewer.index} onClose={() => setViewer(null)} />
       )}
 
       <div className="flex flex-col h-full">
@@ -719,26 +754,6 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
               </div>
             </div>
 
-            {/* Joint holders */}
-            {isJoint && allHolders.length > 1 && (
-              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Account Holders</p>
-                {allHolders.map((h) => (
-                  <div key={h.person_index} className="flex items-center gap-2.5">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-purple-600"}`}>
-                      {h.person_index}
-                    </div>
-                    <p className="text-xs text-white/80 font-medium flex-1 min-w-0 truncate">
-                      {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
-                      <span className="ml-1.5 text-[10px] text-white/40">{jointPersonRole(customer, h.person_index, h)}</span>
-                    </p>
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${riskStyle[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
-                      {h.risk_level}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* ── Customer Details card ─────────────────────────────────────── */}
@@ -856,16 +871,15 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
               {currentDocsStatusForAcct && (
                 <span className="text-[10px] text-slate-400">Latest upload</span>
               )}
-              {isDormant && (
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">
-                  Dormant — blurred
-                </span>
-              )}
               <span className="ml-auto text-xs text-slate-400">{totalDocs} file{totalDocs !== 1 ? "s" : ""}</span>
             </div>
 
             <div className="px-5 py-5 space-y-6">
-              {DOC_SECTIONS.map((sec) => {
+              {isJoint ? (
+                <JointDocumentsLayout customer={customer} docs={docsForSection} onOpen={openViewerByPath} />
+              ) : isCorporate ? (
+                <CorporateDocumentsLayout customer={customer} docs={docs} acctDocs={docsForSection} onOpen={openViewerByPath} />
+              ) : DOC_SECTIONS.map((sec) => {
                 const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
                 return (
                   <div key={sec.key}>
@@ -897,7 +911,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                                         onClick={() => openViewer(type, p)}
                                         className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
                                       >
-                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all`} />
                                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                                             <HiOutlineEye className="w-4 h-4 text-slate-700" />
@@ -935,7 +949,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         }}
                         className="relative group aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
                       >
-                        <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                        <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-contain transition-all`} />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                             <HiOutlineEye className="w-4 h-4 text-slate-700" />

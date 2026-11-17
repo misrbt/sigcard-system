@@ -104,6 +104,11 @@ class Customer extends Model
         return $this->hasMany(CustomerAccount::class)->orderBy('created_at');
     }
 
+    public function dormancyAcknowledgments(): HasMany
+    {
+        return $this->hasMany(DormancyReminderAcknowledgment::class);
+    }
+
     public function statusLogs(): HasMany
     {
         return $this->hasMany(CustomerStatusLog::class)->latest();

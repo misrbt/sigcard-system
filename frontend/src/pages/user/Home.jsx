@@ -13,6 +13,7 @@ import {
   HiOutlineX, HiOutlineChevronLeft,
 } from "react-icons/hi";
 import { MdFingerprint } from "react-icons/md";
+import DormancyReminderCard from "../../components/customer/DormancyReminderCard";
 
 const RISK_CFG = [
   { key: "Low Risk",    label: "Low Risk",    dot: "bg-emerald-500", bar: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50"  },
@@ -333,6 +334,9 @@ const Home = () => {
           </div>
         </div>
       </motion.div>
+
+      {/* ── Dormancy reminder ─────────────────────────────────────────────────── */}
+      <DormancyReminderCard basePath="/user" />
 
       {/* ── Stat Cards ─────────────────────────────────────────────────────────── */}
       {statCards.length > 0 && (

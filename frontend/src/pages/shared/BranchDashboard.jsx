@@ -10,6 +10,7 @@ import {
   HiOutlineRefresh, HiOutlineChevronRight, HiOutlineOfficeBuilding,
   HiOutlineShieldCheck, HiOutlineCreditCard, HiOutlineTrendingUp, HiOutlineEye,
 } from 'react-icons/hi';
+import DormancyReminderCard from "../../components/customer/DormancyReminderCard";
 
 const STATUS_CFG = {
   active:  { label: 'Active',  icon: HiOutlineCheckCircle, dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', circle: 'bg-emerald-600', bar: '#10B981' },
@@ -163,6 +164,9 @@ const BranchDashboard = ({ title, apiEndpoint, basePath = '/manager' }) => {
           </button>
         </div>
       </div>
+
+      {/* ── Dormancy reminder ─────────────────────────────────────────────────── */}
+      <DormancyReminderCard basePath={basePath} />
 
       {/* ── Stat Cards ──────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

@@ -185,9 +185,11 @@ Route::middleware(['auth:sanctum', 'track.activity'])->group(function () {
     Route::middleware(['role:user,manager,admin,cashier,compliance,audit'])->prefix('customers')->group(function () {
         Route::get('/', [CustomerController::class, 'index']);
         Route::get('/check-name', [CustomerController::class, 'checkDuplicateName']);
+        Route::get('/dormancy-reminders', [CustomerController::class, 'dormancyReminders']);
         Route::get('/{customer}', [CustomerController::class, 'show']);
         Route::get('/{customer}/documents', [CustomerController::class, 'getDocuments']);
         Route::get('/{customer}/history', [CustomerController::class, 'history']);
+        Route::post('/{customer}/dormancy-reminder/seen', [CustomerController::class, 'acknowledgeDormancyReminder']);
     });
 
     // Customer write routes — cashier cannot modify

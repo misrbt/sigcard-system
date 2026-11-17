@@ -14,9 +14,11 @@ import {
   HiOutlineCheckCircle,
   HiOutlinePhotograph,
   HiOutlineExclamation,
+  HiOutlineCalendar,
 } from "react-icons/hi";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
+import { DORMANCY_REMINDER_YEARS, dormancyReminderFor, showsDormancyReminder } from "../../utils/dormancyReminder";
 
 // ── UI presentation metadata (styles/icons per value) ────────────────────────
 // Valid values come from /api/config; this maps each value to its display style.
@@ -308,7 +310,22 @@ const NameGrid = ({ values, onChange, accountType }) => {
   );
 };
 
-const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated }) => (
+// Reminder under the dates: an Active / Reactivated account whose Date Opened (or later
+// Date Updated / reactivation date) is already 2+ years ago is due for an update.
+const DormancyDateReminder = ({ reminder }) => (
+  reminder ? (
+    <div className="col-span-2 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-300">
+      <HiOutlineCalendar className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+      <p className="text-xs text-amber-800">
+        <span className="font-bold">Reminder:</span> the {reminder.basisLabel} was {reminder.elapsed} ago
+        ({DORMANCY_REMINDER_YEARS} years or more). This account may soon become dormant.
+        Make sure the customer's documents are up to date, and set the Date Updated if they were updated.
+      </p>
+    </div>
+  ) : null
+);
+
+const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated, reminder = null }) => (
   <div className="grid grid-cols-2 gap-3">
     <div className="space-y-1.5">
       <label className="block text-xs font-semibold text-slate-600">
@@ -329,6 +346,7 @@ const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDat
       </label>
       <input type="date" value={dateUpdated ?? ""} onChange={onDateUpdated} className={inputCls} />
     </div>
+    <DormancyDateReminder reminder={reminder} />
   </div>
 );
 
@@ -400,7 +418,8 @@ const StatusDateField = ({ status, value, onChange }) => {
 
 // ── Main component ────────────────────────────────────────────────────────────
 const UploadSigcard = () => {
-  const { user } = useAuth();
+  const { user, getPrimaryRole } = useAuth();
+  const showReminder = showsDormancyReminder(getPrimaryRole());
   const appConfig = useAppConfig();
 
   // Config-driven lists (values come from backend /api/config)
@@ -434,6 +453,8 @@ const UploadSigcard = () => {
   const [secondJointFront,     setSecondJointFront]      = useState(null);
   // "For the Account Of": extra signature cards when the holders' signatures need more than one card
   const [faoExtraFronts,       setFaoExtraFronts]        = useState([]);
+  // Regular joint / For the Account Of: extra NAIS forms ("Add Another NAIS"), filed under the account (person 1)
+  const [jointExtraNais,       setJointExtraNais]        = useState([]);
   const [isSubmitting,         setIsSubmitting]         = useState(false);
   const [uploadProgress,     setUploadProgress]     = useState(0);
   const [submitPhase,        setSubmitPhase]        = useState("idle");
@@ -518,6 +539,7 @@ const UploadSigcard = () => {
     setHasSecondJointFront(false);
     setSecondJointFront(null);
     setFaoExtraFronts([]);
+    setJointExtraNais([]);
   }, [formData.jointSubType, isITF, isNonITF]);
 
   // ITF roles: Sole Trustee → everyone after Person 1 is In-Trust-For.
@@ -687,7 +709,7 @@ const UploadSigcard = () => {
         if (isSoleProprietorship) return !!files.sigcardPairs[0]?.front && !!files.sigcardPairs[0]?.back;
         if (isCorporate) return corpSigFronts.every((f) => f !== null) && corpSigBacks.every((f) => f !== null);
         return files.sigcardPairs.every((p) => p.front && p.back);
-      case "nais": return true;
+      case "nais": return !isNonITF || jointExtraNais.every((p) => p.front || p.back);
       case "privacy":
         if (privacyNotRequired) return true;
         if (isITF) return itfFiles.privacy.every((p) => p.front || p.back);
@@ -696,7 +718,7 @@ const UploadSigcard = () => {
       case "otherDocs": return true;
       default: return false;
     }
-  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF, isFAO, isJointTrustee, faoExtraFronts]);
+  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF, isFAO, isJointTrustee, faoExtraFronts, jointExtraNais]);
 
   const handleNext = () => { if (isStepValid) { setDirection(1);  setStep((s) => Math.min(s + 1, activeSteps.length - 1)); } };
   const handlePrev = () => {                   setDirection(-1); setStep((s) => Math.max(s - 1, 0)); };
@@ -714,6 +736,7 @@ const UploadSigcard = () => {
     setHasSecondJointFront(false);
     setSecondJointFront(null);
     setFaoExtraFronts([]);
+    setJointExtraNais([]);
   };
 
   const handleSubmit = async () => {
@@ -844,6 +867,15 @@ const UploadSigcard = () => {
             fd.append(`sigcardPairs[${idx}][front]`, f);
             fd.append(`sigcardPairs[${idx}][person_index]`, 1);
           });
+          // Extra NAIS forms belong to the account itself (person 1), like the extra signature cards.
+          if (isNonITF) {
+            jointExtraNais.filter((p) => p.front || p.back).forEach((p, i) => {
+              const idx = files.naisPairs.length + i;
+              if (p.front) fd.append(`naisPairs[${idx}][front]`, p.front);
+              if (p.back)  fd.append(`naisPairs[${idx}][back]`,  p.back);
+              fd.append(`naisPairs[${idx}][person_index]`, 1);
+            });
+          }
           files.otherDocs.forEach((section, i) => section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f)));
         }
       }
@@ -1296,6 +1328,7 @@ const UploadSigcard = () => {
                 onAccountNo={(e) => setField("accountNo", e.target.value)}
                 onDateOpened={(e) => setField("dateOpened", e.target.value)}
                 onDateUpdated={(e) => setField("dateUpdated", e.target.value)}
+                reminder={showReminder ? dormancyReminderFor({ status: formData.status, date_opened: formData.dateOpened, date_updated: formData.dateUpdated, status_date: formData.statusDate }) : null}
               />
             </div>
 
@@ -1342,6 +1375,7 @@ const UploadSigcard = () => {
                       onAccountNo={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, accountNo: e.target.value } : x))}
                       onDateOpened={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, dateOpened: e.target.value } : x))}
                       onDateUpdated={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, dateUpdated: e.target.value } : x))}
+                      reminder={showReminder ? dormancyReminderFor({ status: a.status, date_opened: a.dateOpened, date_updated: a.dateUpdated, status_date: a.statusDate }) : null}
                     />
                   </div>
                 ))}
@@ -1675,10 +1709,42 @@ const UploadSigcard = () => {
               ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
             ]
           : undefined;
-        return <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.naisPairs}
+        const naisStep = <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.naisPairs}
           frontLabel="NAIS Front" backLabel="NAIS Back (Optional)"
           onSetFile={(i, s, f) => setPairFile("naisPairs", i, s, f)}
           sectionLabels={sectionLabels} />;
+        if (!isNonITF) return naisStep;
+        // Regular joint / For the Account Of: any number of extra NAIS forms for the account
+        const setExtraNaisSide = (idx, side, f) =>
+          setJointExtraNais((prev) => prev.map((p, i) => (i === idx ? { ...p, [side]: f } : p)));
+        return (
+          <div className="space-y-6">
+            {naisStep}
+            {jointExtraNais.map((pair, idx) => (
+              <div key={idx} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-slate-400">NAIS {idx + 2}</p>
+                  <button type="button" onClick={() => setJointExtraNais((prev) => prev.filter((_, i) => i !== idx))}
+                    className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                    <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                  </button>
+                </div>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <DocImageDropZone label={`NAIS ${idx + 2} Front`} file={pair.front} onChange={(f) => setExtraNaisSide(idx, "front", f)} />
+                  <DocImageDropZone label={`NAIS ${idx + 2} Back (Optional)`} file={pair.back} onChange={(f) => setExtraNaisSide(idx, "back", f)} />
+                </div>
+                {!pair.front && !pair.back && (
+                  <p className="text-[11px] text-amber-600">Add a photo for NAIS {idx + 2}, or press Remove.</p>
+                )}
+              </div>
+            ))}
+            <button type="button" onClick={() => setJointExtraNais((prev) => [...prev, { front: null, back: null }])}
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all">
+              <HiOutlinePlus className="w-3.5 h-3.5" />
+              Add Another NAIS
+            </button>
+          </div>
+        );
       }
 
       case "privacy": {

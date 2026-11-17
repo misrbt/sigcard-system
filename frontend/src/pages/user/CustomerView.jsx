@@ -28,8 +28,13 @@ import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
-import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isFaoCustomer, isItfCustomer, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
+import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isFaoCustomer, isItfCustomer, jointTypeLabel } from "../../utils/jointAccount";
 import { setNavigationGuard } from "../../utils/navigationGuard";
+import { DORMANCY_REMINDER_YEARS, dormancyRemindersForCustomer, showsDormancyReminder } from "../../utils/dormancyReminder";
+import { AccountStructureBanner, CompanyCard, PersonCard, StepHeading } from "../../components/customer/AccountStructure";
+import { accountPeople, cardGridCls, personTone } from "../../utils/accountStructure";
+import { corporateViewerImages, jointViewerImages } from "../../utils/accountDocuments";
+import { CorporateDocumentsLayout, JointDocumentsLayout } from "../../components/customer/AccountDocumentsLayout";
 import {
   getPendingStatusChange,
   savePendingStatusChange,
@@ -206,7 +211,6 @@ const ImageViewer = ({ images, initialIndex = 0, onClose }) => {
             maxWidth: "90vw",
             maxHeight: "75vh",
             objectFit: "contain",
-            filter: cur.isDormant ? "blur(12px)" : "none",
           }}
         />
       </div>
@@ -483,7 +487,10 @@ const EditChoiceModal = ({ customer, onClose, onPick }) => (
         </div>
         <div>
           <p className="text-sm font-bold text-slate-800">Account Info</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Risk level, dates, account no.</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Risk level, dates, account no.
+            {(customer.accounts ?? []).length > 0 && ` · all ${(customer.accounts ?? []).length + 1} accounts`}
+          </p>
         </div>
       </button>
     </div>
@@ -748,31 +755,48 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
 };
 
 // Edit account details — risk level, account no., dates (no status)
-const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
+const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack, initialAcctIdx = 1 }) => {
   const isJointType     = customer.account_type === "Joint";
   const isCorporateType = customer.account_type === "Corporate";
   const isSolePropType  = isCorporateType && customer.corporate_sub_type === "Sole Proprietorship";
+  const showRisk        = !isJointType && (!isCorporateType || isSolePropType);
 
-  const [form, setForm] = useState({
-    risk_level:   customer.risk_level   ?? "Low Risk",
-    account_no:   customer.account_no   ?? "",
-    date_opened:  customer.date_opened  ? customer.date_opened.substring(0, 10)  : "",
-    date_updated: customer.date_updated ? customer.date_updated.substring(0, 10) : "",
+  // Every account on this customer: the main account (stored on the customer) + extra accounts.
+  const toForm = (a) => ({
+    risk_level:   a.risk_level   ?? "Low Risk",
+    account_no:   a.account_no   ?? "",
+    date_opened:  a.date_opened  ? String(a.date_opened).substring(0, 10)  : "",
+    date_updated: a.date_updated ? String(a.date_updated).substring(0, 10) : "",
   });
+  const accounts = [
+    { idx: 1, id: null, status: customer.status, original: toForm(customer) },
+    ...(customer.accounts ?? []).map((a, i) => ({ idx: i + 2, id: a.id, status: a.status, original: toForm(a) })),
+  ];
+  const hasMany = accounts.length > 1;
+
+  const [forms, setForms]   = useState(() => Object.fromEntries(accounts.map((a) => [a.idx, { ...a.original }])));
+  const [active, setActive] = useState(accounts.some((a) => a.idx === initialAcctIdx) ? initialAcctIdx : 1);
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
 
-  const setF = (key, val) => setForm((prev) => ({ ...prev, [key]: val }));
+  const form    = forms[active];
+  const setF    = (key, val) => setForms((prev) => ({ ...prev, [active]: { ...prev[active], [key]: val } }));
+  const isDirty = (a) => JSON.stringify(forms[a.idx]) !== JSON.stringify(a.original);
+  const changed = accounts.filter(isDirty);
 
   const handleSave = async () => {
+    if (changed.length === 0) { onClose(); return; }
     setSaving(true);
     setError(null);
     try {
-      // Convert empty strings to null so backend nullable validation passes
-      const payload = Object.fromEntries(
-        Object.entries(form).map(([k, v]) => [k, v === "" ? null : v])
-      );
-      await api.put(`/customers/${customer.id}`, payload);
+      // Save every account that was changed (main account first).
+      for (const a of changed) {
+        const values = showRisk ? forms[a.idx] : (({ risk_level: _r, ...rest }) => rest)(forms[a.idx]);
+        // Convert empty strings to null so backend nullable validation passes
+        const payload = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v === "" ? null : v]));
+        if (a.id) await api.put(`/customers/${customer.id}/accounts/${a.id}`, payload);
+        else      await api.put(`/customers/${customer.id}`, payload);
+      }
       onSaved();
       onClose();
     } catch (e) {
@@ -781,6 +805,7 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
         ? Object.values(data.errors).flat().join("\n")
         : data?.message ?? "Failed to save changes.";
       setError(msg);
+      onSaved(); // accounts saved before the error should still show
     } finally {
       setSaving(false);
     }
@@ -801,13 +826,42 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
           </button>
           <button onClick={handleSave} disabled={saving}
             className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 rounded-xl transition-colors">
-            {saving ? "Saving…" : "Save Changes"}
+            {saving ? "Saving…" : hasMany && changed.length > 1 ? `Save ${changed.length} Accounts` : "Save Changes"}
           </button>
         </>
       }
     >
+      {/* Which account — shown when the customer has more than one */}
+      {hasMany && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Select Account</p>
+          <div className="flex flex-wrap gap-2">
+            {accounts.map((a) => {
+              const isActive = a.idx === active;
+              return (
+                <button key={a.idx} type="button" onClick={() => setActive(a.idx)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${
+                    isActive ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                  }`}>
+                  <HiOutlineCreditCard className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{forms[a.idx].account_no || `Account ${a.idx}`}</span>
+                  {a.idx === 1 && (
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>Primary</span>
+                  )}
+                  {isDirty(a) && <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-white" : "bg-amber-500"}`} title="Changed" />}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Changes to each account are kept while you switch. Save stores every changed account
+            {changed.length > 0 ? ` (${changed.length} changed)` : ""}.
+          </p>
+        </div>
+      )}
+
       {/* Risk Level — non-Joint, and non-Corporate (or Sole Proprietorship) */}
-      {!isJointType && (!isCorporateType || isSolePropType) && (
+      {showRisk && (
         <div className="space-y-2">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Risk Level</p>
           <div className="flex flex-wrap gap-2">
@@ -823,7 +877,9 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
 
       {/* Account No + Dates */}
       <div className="space-y-2">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Account Details</p>
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+          Account Details{hasMany ? ` — ${active === 1 ? "Primary Account" : `Account ${active}`}` : ""}
+        </p>
         <div className="grid grid-cols-1 gap-3">
           <div>
             <label className="block text-xs text-slate-500 mb-1">Account No.</label>
@@ -842,16 +898,18 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
         </div>
       </div>
 
-      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600">{error}</div>}
+      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600 whitespace-pre-line">{error}</div>}
     </ModalShell>
   );
 };
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+
 const CustomerView = ({ basePath = '/user' }) => {
   const { id }      = useParams();
   const navigate    = useNavigate();
-  const { hasPermission } = useAuth();
+  const { hasPermission, getPrimaryRole } = useAuth();
+  const showReminder = showsDormancyReminder(getPrimaryRole());
   const canEdit   = hasPermission('edit-customers');
   const canCreate = hasPermission('create-customers');
 
@@ -994,6 +1052,7 @@ const CustomerView = ({ basePath = '/user' }) => {
   const [itfSecondFront,        setItfSecondFront]        = useState(null);
   const [nonItfSigcardFront,    setNonItfSigcardFront]    = useState(null);
   const [nonItfExtraFronts,     setNonItfExtraFronts]     = useState([]); // extra shared signature cards
+  const [nonItfExtraNais,       setNonItfExtraNais]       = useState([]); // extra NAIS forms for the account [{front, back}]
   const [perPersonSigcardBacks, setPerPersonSigcardBacks] = useState({}); // { [personIndex]: File }
   const [corpSigcardFronts,     setCorpSigcardFronts]     = useState([null]);
   const [perPersonCorpBacks,    setPerPersonCorpBacks]    = useState({}); // { [personIndex]: File }
@@ -1013,6 +1072,48 @@ const CustomerView = ({ basePath = '/user' }) => {
 
   useEffect(() => { fetchCustomer(true); }, [fetchCustomer]);
 
+  // Dormancy reminder pop-up: once per customer per browser session, when an Active /
+  // Reactivated account has gone 2 years without an update. Not while an upload box is open.
+  useEffect(() => {
+    if (!customer || uploadParam || !showReminder) return;
+    const reminders = dormancyRemindersForCustomer(customer);
+    if (!reminders.length) return;
+    const seenKey = `dormancy-reminder-seen-${customer.id}`;
+    try {
+      if (sessionStorage.getItem(seenKey)) return;
+      sessionStorage.setItem(seenKey, "1");
+    } catch { /* storage blocked — still show the reminder */ }
+    // Seeing the reminder closes it (recorded in the audit log), so it won't remind again
+    // until the account goes another 2 years without an update.
+    api.post(`/customers/${customer.id}/dormancy-reminder/seen`).catch(() => {});
+
+    const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const rows = reminders.map((r) =>
+      `<li style="margin:6px 0"><b>${esc(r.accountNo ?? `Account ${r.acctIndex}`)}</b> — ${r.basisLabel} ${formatDate(r.basisDate.toISOString())} ` +
+      `(<b>${r.elapsed}</b> ago)</li>`).join("");
+    Swal.fire({
+      icon: "warning",
+      title: "Account Update Reminder",
+      html:
+        `<p style="font-size:14px">This customer's account${reminders.length > 1 ? "s have" : " has"} not been updated for ` +
+        `<b>${DORMANCY_REMINDER_YEARS} years or more</b> and may soon become <b>dormant</b>.</p>` +
+        `<ul style="text-align:left;font-size:13px;margin:10px 0 6px 18px;list-style:disc">${rows}</ul>` +
+        `<p style="font-size:13px;color:#64748b">Please ask the customer to update their records, then upload the new documents (Edit Docs) and set the Date Updated (Edit Info → Account Info).</p>` +
+        `<p style="font-size:12px;color:#94a3b8;margin-top:8px">This reminder is now marked as seen in the audit log and will not appear again.</p>`,
+      showDenyButton: canEdit,
+      showCancelButton: true,
+      confirmButtonText: canEdit ? "Update Documents" : "OK",
+      denyButtonText: "Update Date",
+      cancelButtonText: "Remind Me Later",
+      confirmButtonColor: "#2563eb",
+      denyButtonColor: "#4f46e5",
+    }).then((res) => {
+      if (!canEdit) return;
+      if (res.isConfirmed) navigate(`${basePath}/customers/${customer.id}/edit`);
+      else if (res.isDenied) setEditInfoOpen("account");
+    });
+  }, [customer, uploadParam, showReminder, canEdit, navigate, basePath]);
+
   useEffect(() => {
     if (!customer) return;
     const acctCount = 1 + (customer.accounts?.length ?? 0);
@@ -1029,6 +1130,7 @@ const CustomerView = ({ basePath = '/user' }) => {
     setItfSecondFront(null);
     setNonItfSigcardFront(null);
     setNonItfExtraFronts([]);
+    setNonItfExtraNais([]);
     setPerPersonSigcardBacks({});
     setCorpSigcardFronts([null]);
     setPerPersonCorpBacks({});
@@ -1098,6 +1200,7 @@ const CustomerView = ({ basePath = '/user' }) => {
       || otherUploadFiles.length > 0
       || nonItfSigcardFront !== null
       || nonItfExtraFronts.some(Boolean)
+      || nonItfExtraNais.some((p) => p.front || p.back)
       || Object.values(perPersonSigcardBacks).some(Boolean)
       || corpSigcardFronts.some(Boolean)
       || Object.values(perPersonCorpBacks).some(Boolean)
@@ -1148,7 +1251,7 @@ const CustomerView = ({ basePath = '/user' }) => {
               }
             });
         }
-        // NAIS: multiple files per side
+        // NAIS: multiple files per side, plus any extra NAIS forms ("Add Another NAIS") for the account
         if (uploadsSelected.includes("nais")) {
           const naisFronts = docUploadFiles["nais_front"] ?? [];
           const naisBacks  = docUploadFiles["nais_back"]  ?? [];
@@ -1157,6 +1260,12 @@ const CustomerView = ({ basePath = '/user' }) => {
             naisFronts.forEach((f) => fd.append("naisPairs[0][front][]", f));
             naisBacks.forEach((f) => fd.append("naisPairs[0][back][]", f));
           }
+          nonItfExtraNais.filter((p) => p.front || p.back).forEach((p, n) => {
+            const idx = n + 1;
+            fd.append(`naisPairs[${idx}][person_index]`, 1);
+            if (p.front) fd.append(`naisPairs[${idx}][front]`, p.front);
+            if (p.back)  fd.append(`naisPairs[${idx}][back]`,  p.back);
+          });
         }
         // Privacy: multiple files per side
         if (uploadsSelected.includes("privacy")) {
@@ -1361,6 +1470,13 @@ const CustomerView = ({ basePath = '/user' }) => {
     // the active account tab), so the full-size viewer never shows a stale replaced document.
     const viewDocs = docsForSection;
 
+    if (customer.account_type === "Joint") {
+      return { images: jointViewerImages(customer, viewDocs), index: 0 };
+    }
+    if (customer.account_type === "Corporate") {
+      return { images: corporateViewerImages(customer, docs, viewDocs), index: 0 };
+    }
+
     const persons = [...new Set(
       viewDocs
         .filter((d) => DOC_SECTIONS.some((s) => s.front === d.document_type || s.back === d.document_type))
@@ -1398,11 +1514,6 @@ const CustomerView = ({ basePath = '/user' }) => {
     return { images: imgs, index: startIdx };
   };
 
-  const openViewer = (docType, personIndex) => {
-    const { images, index } = buildImages(docType, personIndex);
-    if (images.length) setViewer({ images, index });
-  };
-
   const openViewerByPath = (filePath) => {
     const { images } = buildImages();
     const idx = images.findIndex((img) => img.src === storageUrl(filePath));
@@ -1428,6 +1539,7 @@ const CustomerView = ({ basePath = '/user' }) => {
     );
   }
 
+  const dormancyReminders = showReminder ? dormancyRemindersForCustomer(customer) : [];
   const initialDocs = (customer.documents ?? []).filter((d) => !d.account_status);
   const statusDocs  = (customer.documents ?? []).filter((d) => !!d.account_status);
   const holders     = customer.holders   ?? [];
@@ -1530,11 +1642,6 @@ const CustomerView = ({ basePath = '/user' }) => {
     : showInitialInHistory;
   const activeAcctObj = showAccountTabs ? allAccounts.find((a) => a.acctIndex === activeAcctIdx) : null;
 
-  // Blur only when the currently-viewed account is dormant
-  const activeAcctStatus = showAccountTabs
-    ? (allAccounts.find((a) => a.acctIndex === activeAcctIdx)?.status ?? customer.status)
-    : customer.status;
-  const isDormant = activeAcctStatus === "dormant";
 
   // Docs for the active account tab: use per-account log → legacy group → initial docs
   const docsForSection = showAccountTabs
@@ -1601,6 +1708,7 @@ const CustomerView = ({ basePath = '/user' }) => {
       {editInfoOpen === "account" && (
         <EditAccountInfoModal
           customer={customer}
+          initialAcctIdx={activeAcctIdx}
           onClose={() => setEditInfoOpen(null)}
           onSaved={fetchCustomer}
           onBack={() => setEditInfoOpen("choice")}
@@ -1706,6 +1814,42 @@ const CustomerView = ({ basePath = '/user' }) => {
 
         {/* ── Content ──────────────────────────────────────────────────────── */}
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+          {/* Dormancy reminder — Active / Reactivated account not updated for 2+ years */}
+          {dormancyReminders.length > 0 && (
+            <div className="flex items-start gap-3 px-4 py-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 shadow-sm">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <HiOutlineCalendar className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-amber-900">Reminder: account needs updating</p>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Not updated for {DORMANCY_REMINDER_YEARS} years or more. It may soon become dormant.
+                  Ask the customer to update their records.
+                </p>
+                <ul className="mt-1.5 space-y-0.5">
+                  {dormancyReminders.map((r) => (
+                    <li key={r.acctIndex} className="text-xs text-amber-900">
+                      <span className="font-semibold">{r.accountNo ?? `Account ${r.acctIndex}`}</span>
+                      {" "}— {r.basisLabel} {formatDate(r.basisDate.toISOString())} ({r.elapsed} ago)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {canEdit && (
+                <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+                  <button onClick={() => navigate(`${basePath}/customers/${customer.id}/edit`)}
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors">
+                    Update Documents
+                  </button>
+                  <button onClick={() => setEditInfoOpen("account")}
+                    className="px-3 py-1.5 text-xs font-semibold text-amber-800 border border-amber-300 hover:bg-amber-100 rounded-lg transition-colors">
+                    Update Date
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Customer Details card */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1975,92 +2119,6 @@ const CustomerView = ({ basePath = '/user' }) => {
             </div>
           )}
 
-          {/* Account Holders card — shown for Joint accounts */}
-          {isJoint && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
-                <HiOutlineUsers className="w-4 h-4 text-purple-500" />
-                <h2 className="text-sm font-bold text-slate-900">Account Holders</h2>
-                <span className="ml-auto text-xs text-slate-400">{allHolders.length} holders</span>
-              </div>
-              <div className="px-5 py-4 space-y-2">
-                {allHolders.map((h) => (
-                  <div key={h.person_index} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-purple-600"}`}>
-                      {h.person_index}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">
-                        {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {jointPersonRole(customer, h.person_index, h)}
-                      </p>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold flex-shrink-0 ${riskStyle[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
-                      {h.risk_level}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Signatories card — shown for standard Corporate accounts with multiple signatories */}
-          {isCorporate && !isSoleProprietorship && holders.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
-                <HiOutlineUsers className="w-4 h-4 text-slate-500" />
-                <h2 className="text-sm font-bold text-slate-900">Authorized Signatories</h2>
-                <span className="ml-auto text-xs text-slate-400">{allHolders.length} signatories</span>
-              </div>
-              <div className="px-5 py-4 space-y-2">
-                {allHolders.map((h) => (
-                  <div key={h.person_index} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>
-                      {h.person_index}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">
-                        {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {h.person_index === 1 ? "Primary Signatory" : `Signatory ${h.person_index}`}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Proprietor card — shown for Sole Proprietorship accounts */}
-          {isSoleProprietorship && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
-                <HiOutlineUser className="w-4 h-4 text-amber-500" />
-                <h2 className="text-sm font-bold text-slate-900">Proprietor</h2>
-                <span className="ml-auto text-xs text-slate-400">Sole owner</span>
-              </div>
-              <div className="px-5 py-4">
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-100">
-                  <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">1</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">
-                      {customer.firstname}{customer.middlename ? ` ${customer.middlename}` : ""} {customer.lastname}{customer.suffix ? ` ${customer.suffix}` : ""}
-                    </p>
-                    <p className="text-xs text-slate-400">Sole Proprietor</p>
-                  </div>
-                  {customer.risk_level && (
-                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold flex-shrink-0 ${riskStyle[customer.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
-                      {customer.risk_level}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Document sections */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
@@ -2071,11 +2129,6 @@ const CustomerView = ({ basePath = '/user' }) => {
               </span>
               {currentDocsStatusForAcct && (
                 <span className="text-[10px] text-slate-400">Latest upload</span>
-              )}
-              {isDormant && (
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">
-                  Documents Restricted
-                </span>
               )}
               {uploadParam && (
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border animate-pulse ${isPendingUpload ? "bg-amber-100 text-amber-700 border-amber-300" : "bg-blue-100 text-blue-700 border-blue-300"}`}>
@@ -2150,6 +2203,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                   ...otherUploadFiles,
                   nonItfSigcardFront,
                   ...nonItfExtraFronts,
+                  ...nonItfExtraNais.flatMap((p) => [p.front, p.back]),
                   ...Object.values(perPersonSigcardBacks).filter(Boolean),
                   ...corpSigcardFronts.filter(Boolean),
                   ...Object.values(perPersonCorpBacks).filter(Boolean),
@@ -2195,6 +2249,7 @@ const CustomerView = ({ basePath = '/user' }) => {
 
                     {/* Body */}
                     <div className="px-4 py-4 bg-blue-50 space-y-5">
+                      <AccountStructureBanner customer={customer} />
                       {uploadsSelected.map((uploadType) => {
 
                         // ── Other Documents ──────────────────────────────────
@@ -2209,15 +2264,15 @@ const CustomerView = ({ basePath = '/user' }) => {
 
                         // ── Signature Card ───────────────────────────────────
                         if (uploadType === "sigcard") {
-                          // Joint Non-ITF: shared front + per-holder back
+                          // Joint Non-ITF / FAO: ① shared signature card(s)  ② each holder's own Risk Profiling
                           if (isNonITF) {
+                            const frontCount = 1 + nonItfExtraFronts.length;
                             return (
-                              <div key="sigcard" className="space-y-3">
-                                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card</p>
-                                <div className="space-y-1.5">
-                                  <p className="text-xs font-semibold text-slate-500">Front — Shared</p>
-                                  <div className="grid grid-cols-2 gap-3">
-                                    <DocImageDropZone compact label="SIGCARD"
+                              <div key="sigcard" className="space-y-5">
+                                <div>
+                                  <StepHeading n={1} title="Signature Card" badge="Shared by all holders" />
+                                  <div className={cardGridCls(frontCount)}>
+                                    <DocImageDropZone compact label={frontCount > 1 ? "SIGCARD 1" : "SIGCARD"}
                                       file={nonItfSigcardFront}
                                       onChange={setNonItfSigcardFront} />
                                     {nonItfExtraFronts.map((f, i) => (
@@ -2235,27 +2290,20 @@ const CustomerView = ({ basePath = '/user' }) => {
                                   </div>
                                   <button type="button"
                                     onClick={() => setNonItfExtraFronts((prev) => [...prev, null])}
-                                    className="w-full px-3 py-2 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all">
+                                    className="mt-3 w-full px-3 py-2 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-white transition-all">
                                     + Add Another Signature Card
                                   </button>
                                 </div>
-                                <div className="space-y-1.5">
-                                  <p className="text-xs font-semibold text-slate-500">Back — Per Account Holder</p>
-                                  <div className="space-y-2">
-                                    {allHolders.map((h) => (
-                                      <div key={h.person_index} className="flex items-center gap-3 bg-white rounded-xl border border-blue-200 px-3 py-2.5">
-                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-purple-600"}`}>
-                                          {h.person_index}
-                                        </div>
-                                        <p className="text-xs text-slate-700 font-semibold w-28 truncate flex-shrink-0">
-                                          {h.firstname} {h.lastname}
-                                        </p>
-                                        <div className="flex-1">
-                                          <DocImageDropZone compact label="Risk Profiling"
-                                            file={perPersonSigcardBacks[h.person_index] ?? null}
-                                            onChange={(f) => setPerPersonSigcardBacks((prev) => ({ ...prev, [h.person_index]: f }))} />
-                                        </div>
-                                      </div>
+                                <div>
+                                  <StepHeading n={2} title="Account Holders" note="each person's own Risk Profiling" />
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {accountPeople(customer).map((p) => (
+                                      <PersonCard key={p.person_index} number={p.person_index} name={p.name || `Person ${p.person_index}`}
+                                        role={p.role} risk={p.risk_level} tone={personTone(customer, p.person_index)}>
+                                        <DocImageDropZone compact label="Risk Profiling"
+                                          file={perPersonSigcardBacks[p.person_index] ?? null}
+                                          onChange={(f) => setPerPersonSigcardBacks((prev) => ({ ...prev, [p.person_index]: f }))} />
+                                      </PersonCard>
                                     ))}
                                   </div>
                                 </div>
@@ -2263,17 +2311,17 @@ const CustomerView = ({ basePath = '/user' }) => {
                             );
                           }
 
-                          // Corporate (multi-signatory only): one or more fronts + per-signatory backs
+                          // Corporate (multi-signatory): ① company signature card(s)  ② each signatory + the company itself
                           if (isCorporate && !isSoleProprietorship) {
+                            const corpEntityIdx = allHolders.length + 1;
                             return (
-                              <div key="sigcard" className="space-y-3">
-                                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Signature Card</p>
-                                <div className="space-y-2">
-                                  <p className="text-xs font-semibold text-slate-500">Front(s) — Shared</p>
-                                  <div className={`grid gap-3 ${corpSigcardFronts.length === 1 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
+                              <div key="sigcard" className="space-y-5">
+                                <div>
+                                  <StepHeading n={1} title="Signature Card" badge="Company signature card" />
+                                  <div className={cardGridCls(corpSigcardFronts.length)}>
                                     {corpSigcardFronts.map((file, i) => (
                                       <DocImageDropZone key={i} compact
-                                        label={corpSigcardFronts.length > 1 ? `Front ${i + 1}` : "SIGCARD"}
+                                        label={corpSigcardFronts.length > 1 ? `SIGCARD ${i + 1}` : "SIGCARD"}
                                         file={file}
                                         onChange={(f) => setCorpSigcardFronts((prev) => { const a = [...prev]; a[i] = f; return a; })} />
                                     ))}
@@ -2281,48 +2329,52 @@ const CustomerView = ({ basePath = '/user' }) => {
                                   {corpSigcardFronts.length < allHolders.length && (
                                     <button type="button"
                                       onClick={() => setCorpSigcardFronts((p) => [...p, null])}
-                                      className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 border border-dashed border-blue-300 rounded-lg px-3 py-1.5 bg-white hover:bg-blue-50 transition-colors">
-                                      <HiOutlinePlus className="w-3.5 h-3.5" /> Add Front
+                                      className="mt-3 w-full px-3 py-2 text-xs font-semibold text-blue-600 border-2 border-dashed border-blue-300 rounded-xl hover:border-blue-500 hover:bg-white transition-all">
+                                      + Add Another Signature Card
                                     </button>
                                   )}
                                 </div>
-                                <div className="space-y-2">
-                                  <p className="text-xs font-semibold text-slate-500">Risk Profiling — Per Signatory</p>
-                                  <div className="space-y-2">
-                                    {allHolders.map((h) => (
-                                      <div key={h.person_index} className="flex items-center gap-3 bg-white rounded-xl border border-blue-200 px-3 py-2.5">
-                                        <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
-                                          {h.person_index}
-                                        </div>
-                                        <p className="text-xs text-slate-700 font-semibold w-28 truncate flex-shrink-0">
-                                          {h.firstname} {h.lastname}
-                                        </p>
-                                        <div className="flex-1">
-                                          <DocImageDropZone compact label="Risk Profiling"
-                                            file={perPersonCorpBacks[h.person_index] ?? null}
-                                            onChange={(f) => setPerPersonCorpBacks((prev) => ({ ...prev, [h.person_index]: f }))} />
-                                        </div>
-                                      </div>
+                                <div>
+                                  <StepHeading n={2} title="Authorized Signatories" note="each signatory's own Risk Profiling, plus the company's" />
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {accountPeople(customer).map((p) => (
+                                      <PersonCard key={p.person_index} number={p.person_index} name={p.name || `Signatory ${p.person_index}`}
+                                        role={p.role} tone={personTone(customer, p.person_index)}>
+                                        <DocImageDropZone compact label="Risk Profiling"
+                                          file={perPersonCorpBacks[p.person_index] ?? null}
+                                          onChange={(f) => setPerPersonCorpBacks((prev) => ({ ...prev, [p.person_index]: f }))} />
+                                      </PersonCard>
                                     ))}
-                                    {/* Extra back for corporate entity itself */}
-                                    {(() => {
-                                      const corpBackKey = allHolders.length + 1;
-                                      return (
-                                        <div className="flex items-center gap-3 bg-white rounded-xl border border-blue-200 px-3 py-2.5">
-                                          <div className="w-7 h-7 rounded-full bg-blue-700 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
-                                            C
-                                          </div>
-                                          <p className="text-xs text-slate-700 font-semibold w-28 truncate flex-shrink-0">
-                                            Corporate
-                                          </p>
-                                          <div className="flex-1">
-                                            <DocImageDropZone compact label="Risk Profiling"
-                                              file={perPersonCorpBacks[corpBackKey] ?? null}
-                                              onChange={(f) => setPerPersonCorpBacks((prev) => ({ ...prev, [corpBackKey]: f }))} />
-                                          </div>
-                                        </div>
-                                      );
-                                    })()}
+                                    <CompanyCard customer={customer}>
+                                      <DocImageDropZone compact label="Risk Profiling"
+                                        file={perPersonCorpBacks[corpEntityIdx] ?? null}
+                                        onChange={(f) => setPerPersonCorpBacks((prev) => ({ ...prev, [corpEntityIdx]: f }))} />
+                                    </CompanyCard>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // Sole Proprietorship: ① signature card (centered)  ② the proprietor's Risk Profiling
+                          if (isSoleProprietorship) {
+                            const owner = accountPeople(customer)[0];
+                            return (
+                              <div key="sigcard" className="space-y-5">
+                                <div>
+                                  <StepHeading n={1} title="Signature Card" />
+                                  <div className={cardGridCls(1)}>
+                                    {renderDocSlot("SIGCARD", docUploadFiles["sigcard_front"] ?? [],
+                                      (files) => setDocUploadFiles((p) => ({ ...p, sigcard_front: files })))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <StepHeading n={2} title="Proprietor" note="the owner's Risk Profiling" />
+                                  <div className="w-full max-w-md mx-auto">
+                                    <PersonCard number={1} name={owner?.name || "Proprietor"} role="Sole Proprietor" tone="amber">
+                                      {renderDocSlot("Risk Profiling", docUploadFiles["sigcard_back"] ?? [],
+                                        (files) => setDocUploadFiles((p) => ({ ...p, sigcard_back: files })))}
+                                    </PersonCard>
                                   </div>
                                 </div>
                               </div>
@@ -2389,12 +2441,41 @@ const CustomerView = ({ basePath = '/user' }) => {
                           return (
                             <div key="nais" className="space-y-2">
                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">NAIS</p>
+                              {isNonITF && nonItfExtraNais.length > 0 && <p className="text-xs font-medium text-slate-400">NAIS 1</p>}
                               <div className="grid grid-cols-2 gap-3">
                                 {renderDocSlot("NAIS Front", nFronts,
                                   (files) => setDocUploadFiles((p) => ({ ...p, nais_front: files })))}
                                 {renderDocSlot("NAIS Back", nBacks,
                                   (files) => setDocUploadFiles((p) => ({ ...p, nais_back: files })))}
                               </div>
+                              {isNonITF && (
+                                <>
+                                  {nonItfExtraNais.map((pair, i) => (
+                                    <div key={i} className="space-y-1.5 pt-1">
+                                      <div className="flex items-center justify-between">
+                                        <p className="text-xs font-medium text-slate-400">NAIS {i + 2}</p>
+                                        <button type="button"
+                                          onClick={() => setNonItfExtraNais((prev) => prev.filter((_, idx) => idx !== i))}
+                                          className="text-[11px] font-medium text-red-500 hover:text-red-600">
+                                          Remove NAIS {i + 2}
+                                        </button>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        {["front", "back"].map((side) => (
+                                          <DocImageDropZone key={side} compact label={`NAIS ${i + 2} ${side === "front" ? "Front" : "Back"}`}
+                                            file={pair[side]}
+                                            onChange={(f) => setNonItfExtraNais((prev) => prev.map((x, idx) => (idx === i ? { ...x, [side]: f } : x)))} />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <button type="button"
+                                    onClick={() => setNonItfExtraNais((prev) => [...prev, { front: null, back: null }])}
+                                    className="w-full px-3 py-2 text-xs font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-xl hover:border-purple-500 hover:bg-white transition-all">
+                                    + Add Another NAIS
+                                  </button>
+                                </>
+                              )}
                             </div>
                           );
                         }
@@ -2452,111 +2533,11 @@ const CustomerView = ({ basePath = '/user' }) => {
                 );
               })()}
 
-              {DOC_SECTIONS.map((sec) => {
-                // Corporate sigcard: fronts (each with unique person_index) + per-signatory backs
-                if (isCorporate && sec.key === "sigcard") {
-                  const allFronts = docs.filter((d) => d.document_type === sec.front);
-                  const allBacks  = docs.filter((d) => d.document_type === sec.back);
-                  const hasDocs = allFronts.length > 0 || allBacks.length > 0;
-                  return (
-                    <div key={sec.key}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{sec.label}</p>
-                        <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 rounded-full">Corporate</span>
-                      </div>
-                      {!hasDocs ? (
-                        <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-200">
-                          <HiOutlinePhotograph className="w-4 h-4 text-slate-300" />
-                          <p className="text-sm text-slate-400">No documents uploaded</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-5">
-                          {/* Sigcard Fronts — shared */}
-                          {allFronts.length > 0 && (
-                            <div className="space-y-3">
-                              {allFronts.length > 1 && (
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Front ({allFronts.length})</p>
-                              )}
-                              <div className={`grid gap-3 ${allFronts.length === 1 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
-                                {allFronts.map((doc, i) => (
-                                  <div key={doc.id}>
-                                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1.5">
-                                      {allFronts.length === 1 ? "Front" : `Front ${i + 1}`}
-                                    </p>
-                                    <button
-                                      onClick={() => openViewerByPath(doc.file_path)}
-                                      className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
-                                    >
-                                      <img src={storageUrl(doc.file_path)} alt={`Front ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                        <div className="bg-white/90 rounded-full p-1.5 shadow">
-                                          <HiOutlineEye className="w-4 h-4 text-slate-700" />
-                                        </div>
-                                      </div>
-                                    </button>
-                                    {doc.has_thumbmark === false && (
-                                      <div className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 w-fit">
-                                        <MdFingerprint className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                                        <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">No thumbmark</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                                {allFronts.length === 1 && <div />}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Sigcard Backs — per signatory */}
-                          {allBacks.length > 0 && (
-                            <div className="space-y-3">
-                              <div className="flex items-center gap-2">
-                                <div className="h-px flex-1 bg-slate-200" />
-                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Back — per signatory</p>
-                                <div className="h-px flex-1 bg-slate-200" />
-                              </div>
-                              <div className="grid grid-cols-2 gap-3">
-                                {allHolders.map((h) => {
-                                  const backDoc = allBacks.find((d) => d.person_index === h.person_index);
-                                  return (
-                                    <div key={h.person_index}>
-                                      <div className="flex items-center gap-1.5 mb-1.5">
-                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-slate-600"}`}>
-                                          {h.person_index}
-                                        </div>
-                                        <p className="text-[10px] text-slate-500 font-semibold truncate">
-                                          {h.firstname} {h.lastname}
-                                        </p>
-                                      </div>
-                                      {backDoc ? (
-                                        <button
-                                          onClick={() => openViewer("sigcard_back", h.person_index)}
-                                          className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
-                                        >
-                                          <img src={storageUrl(backDoc.file_path)} alt={`Back — ${h.firstname}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
-                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                            <div className="bg-white/90 rounded-full p-1.5 shadow">
-                                              <HiOutlineEye className="w-4 h-4 text-slate-700" />
-                                            </div>
-                                          </div>
-                                        </button>
-                                      ) : (
-                                        <div className="w-full aspect-[3/4] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
-                                          <HiOutlinePhotograph className="w-5 h-5 text-slate-200" />
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-
+              {isJoint ? (
+                <JointDocumentsLayout customer={customer} docs={docsForSection} onOpen={openViewerByPath} />
+              ) : isCorporate ? (
+                <CorporateDocumentsLayout customer={customer} docs={docs} acctDocs={docsForSection} onOpen={openViewerByPath} />
+              ) : DOC_SECTIONS.map((sec) => {
                 const shared = isSharedDoc(sec.key);
                 const secDocs = shared
                   ? docs.filter((d) => (d.document_type === sec.front || d.document_type === sec.back) && d.person_index === 1)
@@ -2600,7 +2581,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                             onClick={() => openViewerByPath(doc.file_path)}
                                             className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
                                           >
-                                            <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                            <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all`} />
                                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                                               <div className="bg-white/90 rounded-full p-1.5 shadow">
                                                 <HiOutlineEye className="w-4 h-4 text-slate-700" />
@@ -2655,7 +2636,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                                               onClick={() => openViewerByPath(doc.file_path)}
                                               className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
                                             >
-                                              <img src={storageUrl(doc.file_path)} alt={`${lbl} ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                              <img src={storageUrl(doc.file_path)} alt={`${lbl} ${i + 1}`} className={`w-full h-full object-contain transition-all`} />
                                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                                                 <div className="bg-white/90 rounded-full p-1.5 shadow">
                                                   <HiOutlineEye className="w-4 h-4 text-slate-700" />
@@ -2725,7 +2706,7 @@ const CustomerView = ({ basePath = '/user' }) => {
                           }}
                           className="absolute inset-0 w-full h-full"
                         />
-                        <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-cover transition-all${isDormant ? " blur-md" : ""}`} />
+                        <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-cover transition-all`} />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                             <HiOutlineEye className="w-4 h-4 text-slate-700" />
