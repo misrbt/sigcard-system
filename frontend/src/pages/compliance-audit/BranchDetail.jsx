@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import RecentSearches from "../../components/common/RecentSearches";
+import { useRecentSearches } from "../../hooks/useRecentSearches";
 import {
   Chart as ChartJS,
   CategoryScale, LinearScale, BarElement, ArcElement,
@@ -72,10 +74,19 @@ const BranchDetail = ({ basePath = "/compliance/reports" }) => {
   const [meta, setMeta]             = useState(null);
   const [custLoading, setCustLoading] = useState(true);
   const [custError, setCustError]   = useState(null);
-  const [page, setPage]             = useState(1);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [search, setSearch]         = useState("");
-  const [searchInput, setSearchInput] = useState("");
+  // Remember this branch's customer search/page for the browser tab, so
+  // pressing "Back" from a customer's page returns to the same results.
+  const listStateKey = `branchDetailListState:${basePath}:${branchId}`;
+  const [saved] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(listStateKey) ?? "{}") ?? {}; } catch { return {}; }
+  });
+  const [page, setPage]             = useState(saved.page ?? 1);
+  const [statusFilter, setStatusFilter] = useState(saved.statusFilter ?? "all");
+  const [search, setSearch]         = useState(saved.search ?? "");
+  const [searchInput, setSearchInput] = useState(saved.search ?? "");
+  const searchHistory = useRecentSearches("branch-detail-customers");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const customerViewBase = basePath.replace(/\/reports$/, "");
 
   // Load KPI
   const loadKpi = useCallback(async () => {
@@ -109,12 +120,23 @@ const BranchDetail = ({ basePath = "/compliance/reports" }) => {
   }, [branchId, page, statusFilter, search]);
 
   useEffect(() => { loadKpi(); }, [loadKpi]);
-  useEffect(() => { setPage(1); }, [statusFilter, search]);
+  const filterSignature = JSON.stringify([statusFilter, search]);
+  const lastFilterSignature = useRef(filterSignature);
+  useEffect(() => {
+    if (lastFilterSignature.current === filterSignature) return;
+    lastFilterSignature.current = filterSignature;
+    setPage(1);
+  }, [filterSignature]);
+  useEffect(() => {
+    try { sessionStorage.setItem(listStateKey, JSON.stringify({ page, statusFilter, search })); } catch { /* storage unavailable */ }
+  }, [listStateKey, page, statusFilter, search]);
   useEffect(() => { loadCustomers(); }, [loadCustomers]);
 
   const handleSearch = (e) => {
     e.preventDefault();
     setSearch(searchInput.trim());
+    searchHistory.addSearch(searchInput);
+    setSearchFocused(false);
   };
 
   // ── Chart data ─────────────────────────────────────────────────────────────
@@ -330,8 +352,20 @@ const BranchDetail = ({ basePath = "/compliance/reports" }) => {
               <input
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                autoComplete="off"
                 placeholder="Search customer…"
-                className="pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-44"
+                className="pl-7 pr-3 py-1.5 text-xs text-gray-900 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-44"
+              />
+              <RecentSearches
+                compact
+                items={searchHistory.recentSearches}
+                query={searchInput}
+                visible={searchFocused}
+                onPick={(term) => { setSearchInput(term); setSearch(term); searchHistory.addSearch(term); setSearchFocused(false); }}
+                onRemove={searchHistory.removeSearch}
+                onClear={searchHistory.clearSearches}
               />
             </div>
             <button type="submit" className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700">Search</button>
@@ -410,7 +444,7 @@ const BranchDetail = ({ basePath = "/compliance/reports" }) => {
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         <Link
-                          to={`/compliance/customers/${c.id}/view`}
+                          to={`${customerViewBase}/customers/${c.id}/view`}
                           className="text-blue-500 hover:text-blue-700 transition-colors"
                           title="View customer"
                         >

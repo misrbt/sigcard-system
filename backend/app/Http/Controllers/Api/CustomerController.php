@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\JointArrangement;
+use App\Enums\JointSubType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AddCustomerAccountRequest;
 use App\Http\Requests\CheckCustomerNameRequest;
@@ -12,13 +14,15 @@ use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDocument;
 use App\Models\CustomerHolder;
+use App\Models\DormancyReminderAcknowledgment;
 use App\Models\User;
+use App\Services\DormancyReminder;
 use App\Services\ThumbmarkSearchService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,7 +39,7 @@ class CustomerController extends Controller
     {
         $this->authorize('view-customers');
 
-        $query = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts']);
+        $query = Customer::with(['documents', 'branch', 'uploader', 'holders', 'accounts', 'dormancyAcknowledgments']);
         $authUser = Auth::user();
 
         $this->applyBranchScope($query, $request, $authUser);
@@ -52,15 +56,8 @@ class CustomerController extends Controller
             $query->where('risk_level', $request->risk_level);
         }
 
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('firstname', 'like', "%{$search}%")
-                    ->orWhere('lastname', 'like', "%{$search}%")
-                    ->orWhere('middlename', 'like', "%{$search}%")
-                    ->orWhere('company_name', 'like', "%{$search}%")
-                    ->orWhere('account_no', 'like', "%{$search}%");
-            });
+        if ($request->filled('search')) {
+            $this->applyCustomerSearch($query, (string) $request->search);
         }
 
         $dateColumn = match ($request->date_field) {
@@ -89,6 +86,96 @@ class CustomerController extends Controller
         return response()->json($customers);
     }
 
+    /**
+     * Customers with an Active / Reactivated account not updated for 2+ years (dormancy reminder).
+     * Branch-scoped like the customer list; only cashier, manager and user roles get results.
+     */
+    public function dormancyReminders(Request $request): JsonResponse
+    {
+        $this->authorize('view-customers');
+
+        $authUser = Auth::user();
+        if (! $authUser->hasAnyRole(DormancyReminder::ROLES)) {
+            return response()->json(['total' => 0, 'data' => []]);
+        }
+
+        $query = Customer::query()
+            ->with(['branch', 'accounts', 'dormancyAcknowledgments'])
+            ->where(function (Builder $q): void {
+                $q->whereIn('status', ['active', 'reactivated'])
+                    ->orWhereHas('accounts', fn (Builder $a) => $a->whereIn('status', ['active', 'reactivated']));
+            });
+        $this->applyBranchScope($query, $request, $authUser);
+
+        $due = $query->get()
+            ->map(fn (Customer $customer): ?array => ($accounts = DormancyReminder::unseenDueAccounts($customer)) === [] ? null : [
+                'id' => $customer->id,
+                'full_name' => $customer->full_name,
+                'account_type' => $customer->account_type,
+                'branch_name' => $customer->branch?->branch_name,
+                'accounts' => $accounts,
+                'oldest_basis_date' => collect($accounts)->min('basis_date'),
+            ])
+            ->filter()
+            ->sortBy('oldest_basis_date')
+            ->values();
+
+        $limit = min(max((int) $request->get('limit', 50), 1), 500);
+
+        return response()->json([
+            'total' => $due->count(),
+            'data' => $due->take($limit)->values(),
+        ]);
+    }
+
+    /**
+     * Staff saw the dormancy reminder on the customer profile: record it in the audit log and
+     * close the reminder for those accounts until a new 2-year period starts.
+     */
+    public function acknowledgeDormancyReminder(Customer $customer): JsonResponse
+    {
+        $this->authorize('view-customers');
+
+        $authUser = Auth::user();
+        if (! $authUser->hasAnyRole(DormancyReminder::ROLES)) {
+            return response()->json(['acknowledged' => []]);
+        }
+
+        $customer->load(['accounts', 'dormancyAcknowledgments']);
+        $due = DormancyReminder::unseenDueAccounts($customer);
+
+        foreach ($due as $account) {
+            DormancyReminderAcknowledgment::firstOrCreate(
+                [
+                    'customer_id' => $customer->id,
+                    'customer_account_id' => $account['customer_account_id'],
+                    'basis_date' => $account['basis_date'],
+                ],
+                ['acknowledged_by' => $authUser->id]
+            );
+        }
+
+        if ($due !== []) {
+            activity()
+                ->causedBy($authUser)
+                ->performedOn($customer)
+                ->withProperties([
+                    'action' => 'dormancy_reminder_seen',
+                    'full_name' => $customer->full_name,
+                    'branch_id' => $customer->branch_id,
+                    'accounts' => array_map(fn (array $a): array => [
+                        'account_no' => $a['account_no'],
+                        'status' => $a['status'],
+                        'counted_from' => $a['basis_label'].' '.$a['basis_date'],
+                        'due_since' => $a['due_date'],
+                    ], $due),
+                ])
+                ->log('Dormancy reminder seen (account not updated for '.DormancyReminder::YEARS.'+ years)');
+        }
+
+        return response()->json(['acknowledged' => $due]);
+    }
+
     public function store(StoreCustomerRequest $request): JsonResponse
     {
         $this->authorize('create-customers');
@@ -109,8 +196,10 @@ class CustomerController extends Controller
                 'lastname' => $request->lastname,
                 'suffix' => $request->suffix,
                 'company_name' => $request->company_name,
+                'organization' => $request->joint_sub_type === 'FAO' ? $request->organization : null,
                 'account_type' => $request->account_type,
                 'joint_sub_type' => $request->joint_sub_type,
+                'joint_arrangement' => $request->account_type === 'Joint' ? $request->joint_arrangement : null,
                 'corporate_sub_type' => $request->corporate_sub_type,
                 'risk_level' => $request->risk_level,
                 'status' => $request->status ?? 'active',
@@ -141,6 +230,7 @@ class CustomerController extends Controller
                 CustomerHolder::create([
                     'customer_id' => $customer->id,
                     'person_index' => $index + 2, // Person 1 is in customers table
+                    'role' => $this->holderRoleFor($request->joint_sub_type, $request->joint_arrangement, $person['role'] ?? null),
                     'firstname' => $person['firstname'],
                     'middlename' => $person['middlename'] ?? null,
                     'lastname' => $person['lastname'],
@@ -293,31 +383,127 @@ class CustomerController extends Controller
     }
 
     /**
+     * Update joint co-holders / corporate signatories in place (matched by
+     * person number) so the audit log records each name change, add any new
+     * ones, and remove any that were taken off.
+     *
+     * @param  array<int, array{firstname: string, middlename?: ?string, lastname: string, suffix?: ?string, risk_level?: ?string}>  $persons
+     */
+    private function syncAdditionalHolders(Customer $customer, array $persons): void
+    {
+        $existing = $customer->holders()->get()->keyBy('person_index');
+
+        foreach ($persons as $index => $person) {
+            $personIndex = $index + 2;
+            $attributes = [
+                'role' => $this->holderRoleFor($customer->joint_sub_type, $customer->joint_arrangement, $person['role'] ?? null),
+                'firstname' => $person['firstname'],
+                'middlename' => $person['middlename'] ?? null,
+                'lastname' => $person['lastname'],
+                'suffix' => $person['suffix'] ?? null,
+                'risk_level' => $person['risk_level'] ?? null,
+            ];
+
+            if ($holder = $existing->get($personIndex)) {
+                $holder->update($attributes);
+            } else {
+                $customer->holders()->create(['person_index' => $personIndex] + $attributes);
+            }
+        }
+
+        $customer->holders()->where('person_index', '>', count($persons) + 1)->get()->each->delete();
+    }
+
+    /**
+     * ITF holders (Person 2+) are "beneficiary" (In-Trust-For) unless the
+     * account has joint trustees and staff marked them "trustee". Non-ITF
+     * accounts don't use roles.
+     */
+    private function holderRoleFor(?string $jointSubType, ?string $jointArrangement, ?string $requestedRole): ?string
+    {
+        if ($jointSubType !== JointSubType::ITF->value) {
+            return null;
+        }
+
+        if ($jointArrangement === JointArrangement::JointTrustee->value && $requestedRole === 'trustee') {
+            return 'trustee';
+        }
+
+        return 'beneficiary';
+    }
+
+    /**
+     * Match customers by name, company name, or account number — including
+     * joint co-holders and corporate signatories (customer_holders).
+     *
+     * Every word typed must appear in one of the person's name fields, so
+     * "Juan Cruz" finds "Juan Dela Cruz" whether he is the primary holder
+     * or a co-holder/signatory.
+     */
+    private function applyCustomerSearch(Builder $query, string $search): void
+    {
+        $search = trim($search);
+        $words = array_values(array_filter(preg_split('/[\s,]+/', $search)));
+
+        if ($words === []) {
+            return;
+        }
+
+        $matchesAllWords = function (Builder $personQuery) use ($words): void {
+            foreach ($words as $word) {
+                $personQuery->where(function (Builder $wordQuery) use ($word) {
+                    $wordQuery->where('firstname', 'like', "%{$word}%")
+                        ->orWhere('middlename', 'like', "%{$word}%")
+                        ->orWhere('lastname', 'like', "%{$word}%")
+                        ->orWhere('suffix', 'like', "%{$word}%");
+                });
+            }
+        };
+
+        $query->where(function (Builder $q) use ($search, $matchesAllWords) {
+            $q->where($matchesAllWords)
+                ->orWhere('company_name', 'like', "%{$search}%")
+                ->orWhere('organization', 'like', "%{$search}%")
+                ->orWhere('account_no', 'like', "%{$search}%")
+                ->orWhereHas('holders', $matchesAllWords)
+                ->orWhereHas('accounts', function (Builder $accountQuery) use ($search) {
+                    $accountQuery->where('account_no', 'like', "%{$search}%");
+                });
+        });
+    }
+
+    /**
      * GET /api/customers/check-name
      *
-     * Live duplicate-name check used by the Upload Signature Card wizard: while staff
-     * type a customer's name, flag whether a customer (or joint/corporate co-signatory)
-     * with the same first + last name already exists, so the same person isn't
-     * enrolled twice under a new sigcard record.
+     * Live duplicate-name check used by the Upload Signature Card wizard. A person is
+     * only flagged when the same first, middle and last name already exist under the
+     * SAME account type, so a joint account holder who also has their own Regular
+     * account (or vice versa) is not treated as a duplicate.
      */
     public function checkDuplicateName(CheckCustomerNameRequest $request): JsonResponse
     {
         $this->authorize('view-customers');
 
         $firstname = Str::lower(trim($request->firstname));
+        $middlename = Str::lower(trim((string) $request->middlename));
         $lastname = Str::lower(trim($request->lastname));
+        $accountType = $request->account_type;
+
+        $matchesName = function (Builder $q) use ($firstname, $middlename, $lastname) {
+            $q->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
+                ->whereRaw("LOWER(TRIM(COALESCE(middlename, ''))) = ?", [$middlename])
+                ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
+        };
 
         $query = Customer::query();
         $this->applyBranchScope($query, $request, Auth::user());
 
-        $query->where(function (Builder $q) use ($firstname, $lastname) {
-            $q->where(function (Builder $nameQuery) use ($firstname, $lastname) {
-                $nameQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
-                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
-            })->orWhereHas('holders', function (Builder $holderQuery) use ($firstname, $lastname) {
-                $holderQuery->whereRaw('LOWER(TRIM(firstname)) = ?', [$firstname])
-                    ->whereRaw('LOWER(TRIM(lastname)) = ?', [$lastname]);
-            });
+        if ($accountType) {
+            $query->where('account_type', $accountType);
+        }
+
+        $query->where(function (Builder $q) use ($matchesName) {
+            $q->where($matchesName)->orWhereHas('holders', $matchesName);
         });
 
         return response()->json([
@@ -340,7 +526,7 @@ class CustomerController extends Controller
             ])
             ->log('Customer sigcard record viewed');
 
-        $customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'statusLogs.changedBy', 'statusLogs.documents']);
+        $customer->load(['documents', 'branch', 'uploader', 'holders', 'accounts', 'dormancyAcknowledgments', 'statusLogs.changedBy', 'statusLogs.documents']);
 
         $this->annotateSharedCustomers([$customer], Auth::user());
 
@@ -363,6 +549,7 @@ class CustomerController extends Controller
                 'lastname',
                 'suffix',
                 'account_type',
+                'joint_arrangement',
                 'risk_level',
                 'status',
                 'branch_id',
@@ -378,7 +565,9 @@ class CustomerController extends Controller
                 'lastname',
                 'suffix',
                 'company_name',
+                'organization',
                 'account_type',
+                'joint_arrangement',
                 'risk_level',
                 'status',
                 'status_date',
@@ -442,19 +631,7 @@ class CustomerController extends Controller
 
             // Sync additional holders when provided
             if ($request->has('additionalPersons')) {
-                $customer->holders()->delete();
-
-                foreach ($request->input('additionalPersons', []) as $index => $person) {
-                    CustomerHolder::create([
-                        'customer_id' => $customer->id,
-                        'person_index' => $index + 2,
-                        'firstname' => $person['firstname'],
-                        'middlename' => $person['middlename'] ?? null,
-                        'lastname' => $person['lastname'],
-                        'suffix' => $person['suffix'] ?? null,
-                        'risk_level' => $person['risk_level'] ?? null,
-                    ]);
-                }
+                $this->syncAdditionalHolders($customer, array_values($request->input('additionalPersons') ?? []));
             }
 
             $accountStatus = $request->input('account_status');
@@ -467,8 +644,11 @@ class CustomerController extends Controller
                     'privacyPairs' => ['privacy_front', 'privacy_back'],
                 ] as $pairsKey => [$frontType, $backType]
             ) {
+                // Edit Docs sends pairs only for "Add Another": add them next to the existing
+                // documents (before, every current document of this type was archived first,
+                // so adding a second NAIS hid the first one).
                 if ($request->has($pairsKey)) {
-                    $this->archiveAndReplaceDocGroup($customer, $request, $pairsKey, $frontType, $backType, $accountStatus);
+                    $this->storePairs($customer, $request, $pairsKey, $frontType, $backType, $accountStatus, $statusLogId);
                 }
             }
 
@@ -843,14 +1023,17 @@ class CustomerController extends Controller
                     ]);
                 }
 
-                // Demote any other stale is_current duplicates for the same
-                // type + person_index (guards against prior data inconsistency).
-                $customer->documents()
-                    ->where('document_type', $request->document_type)
-                    ->where('person_index', $request->person_index)
-                    ->where('is_current', true)
-                    ->where('id', '!=', $existing->id)
-                    ->update(['is_current' => false]);
+                // When staff picked a specific image (document_id), only that image is replaced:
+                // an account can hold several current NAIS / signature cards for the same person.
+                // Without a document_id, demote stale duplicates for the slot as before.
+                if (! $request->document_id) {
+                    $customer->documents()
+                        ->where('document_type', $request->document_type)
+                        ->where('person_index', $request->person_index)
+                        ->where('is_current', true)
+                        ->where('id', '!=', $existing->id)
+                        ->update(['is_current' => false]);
+                }
             }
 
             // Preserve grouping metadata by default so a replacement remains part of
@@ -1042,7 +1225,12 @@ class CustomerController extends Controller
         $previousStatus = $account->status;
         $statusChanging = isset($validated['status']) && $validated['status'] !== $previousStatus;
 
-        $account->update(array_filter($validated, fn ($v) => ! is_null($v)));
+        // Blank values are ignored, except Date Updated (optional), which staff may clear.
+        $account->update(array_filter(
+            $validated,
+            fn ($v, $k) => ! is_null($v) || $k === 'date_updated',
+            ARRAY_FILTER_USE_BOTH
+        ));
 
         $statusLog = null;
         if ($statusChanging) {
@@ -1260,6 +1448,10 @@ class CustomerController extends Controller
      *
      * Head Office customers are stored without a branch sub-folder.
      */
+    private const DOCUMENT_MAX_DIMENSION = 2400;
+
+    private const DOCUMENT_JPEG_QUALITY = 90;
+
     private ?ImageManager $imageManager = null;
 
     private function imageManager(): ImageManager
@@ -1281,9 +1473,10 @@ class CustomerController extends Controller
         $image = $this->imageManager()->read($file->getRealPath());
 
         // Scale down only — aspect ratio always preserved (object-fit: contain).
-        $image->scaleDown(width: 800, height: 900);
+        // Kept large enough that signatures and fine print stay sharp when staff zoom in.
+        $image->scaleDown(width: self::DOCUMENT_MAX_DIMENSION, height: self::DOCUMENT_MAX_DIMENSION);
 
-        $encoded = $image->toJpeg(quality: 80);
+        $encoded = $image->toJpeg(quality: self::DOCUMENT_JPEG_QUALITY);
 
         // ── Build organised path ─────────────────────────────────────────────
         $customer->loadMissing('branch');
@@ -1292,7 +1485,7 @@ class CustomerController extends Controller
         if ($accountStatus) {
             $directory .= '/'.$this->sanitizeName(strtoupper($accountStatus));
         }
-        $filename = $this->buildFilename($documentType, $personIndex, $file, $sequence, $total);
+        $filename = $this->uniqueFilename($directory, $this->buildFilename($documentType, $personIndex, $file, $sequence, $total));
         $path = "{$directory}/{$filename}";
 
         Storage::disk('public')->put($path, (string) $encoded);
@@ -1387,6 +1580,28 @@ class CustomerController extends Controller
     }
 
     /**
+     * Never overwrite another document's image. A second NAIS / signature card for the same
+     * person used to get the same name ("NAIS - FRONT.jpg") and silently replace the first file.
+     * Adds " (2)", " (3)", … until the name is free.
+     */
+    private function uniqueFilename(string $directory, string $filename): string
+    {
+        $disk = Storage::disk('public');
+        if (! $disk->exists("{$directory}/{$filename}")) {
+            return $filename;
+        }
+
+        $info = pathinfo($filename);
+        $ext = isset($info['extension']) ? '.'.$info['extension'] : '';
+        for ($n = 2; ; $n++) {
+            $candidate = "{$info['filename']} ({$n}){$ext}";
+            if (! $disk->exists("{$directory}/{$candidate}")) {
+                return $candidate;
+            }
+        }
+    }
+
+    /**
      * Map document types to their standard image filenames.
      * For joint/multi-person accounts, person index > 1 is appended.
      * Other documents keep their original sanitised name with a UUID suffix.
@@ -1442,64 +1657,6 @@ class CustomerController extends Controller
     private function sanitizeName(string $name): string
     {
         return trim(preg_replace('/[^\w\s,.\-]/', '_', $name));
-    }
-
-    /**
-     * Archive existing documents for the given type group, log each replacement,
-     * then upload the new pairs. Used by update() for bulk doc replacement.
-     */
-    private function archiveAndReplaceDocGroup(
-        Customer $customer,
-        Request $request,
-        string $pairsKey,
-        string $frontType,
-        string $backType,
-        ?string $accountStatus = null
-    ): void {
-        $existing = $customer->documents()
-            ->whereIn('document_type', [$frontType, $backType])
-            ->where('is_current', true)
-            ->get();
-
-        foreach ($existing as $doc) {
-            $oldFileName = $doc->file_name;
-            $pathInfo = pathinfo($doc->file_path);
-            $dir = $pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] : '';
-            $versionedName = $pathInfo['filename'].'_v'.now()->format('Ymd_His').'.jpg';
-            $versionedPath = ($dir ? $dir.'/' : '').$versionedName;
-
-            $moved = Storage::disk('public')->exists($doc->file_path)
-                && Storage::disk('public')->move($doc->file_path, $versionedPath);
-
-            $doc->update([
-                'is_current' => false,
-                'file_path' => $moved ? $versionedPath : $doc->file_path,
-                'file_name' => $moved ? $versionedName : $doc->file_name,
-            ]);
-
-            if (! $moved) {
-                Log::warning('archiveAndReplaceDocGroup: archive move skipped, old file missing at expected path', [
-                    'customer_id' => $customer->id,
-                    'document_id' => $doc->id,
-                    'expected_path' => $doc->getOriginal('file_path'),
-                ]);
-            }
-
-            activity()
-                ->causedBy(Auth::user())
-                ->performedOn($customer)
-                ->withProperties([
-                    'action' => 'document_replaced',
-                    'full_name' => $customer->full_name,
-                    'document_type' => $doc->document_type,
-                    'person_index' => $doc->person_index,
-                    'replaced_file' => $oldFileName,
-                    'versioned_file_path' => $versionedPath,
-                ])
-                ->log('Customer document replaced');
-        }
-
-        $this->storePairs($customer, $request, $pairsKey, $frontType, $backType, $accountStatus);
     }
 
     /**

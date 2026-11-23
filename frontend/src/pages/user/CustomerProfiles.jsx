@@ -30,8 +30,35 @@ import Swal from "sweetalert2";
 import api from "../../services/api";
 import ThumbmarkSearchModal from "../../components/common/ThumbmarkSearchModal";
 import { clearUploadResolved } from "../../utils/pendingStatusStorage";
+import RecentSearches from "../../components/common/RecentSearches";
+import { useRecentSearches } from "../../hooks/useRecentSearches";
+import { JOINT_ARRANGEMENTS_BY_SUB_TYPE, isFaoCustomer, jointPersonRole, jointTypeLabel } from "../../utils/jointAccount";
+import { DORMANCY_REMINDER_YEARS, dormancyRemindersForCustomer, showsDormancyReminder } from "../../utils/dormancyReminder";
+import { corporateViewerImages, jointViewerImages } from "../../utils/accountDocuments";
+import { CorporateDocumentsLayout, JointDocumentsLayout } from "../../components/customer/AccountDocumentsLayout";
 
 const PAGE_SIZE = 10;
+
+// Remembers the customer list search/filters/page for this browser tab so
+// pressing "Back" from a customer's page returns to the same search results.
+const listStateKey = (basePath) => `customerListState:${basePath}`;
+
+const loadListState = (basePath) => {
+  try {
+    const raw = sessionStorage.getItem(listStateKey(basePath));
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveListState = (basePath, state) => {
+  try {
+    sessionStorage.setItem(listStateKey(basePath), JSON.stringify(state));
+  } catch {
+    // Storage unavailable (private mode / quota) — the list simply won't be remembered.
+  }
+};
 
 const statusStyle = {
   active:      "bg-green-100 text-green-700 border border-green-300",
@@ -83,6 +110,30 @@ const formatDate = (iso) => {
 
 const customerId = (id) => `C-${String(id).padStart(4, "0")}`;
 
+// Joint co-holders / corporate signatories for search results, flagging the
+// ones whose name matches what was typed (every word must appear in the name).
+const personName = (p) => [p.firstname, p.middlename, p.lastname, p.suffix].filter(Boolean).join(" ");
+
+const nameMatches = (p, query) => {
+  const words = query.trim().toLowerCase().split(/[\s,]+/).filter(Boolean);
+  if (words.length === 0) return false;
+  const name = personName(p).toLowerCase();
+  return words.every((w) => name.includes(w));
+};
+
+const searchResultPeople = (customer, query) => {
+  const isCorporate = customer.account_type === "Corporate";
+  const people = [];
+  // For corporate accounts the main row's name is the first signatory
+  // (full_name shows the company), so list it with the other signatories.
+  if (isCorporate && (customer.firstname || customer.lastname)) people.push(customer);
+  (customer.holders ?? []).forEach((h) => people.push(h));
+  return {
+    label: isCorporate ? "Signatories" : "Joint with",
+    people: people.map((p) => ({ name: personName(p), matched: nameMatches(p, query) })).filter((p) => p.name),
+  };
+};
+
 const initials = (customer) => {
   const f = customer?.firstname?.[0] ?? "";
   const l = customer?.lastname?.[0]  ?? "";
@@ -90,6 +141,23 @@ const initials = (customer) => {
 };
 
 // ── AccountsCell — collapsed summary, expandable on click ────────────────────
+// Small "Needs update" label: an Active / Reactivated account not updated for 2+ years.
+const NeedsUpdatePill = ({ c }) => {
+  const { getPrimaryRole } = useAuth();
+  const reminders = showsDormancyReminder(getPrimaryRole()) ? dormancyRemindersForCustomer(c) : [];
+  if (!reminders.length) return null;
+  const title = reminders
+    .map((r) => `${r.accountNo ?? `Account ${r.acctIndex}`}: ${r.basisLabel} ${formatDate(r.basisDate.toISOString())} (${r.elapsed} ago)`)
+    .join("\n");
+  return (
+    <span title={`Not updated for ${DORMANCY_REMINDER_YEARS}+ years, may soon become dormant:\n${title}`}
+      className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-300 whitespace-nowrap">
+      <HiOutlineCalendar className="w-2.5 h-2.5" />
+      Needs update{reminders.length > 1 ? ` (${reminders.length})` : ""}
+    </span>
+  );
+};
+
 const AccountsCell = ({ c }) => {
   const [open, setOpen] = useState(false);
   const allAccts = [
@@ -98,11 +166,17 @@ const AccountsCell = ({ c }) => {
   ];
 
   if (allAccts.length === 1) {
-    return <span className="text-[11px] text-slate-600 font-mono">{c.account_no ?? "—"}</span>;
+    return (
+      <div className="min-w-0">
+        <span className="text-[11px] text-slate-600 font-mono">{c.account_no ?? "—"}</span>
+        <div><NeedsUpdatePill c={c} /></div>
+      </div>
+    );
   }
 
   return (
     <div className="min-w-0">
+      <div className="mb-1"><NeedsUpdatePill c={c} /></div>
       {/* Collapsed pill — click to expand */}
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
@@ -132,7 +206,7 @@ const AccountsCell = ({ c }) => {
 };
 
 // ── Image Viewer (fullscreen carousel + zoom/pan) ────────────────────────────
-const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) => {
+const ImageViewer = ({ images, initialIndex = 0, onClose }) => {
   const [idx, setIdx]       = useState(initialIndex);
   const [zoom, setZoom]     = useState(1);
   const [pan, setPan]       = useState({ x: 0, y: 0 });
@@ -238,7 +312,6 @@ const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) =
             maxWidth: "90vw",
             maxHeight: "75vh",
             objectFit: "contain",
-            filter: isDormant ? "blur(12px)" : "none",
           }}
         />
       </div>
@@ -268,7 +341,7 @@ const HIST_FIELD_LABELS = {
   firstname: "First Name", middlename: "Middle Name", lastname: "Last Name",
   suffix: "Suffix", account_type: "Account Type", risk_level: "Risk Level",
   status: "Status", account_no: "Account No.", date_opened: "Date Opened",
-  company_name: "Company Name", branch_id: "Branch",
+  company_name: "Company / Account Name", organization: "Organization", branch_id: "Branch",
 };
 
 const histEventConfig = (event, description) => {
@@ -429,6 +502,10 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
       ? baseDocs.filter((d) => d.person_index === activeAcctIdx)
       : baseDocs;
 
+    // Joint and business accounts: same order as the structured layout on screen.
+    if (customer.account_type === "Joint") return { images: jointViewerImages(customer, viewDocs), index: 0 };
+    if (customer.account_type === "Corporate") return { images: corporateViewerImages(customer, baseDocs, viewDocs), index: 0 };
+
     // Grouped: sigcard/nais/privacy per person
     const persons = [...new Set(
       viewDocs
@@ -460,6 +537,12 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
   const openViewer = (docType, personIndex) => {
     const { images, index } = buildImages(docType, personIndex);
     if (images.length) setViewer({ images, index });
+  };
+
+  const openViewerByPath = (filePath) => {
+    const { images } = buildImages();
+    const idx = images.findIndex((img) => img.src === storageUrl(filePath));
+    if (images.length) setViewer({ images, index: Math.max(idx, 0) });
   };
 
   if (loading) {
@@ -596,7 +679,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
   return (
     <>
       {viewer && (
-        <ImageViewer images={viewer.images} initialIndex={viewer.index} onClose={() => setViewer(null)} isDormant={isDormant} />
+        <ImageViewer images={viewer.images} initialIndex={viewer.index} onClose={() => setViewer(null)} />
       )}
 
       <div className="flex flex-col h-full">
@@ -671,25 +754,6 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
               </div>
             </div>
 
-            {/* Joint holders */}
-            {isJoint && allHolders.length > 1 && (
-              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Account Holders</p>
-                {allHolders.map((h) => (
-                  <div key={h.person_index} className="flex items-center gap-2.5">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-purple-600"}`}>
-                      {h.person_index}
-                    </div>
-                    <p className="text-xs text-white/80 font-medium flex-1 min-w-0 truncate">
-                      {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
-                    </p>
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${riskStyle[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
-                      {h.risk_level}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* ── Customer Details card ─────────────────────────────────────── */}
@@ -700,9 +764,13 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
             </div>
             <div className="px-5 py-4 grid grid-cols-2 gap-x-6 gap-y-4">
               {[
-                { icon: HiOutlineUser,           label: "Full Name",    value: customer.full_name },
+                { icon: HiOutlineUser,           label: "Full Name",    value: isFaoCustomer(customer) ? [customer.firstname, customer.middlename, customer.lastname, customer.suffix].filter(Boolean).join(" ") : customer.full_name },
                 { icon: HiOutlineCreditCard,      label: "Account Type", value: customer.account_type },
-                ...(isJoint ? [{ icon: HiOutlineTag, label: "Joint Sub Type", value: customer.joint_sub_type ?? "—" }] : []),
+                ...(isJoint ? [{ icon: HiOutlineTag, label: "Joint Account Type", value: jointTypeLabel(customer) }] : []),
+                ...(isFaoCustomer(customer) ? [
+                  { icon: HiOutlineDocumentText,   label: "Account Name", value: customer.company_name || "—" },
+                  { icon: HiOutlineOfficeBuilding, label: "Organization", value: customer.organization || "—" },
+                ] : []),
                 { icon: HiOutlineDocumentText,    label: "Account No.",  value: customer.account_no ?? "—" },
                 ...(!isJoint && !isCorporate ? [{ icon: HiOutlineShieldCheck, label: "Risk Level", value: customer.risk_level ?? "—" }] : []),
                 { icon: HiOutlineCalendar,        label: "Date Opened",  value: customer.date_opened ? formatDate(customer.date_opened) : "—" },
@@ -803,16 +871,15 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
               {currentDocsStatusForAcct && (
                 <span className="text-[10px] text-slate-400">Latest upload</span>
               )}
-              {isDormant && (
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">
-                  Dormant — blurred
-                </span>
-              )}
               <span className="ml-auto text-xs text-slate-400">{totalDocs} file{totalDocs !== 1 ? "s" : ""}</span>
             </div>
 
             <div className="px-5 py-5 space-y-6">
-              {DOC_SECTIONS.map((sec) => {
+              {isJoint ? (
+                <JointDocumentsLayout customer={customer} docs={docsForSection} onOpen={openViewerByPath} />
+              ) : isCorporate ? (
+                <CorporateDocumentsLayout customer={customer} docs={docs} acctDocs={docsForSection} onOpen={openViewerByPath} />
+              ) : DOC_SECTIONS.map((sec) => {
                 const secDocs = docsForSection.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
                 return (
                   <div key={sec.key}>
@@ -844,7 +911,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                                         onClick={() => openViewer(type, p)}
                                         className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
                                       >
-                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                        <img src={storageUrl(doc.file_path)} alt={lbl} className={`w-full h-full object-contain transition-all`} />
                                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                                             <HiOutlineEye className="w-4 h-4 text-slate-700" />
@@ -882,7 +949,7 @@ const CustomerDetailView = ({ customerId: cid, onClose }) => {
                         }}
                         className="relative group aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm"
                       >
-                        <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                        <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`} className={`w-full h-full object-contain transition-all`} />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                           <div className="bg-white/90 rounded-full p-1.5 shadow">
                             <HiOutlineEye className="w-4 h-4 text-slate-700" />
@@ -1301,7 +1368,10 @@ const EditChoiceModal = ({ customer, onClose, onPick }) => (
         </div>
         <div>
           <p className="text-sm font-bold text-slate-800">Account Info</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Risk level, account no., dates</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Risk level, account no., dates
+            {(customer.accounts ?? []).length > 0 && ` · all ${(customer.accounts ?? []).length + 1} accounts`}
+          </p>
         </div>
       </button>
     </div>
@@ -1316,14 +1386,17 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
     lastname:     customer.lastname     ?? "",
     suffix:       customer.suffix       ?? "",
     account_type: customer.account_type ?? "Regular",
+    joint_arrangement: customer.joint_arrangement ?? "",
+    ...(isFaoCustomer(customer) ? { company_name: customer.company_name ?? "", organization: customer.organization ?? "" } : {}),
   });
   const [holders, setHolders] = useState(
     (customer.holders ?? []).map((h) => ({
+      role:       h.role ?? "",
       firstname:  h.firstname,
       middlename: h.middlename ?? "",
       lastname:   h.lastname,
       suffix:     h.suffix ?? "",
-      risk_level: h.risk_level,
+      risk_level: h.risk_level ?? "",
     }))
   );
   const { saving, save } = useModalSave(customer.id, onSaved, onClose);
@@ -1331,13 +1404,17 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
   const setHolder = (i, field, val) =>
     setHolders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
   const isJoint = form.account_type === "Joint";
+  const isItfAcct = isJoint && customer.joint_sub_type === "ITF";
+  const isJointTrusteeAcct = isItfAcct && form.joint_arrangement === "Joint Trustee";
+  const arrangementOptions = isJoint ? (JOINT_ARRANGEMENTS_BY_SUB_TYPE[customer.joint_sub_type] ?? []) : [];
 
   const handleSave = () => {
-    const payload = { ...form };
+    const payload = { ...form, joint_arrangement: isJoint ? (form.joint_arrangement || null) : null };
     if (isJoint) {
       payload.additionalPersons = holders.map((h) => ({
+        role: h.role || null,
         firstname: h.firstname, middlename: h.middlename,
-        lastname: h.lastname, suffix: h.suffix, risk_level: h.risk_level,
+        lastname: h.lastname, suffix: h.suffix, risk_level: h.risk_level || null,
       }));
     }
     save(payload);
@@ -1362,11 +1439,38 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
         </select>
       </div>
 
+      {/* Joint arrangement — signing rule (regular joint) or Sole / Joint Trustee (ITF) */}
+      {arrangementOptions.length > 0 && (
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">
+            {customer.joint_sub_type === "ITF" ? "ITF Type" : "Joint Account Type"}
+          </label>
+          <select value={form.joint_arrangement} onChange={set("joint_arrangement")} className={editInputCls}>
+            <option value="">Not set</option>
+            {arrangementOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Account Name + Organization — For the Account Of only */}
+      {isJoint && isFaoCustomer(customer) && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Account Name *</label>
+            <input value={form.company_name} onChange={set("company_name")} className={editInputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Organization *</label>
+            <input value={form.organization} onChange={set("organization")} className={editInputCls} />
+          </div>
+        </div>
+      )}
+
       {/* Primary holder */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">1</div>
-          <p className="text-xs font-bold text-slate-700">{isJoint ? "Person 1 — Primary Account Holder" : "Account Holder"}</p>
+          <p className="text-xs font-bold text-slate-700">{isJoint ? `Person 1 — ${jointPersonRole({ ...customer, account_type: form.account_type }, 1)}` : "Account Holder"}</p>
         </div>
         <div className="pl-3 border-l-2 border-slate-100 space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -1399,13 +1503,26 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
             <div key={i} className="space-y-3">
               <div className="flex items-center gap-2">
                 <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">{i + 2}</div>
-                <p className="text-xs font-bold text-slate-700">Person {i + 2} — Secondary Account Holder</p>
+                <p className="text-xs font-bold text-slate-700">Person {i + 2} — {isItfAcct ? (isJointTrusteeAcct && h.role === "trustee" ? "Trustee" : "In-Trust-For") : "Secondary Account Holder"}</p>
                 {holders.length > 1 && (
                   <button type="button" onClick={() => setHolders((prev) => prev.filter((_, idx) => idx !== i))}
                     className="ml-auto text-[11px] font-medium text-red-500 hover:text-red-700">Remove</button>
                 )}
               </div>
               <div className="pl-3 border-l-2 border-slate-100 space-y-3">
+                {isJointTrusteeAcct && (
+            <div className="flex gap-2">
+              {[{ value: "trustee", label: "Trustee" }, { value: "beneficiary", label: "In-Trust-For" }].map(({ value, label }) => (
+                <button key={value} type="button" onClick={() => setHolder(i, "role", value)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                    (h.role === "trustee" ? "trustee" : "beneficiary") === value
+                      ? "bg-purple-600 border-purple-600 text-white"
+                      : "bg-white border-slate-200 text-slate-600 hover:border-purple-300"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">First Name *</label>
@@ -1429,6 +1546,7 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Risk Level</label>
                   <select value={h.risk_level} onChange={(e) => setHolder(i, "risk_level", e.target.value)} className={editInputCls}>
+                    <option value="">Not set</option>
                     {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
                   </select>
                 </div>
@@ -1447,58 +1565,65 @@ const EditCustomerInfoModal = ({ customer, onClose, onSaved, onBack }) => {
   );
 };
 
-// Edit account details — risk level, account no., dates (no status)
+// Edit account details — risk level, account no., dates. Every account of the customer can be
+// edited in one go (same as the customer profile page): switch between accounts, then one Save
+// stores each account that was changed.
 const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
-  // Build all accounts list
-  const allAccounts = [
-    { id: null, type: "primary", label: "Primary Account", account_no: customer.account_no, risk_level: customer.risk_level, date_opened: customer.date_opened, date_updated: customer.date_updated, status: customer.status },
-    ...(customer.accounts ?? []).map((a, i) => ({
-      id: a.id, type: "additional", label: `Account ${i + 2}`,
-      account_no: a.account_no, risk_level: a.risk_level,
-      date_opened: a.date_opened, date_updated: a.date_updated, status: a.status,
-    })),
-  ];
+  const isJointType     = customer.account_type === "Joint";
+  const isCorporateType = customer.account_type === "Corporate";
+  const isSolePropType  = isCorporateType && customer.corporate_sub_type === "Sole Proprietorship";
+  // Joint and corporate accounts keep a risk level per person, not per account.
+  const showRisk        = !isJointType && (!isCorporateType || isSolePropType);
 
-  const isMulti = allAccounts.length > 1;
-
-  const [step, setStep] = useState(isMulti ? "select" : "edit");
-  const [selectedAcct, setSelectedAcct] = useState(isMulti ? null : allAccounts[0]);
-  const [saving, setSaving] = useState(false);
-
-  const initForm = (acct) => ({
-    risk_level:   acct.risk_level   ?? "Low Risk",
-    account_no:   acct.account_no   ?? "",
-    date_opened:  acct.date_opened  ? acct.date_opened.substring(0, 10)  : "",
-    date_updated: acct.date_updated ? acct.date_updated.substring(0, 10) : "",
+  const toForm = (a) => ({
+    risk_level:   a.risk_level   ?? "Low Risk",
+    account_no:   a.account_no   ?? "",
+    date_opened:  a.date_opened  ? String(a.date_opened).substring(0, 10)  : "",
+    date_updated: a.date_updated ? String(a.date_updated).substring(0, 10) : "",
   });
+  const accounts = [
+    { idx: 1, id: null, status: customer.status, original: toForm(customer) },
+    ...(customer.accounts ?? []).map((a, i) => ({ idx: i + 2, id: a.id, status: a.status, original: toForm(a) })),
+  ];
+  const hasMany = accounts.length > 1;
 
-  const [form, setForm] = useState(isMulti ? null : initForm(allAccounts[0]));
+  const [forms, setForms]   = useState(() => Object.fromEntries(accounts.map((a) => [a.idx, { ...a.original }])));
+  const [active, setActive] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState(null);
 
-  const handleSelectAcct = (acct) => {
-    setSelectedAcct(acct);
-    setForm(initForm(acct));
-    setStep("edit");
-  };
-
-  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  const form    = forms[active];
+  const set     = (field) => (e) => setForms((prev) => ({ ...prev, [active]: { ...prev[active], [field]: e.target.value } }));
+  const isDirty = (a) => JSON.stringify(forms[a.idx]) !== JSON.stringify(a.original);
+  const changed = accounts.filter(isDirty);
+  const acctName = (a) => (a.idx === 1 ? "Primary Account" : `Account ${a.idx}`);
 
   const handleSave = async () => {
+    if (changed.length === 0) { onClose(); return; }
     setSaving(true);
+    setError(null);
+    const saved = [];
     try {
-      if (selectedAcct.type === "primary") {
-        await api.put(`/customers/${customer.id}`, form);
-      } else {
-        await api.put(`/customers/${customer.id}/accounts/${selectedAcct.id}`, form);
+      for (const a of changed) {
+        const values = showRisk ? forms[a.idx] : (({ risk_level: _r, ...rest }) => rest)(forms[a.idx]);
+        const payload = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v === "" ? null : v]));
+        if (a.id) await api.put(`/customers/${customer.id}/accounts/${a.id}`, payload);
+        else      await api.put(`/customers/${customer.id}`, payload);
+        saved.push(a);
       }
       await Swal.fire({
-        icon: "success", title: "Account Updated", text: "Changes have been saved.",
-        confirmButtonColor: "#2563eb", timer: 2000, timerProgressBar: true,
+        icon: "success", title: changed.length > 1 ? `${changed.length} Accounts Updated` : "Account Updated",
+        text: "Changes have been saved.", confirmButtonColor: "#2563eb", timer: 2000, timerProgressBar: true,
       });
       onSaved();
       onClose();
     } catch (err) {
-      const msg = err?.response?.data?.message ?? "Something went wrong.";
-      Swal.fire({ icon: "error", title: "Update Failed", text: msg, confirmButtonColor: "#dc2626" });
+      const data = err?.response?.data;
+      const msg = data?.errors ? Object.values(data.errors).flat().join("\n") : data?.message ?? "Something went wrong.";
+      setError(saved.length
+        ? `${saved.map((a) => forms[a.idx].account_no || acctName(a)).join(", ")} saved. The next account could not be saved:\n${msg}`
+        : msg);
+      if (saved.length) onSaved(); // accounts saved before the error should still show
     } finally {
       setSaving(false);
     }
@@ -1506,75 +1631,74 @@ const EditAccountInfoModal = ({ customer, onClose, onSaved, onBack }) => {
 
   return (
     <ProfileModalShell
-      title={step === "select" ? "Select Account" : "Edit Account Info"}
+      title="Edit Account Info"
       subtitle={`${customerId(customer.id)} • ${customer.full_name}`}
       onClose={onClose}
-      onBack={step === "select" ? onBack : (isMulti ? () => setStep("select") : onBack)}
-      onSave={step === "edit" ? handleSave : null}
+      onBack={onBack}
+      onSave={handleSave}
       saving={saving}
     >
-      {/* Step: account picker */}
-      {step === "select" && (
+      {/* Which account — shown when the customer has more than one */}
+      {hasMany && (
         <div className="space-y-2">
-          <p className="text-xs text-slate-500 font-medium">Which account would you like to edit?</p>
-          {allAccounts.map((acct, i) => (
-            <button
-              key={acct.id ?? "primary"}
-              onClick={() => handleSelectAcct(acct)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
-            >
-              <span className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">{i + 1}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-bold text-slate-800">{acct.label}</span>
-                  {acct.type === "primary" && (
-                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Primary</span>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Select Account</p>
+          <div className="flex flex-wrap gap-2">
+            {accounts.map((a) => {
+              const isActive = a.idx === active;
+              return (
+                <button key={a.idx} type="button" onClick={() => setActive(a.idx)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${
+                    isActive ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                  }`}>
+                  <HiOutlineCreditCard className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{forms[a.idx].account_no || `Account ${a.idx}`}</span>
+                  {a.idx === 1 && (
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>Primary</span>
                   )}
-                </div>
-                <p className="text-[11px] text-slate-400 font-mono mt-0.5">{acct.account_no ?? "No account no."}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusStyle[acct.status] ?? "bg-slate-100 text-slate-500"}`}>{acct.status ?? "—"}</span>
-                <p className="text-[10px] text-slate-400 mt-0.5">{acct.risk_level ?? "—"}</p>
-              </div>
-              <HiOutlineChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
-            </button>
-          ))}
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase ${isActive ? "bg-white/20 text-white" : (statusStyle[a.status] ?? "bg-slate-100 text-slate-500")}`}>{a.status ?? "—"}</span>
+                  {isDirty(a) && <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-white" : "bg-amber-500"}`} title="Changed" />}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Changes to each account are kept while you switch. Save stores every changed account
+            {changed.length > 0 ? ` (${changed.length} changed)` : ""}.
+          </p>
         </div>
       )}
 
-      {/* Step: edit form */}
-      {step === "edit" && form && (
-        <>
-          {isMulti && (
-            <div className="px-3 py-2 rounded-xl bg-blue-50 border border-blue-100">
-              <p className="text-[11px] text-slate-500">Editing: <span className="font-bold text-slate-800">{selectedAcct.label}</span>
-                {selectedAcct.account_no && <span className="font-mono ml-1">({selectedAcct.account_no})</span>}
-              </p>
-            </div>
-          )}
+      <div className="space-y-3">
+        {hasMany && (
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Account Details — {acctName(accounts.find((a) => a.idx === active))}
+          </p>
+        )}
+        {showRisk && (
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Risk Level</label>
             <select value={form.risk_level} onChange={set("risk_level")} className={editInputCls}>
               {RISK_LEVELS_EDIT.map((r) => <option key={r}>{r}</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Account No.</label>
-              <input value={form.account_no} onChange={set("account_no")} placeholder="e.g. 1234-5678-9012" maxLength={100} className={editInputCls} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Date Opened</label>
-              <input type="date" value={form.date_opened} onChange={set("date_opened")} className={editInputCls} />
-            </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Account No.</label>
+            <input value={form.account_no} onChange={set("account_no")} placeholder="e.g. 1234-5678-9012" maxLength={100} className={editInputCls} />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Date Updated <span className="font-normal text-slate-400">(Optional)</span></label>
-            <input type="date" value={form.date_updated} onChange={set("date_updated")} className={editInputCls} />
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Date Opened</label>
+            <input type="date" value={form.date_opened} onChange={set("date_opened")} className={editInputCls} />
           </div>
-        </>
-      )}
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">Date Updated <span className="font-normal text-slate-400">(Optional)</span></label>
+          <input type="date" value={form.date_updated} onChange={set("date_updated")} className={editInputCls} />
+        </div>
+      </div>
+
+      {error && <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600 whitespace-pre-line">{error}</div>}
     </ProfileModalShell>
   );
 };
@@ -1922,27 +2046,37 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const { hasPermission, user } = useAuth();
   const canEdit = hasPermission('edit-customers');
 
-  const initialTab = onlyTab ?? (searchParams.get("tab") ?? defaultTab);
+  const [saved] = useState(() => loadListState(basePath));
+
+  const initialTab = onlyTab ?? (searchParams.get("tab") ?? saved.activeTab ?? defaultTab);
   const [activeTab, setActiveTab]         = useState(initialTab);
 
   // Table view
   const [customers, setCustomers]         = useState([]);
   const [loading, setLoading]             = useState(false);
-  const [tableSearch, setTableSearch]     = useState("");
-  const [statusFilter, setStatusFilter]   = useState("all");
-  const [accountTypeFilter, setAccountTypeFilter] = useState("all");
-  const [riskLevelFilter, setRiskLevelFilter]     = useState("all");
-  const [branchFilter, setBranchFilter]           = useState("all");
+  const [tableSearch, setTableSearch]     = useState(saved.tableSearch ?? "");
+  // What's in the box right now; `tableSearch` follows it once typing pauses,
+  // so the list isn't reloaded (and the page doesn't jump) on every letter.
+  const [tableSearchInput, setTableSearchInput] = useState(saved.tableSearch ?? "");
+  useEffect(() => {
+    const t = setTimeout(() => setTableSearch(tableSearchInput.trim()), 400);
+    return () => clearTimeout(t);
+  }, [tableSearchInput]);
+  const applyTableSearchNow = (term) => { setTableSearchInput(term); setTableSearch(term.trim()); };
+  const [statusFilter, setStatusFilter]   = useState(saved.statusFilter ?? "all");
+  const [accountTypeFilter, setAccountTypeFilter] = useState(saved.accountTypeFilter ?? "all");
+  const [riskLevelFilter, setRiskLevelFilter]     = useState(saved.riskLevelFilter ?? "all");
+  const [branchFilter, setBranchFilter]           = useState(saved.branchFilter ?? "all");
 
   // Advanced filter — date opened / date uploaded, by month or custom range
-  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
-  const [dateFieldFilter, setDateFieldFilter]     = useState("opened"); // "opened" | "uploaded" | "status"
-  const [monthFilter, setMonthFilter]             = useState("");       // "YYYY-MM"
-  const [dateFromFilter, setDateFromFilter]       = useState("");
-  const [dateToFilter, setDateToFilter]           = useState("");
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(saved.showAdvancedFilter ?? false);
+  const [dateFieldFilter, setDateFieldFilter]     = useState(saved.dateFieldFilter ?? "opened"); // "opened" | "uploaded" | "status"
+  const [monthFilter, setMonthFilter]             = useState(saved.monthFilter ?? "");       // "YYYY-MM"
+  const [dateFromFilter, setDateFromFilter]       = useState(saved.dateFromFilter ?? "");
+  const [dateToFilter, setDateToFilter]           = useState(saved.dateToFilter ?? "");
   const hasAdvancedFilter = !!(monthFilter || dateFromFilter || dateToFilter);
-  const [sortDir, setSortDir]             = useState("asc");
-  const [page, setPage]                   = useState(1);
+  const [sortDir, setSortDir]             = useState(saved.sortDir ?? "asc");
+  const [page, setPage]                   = useState(saved.page ?? 1);
   const [totalPages, setTotalPages]       = useState(1);
   const [total, setTotal]                 = useState(0);
 
@@ -1958,10 +2092,16 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   const [quickQuery, setQuickQuery]               = useState("");
   const [quickResults, setQuickResults]           = useState([]);
   const [quickLoading, setQuickLoading]           = useState(false);
-  const [selectedCustomer, setSelectedCustomer]   = useState(null);
+  const [selectedCustomer, setSelectedCustomer]   = useState(saved.selectedCustomer ?? null);
   const [showDropdown, setShowDropdown]           = useState(false);
   const searchContainerRef                        = useRef(null);
   const [showThumbmarkSearch, setShowThumbmarkSearch] = useState(false);
+
+  // Recent search history for both search boxes
+  const tableHistory = useRecentSearches("customers-table");
+  const quickHistory = useRecentSearches("customers-quick");
+  const [tableSearchFocused, setTableSearchFocused] = useState(false);
+  const [quickSearchFocused, setQuickSearchFocused] = useState(false);
 
   const showAllBranchesFilter = basePath === "/admin" || basePath === "/compliance";
 
@@ -2027,7 +2167,24 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
   }, [page, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, sortDir, branchScoped, showAllBranchesFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, hasAdvancedFilter]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
-  useEffect(() => { setPage(1); }, [tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
+  // Reset to page 1 when filters change — but not on the first load, so a
+  // restored page number (coming back from a customer's page) is kept.
+  const filterSignature = JSON.stringify([tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
+  const lastFilterSignature = useRef(filterSignature);
+  useEffect(() => {
+    if (lastFilterSignature.current === filterSignature) return;
+    lastFilterSignature.current = filterSignature;
+    setPage(1);
+  }, [filterSignature, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter]);
+
+  useEffect(() => {
+    saveListState(basePath, {
+      activeTab, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter,
+      showAdvancedFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, sortDir, page,
+      selectedCustomer,
+    });
+  }, [basePath, activeTab, tableSearch, statusFilter, accountTypeFilter, riskLevelFilter, branchFilter,
+      showAdvancedFilter, dateFieldFilter, monthFilter, dateFromFilter, dateToFilter, sortDir, page, selectedCustomer]);
 
   // ── Quick search (live) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -2155,10 +2312,22 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 <div className="relative flex-1 max-w-md">
                   <HiOutlineSearch className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
                   <input
-                    value={tableSearch}
-                    onChange={(e) => setTableSearch(e.target.value)}
+                    value={tableSearchInput}
+                    onChange={(e) => setTableSearchInput(e.target.value)}
+                    onFocus={() => setTableSearchFocused(true)}
+                    onBlur={() => { setTableSearchFocused(false); tableHistory.addSearch(tableSearchInput); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { applyTableSearchNow(tableSearchInput); tableHistory.addSearch(tableSearchInput); setTableSearchFocused(false); } }}
+                    autoComplete="off"
                     placeholder="Search by name, account no., or branch…"
                     className="w-full pl-12 pr-4 py-3 text-sm text-gray-900 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                  />
+                  <RecentSearches
+                    items={tableHistory.recentSearches}
+                    query={tableSearchInput}
+                    visible={tableSearchFocused}
+                    onPick={(term) => { applyTableSearchNow(term); tableHistory.addSearch(term); setTableSearchFocused(false); }}
+                    onRemove={tableHistory.removeSearch}
+                    onClear={tableHistory.clearSearches}
                   />
                 </div>
                 <div className="flex gap-3 flex-wrap">
@@ -2359,8 +2528,8 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {loading
+                  <tbody className={`divide-y divide-slate-100 bg-white transition-opacity ${loading && customers.length > 0 ? "opacity-50" : ""}`}>
+                    {loading && customers.length === 0
                       ? [...Array(5)].map((_, i) => <SkeletonRow key={i} />)
                       : customers.length === 0
                       ? (
@@ -2377,9 +2546,9 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                       : customers.map((c, i) => (
                         <motion.tr
                           key={c.id}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: i * 0.03 }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: i * 0.02 }}
                           className="hover:bg-blue-50/40 transition-colors"
                         >
                           {/* Full Name */}
@@ -2556,9 +2725,11 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                   <input
                     value={quickQuery}
                     onChange={(e) => { setQuickQuery(e.target.value); setSelectedCustomer(null); }}
-                    onFocus={() => { if (quickResults.length > 0 && quickQuery.trim()) setShowDropdown(true); }}
+                    onFocus={() => { setQuickSearchFocused(true); if (quickResults.length > 0 && quickQuery.trim()) setShowDropdown(true); }}
+                    onBlur={() => setQuickSearchFocused(false)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && quickResults.length > 0) {
+                        quickHistory.addSearch(quickQuery);
                         setSelectedCustomer(quickResults[0]);
                         setShowDropdown(false);
                         setQuickQuery("");
@@ -2567,6 +2738,13 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                     placeholder="Type a customer name — results appear instantly…"
                     autoComplete="off"
                     className="w-full pl-12 pr-10 py-4 text-base text-gray-900 border-2 border-slate-200 rounded-2xl focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                  />
+                  <RecentSearches
+                    items={quickHistory.recentSearches}
+                    visible={quickSearchFocused && !quickQuery.trim()}
+                    onPick={(term) => { setQuickQuery(term); setSelectedCustomer(null); quickHistory.addSearch(term); }}
+                    onRemove={quickHistory.removeSearch}
+                    onClear={quickHistory.clearSearches}
                   />
 
                   {/* Auto-suggest dropdown */}
@@ -2600,7 +2778,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                   initial={{ opacity: 0, x: -6 }}
                                   animate={{ opacity: 1, x: 0 }}
                                   transition={{ delay: i * 0.02 }}
-                                  onClick={() => { setSelectedCustomer(c); setShowDropdown(false); setQuickQuery(""); }}
+                                  onClick={() => { quickHistory.addSearch(quickQuery); setSelectedCustomer(c); setShowDropdown(false); setQuickQuery(""); }}
                                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 text-left border-b border-slate-100 last:border-0 transition-colors group"
                                 >
                                   <div className="w-9 h-9 rounded-full flex-shrink-0 overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
@@ -2614,6 +2792,25 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                                     <p className="text-xs text-slate-400 truncate">
                                       {c.account_no ? `Acct: ${c.account_no} · ` : ""}{c.branch?.branch_name ?? "No Branch"} · {c.account_type}
                                     </p>
+                                    {(() => {
+                                      const { label, people } = searchResultPeople(c, quickQuery);
+                                      if (people.length === 0) return null;
+                                      return (
+                                        <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-500">
+                                          <span className="font-semibold text-slate-400">{label}:</span>
+                                          {people.map((p, idx) => (
+                                            <span
+                                              key={idx}
+                                              className={p.matched
+                                                ? "px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 font-semibold"
+                                                : "px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600"}
+                                            >
+                                              {p.name}
+                                            </span>
+                                          ))}
+                                        </p>
+                                      );
+                                    })()}
                                   </div>
                                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase flex-shrink-0 ${statusStyle[c.status] ?? "bg-slate-100 text-slate-500"}`}>
                                     {c.status}
@@ -2630,7 +2827,7 @@ const CustomerProfiles = ({ basePath = '/user', defaultTab = 'table', onlyTab = 
                 </div>
 
                 {/* Empty state (no query, no selection) */}
-                {!quickQuery.trim() && !selectedCustomer && (
+                {!selectedCustomer && (
                   <div className="text-center py-10 mt-2">
                     <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center mb-3">
                       <HiOutlineSearch className="w-8 h-8 text-blue-500" />

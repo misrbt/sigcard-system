@@ -14,9 +14,11 @@ import {
   HiOutlineCheckCircle,
   HiOutlinePhotograph,
   HiOutlineExclamation,
+  HiOutlineCalendar,
 } from "react-icons/hi";
 import DocImageDropZone from "../../components/common/DocImageDropZone";
 import MultiFileDropZone from "../../components/common/MultiFileDropZone";
+import { DORMANCY_REMINDER_YEARS, dormancyReminderFor, showsDormancyReminder } from "../../utils/dormancyReminder";
 
 // ── UI presentation metadata (styles/icons per value) ────────────────────────
 // Valid values come from /api/config; this maps each value to its display style.
@@ -44,7 +46,95 @@ const ACCOUNT_TYPE_META = {
 const JOINT_SUB_TYPE_META = {
   "ITF":     { label: "ITF (In Trust For)", description: "Two or more persons sharing one account. Each person uploads their own documents.", icon: HiOutlineUsers,      color: "purple", ring: "ring-purple-500", bg: "bg-purple-50", border: "border-purple-500", iconBg: "bg-purple-500" },
   "Non-ITF": { label: "Non-ITF",            description: "One customer with one or more accounts. Each account has its own documents.",       icon: HiOutlineCreditCard, color: "indigo", ring: "ring-indigo-500", bg: "bg-indigo-50", border: "border-indigo-500", iconBg: "bg-indigo-500" },
+  "FAO":     { label: "For the Account Of", description: "Account opened by account holders on behalf of an organization.",                  icon: HiOutlineOfficeBuilding, color: "teal", ring: "ring-teal-500", bg: "bg-teal-50", border: "border-teal-500", iconBg: "bg-teal-500" },
 };
+
+// Joint account types, grouped the way staff think about them:
+//   1. Regular joint account (Non-ITF) — AND or OR
+//   2. ITF account — Sole Trustee or Joint Trustee
+//   3. For the Account Of (FAO) — AND or OR, held on behalf of an organization
+const JOINT_TYPE_GROUPS = [
+  {
+    subType: "Non-ITF",
+    title: "Regular Joint Account",
+    note: "Owned jointly by two or more account holders.",
+    options: [
+      { arrangement: "AND", label: "All Must Sign", description: "Every account holder must sign for each transaction." },
+      { arrangement: "OR",  label: "Any May Sign",  description: "Any one of the account holders may sign." },
+    ],
+  },
+  {
+    subType: "ITF",
+    title: "In-Trust-For (ITF) Account",
+    note: "Held by a trustee on behalf of a beneficiary.",
+    options: [
+      { arrangement: "Sole Trustee",  label: "Sole Trustee",  description: "One trustee manages the account." },
+      { arrangement: "Joint Trustee", label: "Joint Trustee", description: "Two or more trustees manage the account together." },
+    ],
+  },
+  {
+    subType: "FAO",
+    title: "For the Account Of",
+    note: "Held by account holders on behalf of an organization.",
+    options: [
+      { arrangement: "AND", label: "All Must Sign", description: "Every account holder must sign for each transaction." },
+      { arrangement: "OR",  label: "Any May Sign",  description: "Any one of the account holders may sign." },
+    ],
+  },
+];
+
+const personRole = (p) => (p.role === "trustee" ? "trustee" : "beneficiary");
+
+// List of Person 2+ with name fields, optional Trustee / In-Trust-For choice,
+// and add / remove buttons.
+const AdditionalPeopleList = ({ persons, setPersons, titleFor, subtitleFor, showRoleChoice, addLabel, minCount = 1, accountType }) => (
+  <>
+    {persons.map((p, i) => (
+      <div key={i} className="rounded-2xl border-2 border-purple-100 bg-purple-50/20 p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[i + 1] ?? "bg-slate-500"}`}>{i + 2}</div>
+            <div>
+              <p className="text-sm font-bold text-slate-800">Person {i + 2} — {titleFor(p, i)}</p>
+              <p className="text-xs text-slate-400">{subtitleFor(p, i)}</p>
+            </div>
+          </div>
+          {persons.length > minCount && (
+            <button type="button"
+              onClick={() => setPersons((prev) => prev.filter((_, idx) => idx !== i))}
+              className="text-xs font-medium text-red-500 hover:text-red-600">Remove</button>
+          )}
+        </div>
+        {showRoleChoice && (
+          <div className="flex gap-2">
+            {[{ value: "trustee", label: "Trustee" }, { value: "beneficiary", label: "In-Trust-For" }].map(({ value, label }) => (
+              <button key={value} type="button"
+                onClick={() => setPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, role: value } : x))}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                  personRole(p) === value
+                    ? "bg-purple-600 border-purple-600 text-white"
+                    : "bg-white border-slate-200 text-slate-600 hover:border-purple-300"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="border-t border-purple-100" />
+        <NameGrid
+          values={p}
+          accountType={accountType}
+          onChange={(key, val) => setPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
+        />
+      </div>
+    ))}
+    <button type="button"
+      onClick={() => setPersons((prev) => [...prev, emptyPerson()])}
+      className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-2xl hover:border-purple-500 hover:bg-purple-50 transition-all">
+      <HiOutlinePlus className="w-4 h-4" />
+      {addLabel}
+    </button>
+  </>
+);
 
 const CORPORATE_SUB_TYPE_META = {
   "Corporate":           { label: "Corporate",           description: "Business or organization account with two or more authorized signatories.", icon: HiOutlineOfficeBuilding, color: "slate", ring: "ring-slate-500", bg: "bg-slate-50", border: "border-slate-500", iconBg: "bg-slate-600" },
@@ -141,9 +231,10 @@ const StatusPicker = ({ value, onChange, statuses = [] }) => (
 );
 
 // Live duplicate-name check: while staff type a name here, ask the backend whether a
-// customer (or joint/corporate co-signatory) with the same first + last name already
-// exists, so the same person isn't enrolled twice under a new sigcard record.
-const useDuplicateNameCheck = (firstName, middleName, lastName) => {
+// customer (or joint/corporate co-signatory) with the same first, middle and last name
+// already exists under the SAME account type. A joint account holder who also has their
+// own Regular account is not a duplicate.
+const useDuplicateNameCheck = (firstName, middleName, lastName, accountType) => {
   const [exists, setExists] = useState(false);
   const [checking, setChecking] = useState(false);
   const requestIdRef = useRef(0);
@@ -165,7 +256,7 @@ const useDuplicateNameCheck = (firstName, middleName, lastName) => {
     const debounceId = setTimeout(async () => {
       try {
         const res = await api.get("/customers/check-name", {
-          params: { firstname: first, middlename: middleName?.trim() || undefined, lastname: last },
+          params: { firstname: first, middlename: middleName?.trim() || undefined, lastname: last, account_type: accountType || undefined },
         });
         if (requestIdRef.current === requestId) setExists(!!res.data?.exists);
       } catch {
@@ -176,14 +267,14 @@ const useDuplicateNameCheck = (firstName, middleName, lastName) => {
     }, 500);
 
     return () => clearTimeout(debounceId);
-  }, [firstName, middleName, lastName]);
+  }, [firstName, middleName, lastName, accountType]);
 
   return { exists, checking };
 };
 
-const NameGrid = ({ values, onChange }) => {
+const NameGrid = ({ values, onChange, accountType }) => {
   const { exists: isDuplicate, checking: checkingDuplicate } =
-    useDuplicateNameCheck(values.firstName, values.middleName, values.lastName);
+    useDuplicateNameCheck(values.firstName, values.middleName, values.lastName, accountType);
 
   return (
     <div className="space-y-3">
@@ -212,14 +303,29 @@ const NameGrid = ({ values, onChange }) => {
       {!checkingDuplicate && isDuplicate && (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200">
           <HiOutlineExclamation className="w-4 h-4 text-amber-500 flex-shrink-0" />
-          <p className="text-xs font-semibold text-amber-800">This client already exists</p>
+          <p className="text-xs font-semibold text-amber-800">This client already exists with the same account type</p>
         </div>
       )}
     </div>
   );
 };
 
-const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated }) => (
+// Reminder under the dates: an Active / Reactivated account whose Date Opened (or later
+// Date Updated / reactivation date) is already 2+ years ago is due for an update.
+const DormancyDateReminder = ({ reminder }) => (
+  reminder ? (
+    <div className="col-span-2 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-300">
+      <HiOutlineCalendar className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+      <p className="text-xs text-amber-800">
+        <span className="font-bold">Reminder:</span> the {reminder.basisLabel} was {reminder.elapsed} ago
+        ({DORMANCY_REMINDER_YEARS} years or more). This account may soon become dormant.
+        Make sure the customer's documents are up to date, and set the Date Updated if they were updated.
+      </p>
+    </div>
+  ) : null
+);
+
+const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDateOpened, onDateUpdated, reminder = null }) => (
   <div className="grid grid-cols-2 gap-3">
     <div className="space-y-1.5">
       <label className="block text-xs font-semibold text-slate-600">
@@ -240,6 +346,7 @@ const AccountInfoRow = ({ accountNo, dateOpened, dateUpdated, onAccountNo, onDat
       </label>
       <input type="date" value={dateUpdated ?? ""} onChange={onDateUpdated} className={inputCls} />
     </div>
+    <DormancyDateReminder reminder={reminder} />
   </div>
 );
 
@@ -311,7 +418,8 @@ const StatusDateField = ({ status, value, onChange }) => {
 
 // ── Main component ────────────────────────────────────────────────────────────
 const UploadSigcard = () => {
-  const { user } = useAuth();
+  const { user, getPrimaryRole } = useAuth();
+  const showReminder = showsDormancyReminder(getPrimaryRole());
   const appConfig = useAppConfig();
 
   // Config-driven lists (values come from backend /api/config)
@@ -330,8 +438,8 @@ const UploadSigcard = () => {
 
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState({
-    accountType: "", jointSubType: "", corporateSubType: "", firstName: "", middleName: "", lastName: "",
-    suffix: "", companyName: "", riskLevel: "", accountNo: "", dateOpened: "",
+    accountType: "", jointSubType: "", jointArrangement: "", corporateSubType: "", firstName: "", middleName: "", lastName: "",
+    suffix: "", companyName: "", organization: "", riskLevel: "", accountNo: "", dateOpened: "",
     dateUpdated: "", status: "active", statusDate: "",
   });
   const [photoFile, setPhotoFile] = useState(null);
@@ -343,6 +451,10 @@ const UploadSigcard = () => {
   const [corpSigBacks,         setCorpSigBacks]          = useState([null, null]);
   const [hasSecondJointFront,  setHasSecondJointFront]   = useState(false);
   const [secondJointFront,     setSecondJointFront]      = useState(null);
+  // "For the Account Of": extra signature cards when the holders' signatures need more than one card
+  const [faoExtraFronts,       setFaoExtraFronts]        = useState([]);
+  // Regular joint / For the Account Of: extra NAIS forms ("Add Another NAIS"), filed under the account (person 1)
+  const [jointExtraNais,       setJointExtraNais]        = useState([]);
   const [isSubmitting,         setIsSubmitting]         = useState(false);
   const [uploadProgress,     setUploadProgress]     = useState(0);
   const [submitPhase,        setSubmitPhase]        = useState("idle");
@@ -351,7 +463,10 @@ const UploadSigcard = () => {
   const isJoint              = formData.accountType === "Joint";
   const isCorporate          = formData.accountType === "Corporate";
   const isITF                = isJoint && formData.jointSubType === "ITF";
-  const isNonITF             = isJoint && formData.jointSubType === "Non-ITF";
+  const isFAO                = isJoint && formData.jointSubType === "FAO";
+  // Regular joint and "For the Account Of" share the same AND / OR holders and documents
+  const isNonITF             = isJoint && (formData.jointSubType === "Non-ITF" || isFAO);
+  const isJointTrustee       = isITF && formData.jointArrangement === "Joint Trustee";
   const isSoleProprietorship = isCorporate && formData.corporateSubType === "Sole Proprietorship";
   const isEscheat            = formData.status === "escheat";
   const escheatYear          = formData.statusDate ? new Date(formData.statusDate).getFullYear() : null;
@@ -392,7 +507,7 @@ const UploadSigcard = () => {
 
   // Reset jointSubType when account type changes away from Joint
   useEffect(() => {
-    if (!isJoint) setFormData((prev) => ({ ...prev, jointSubType: "" }));
+    if (!isJoint) setFormData((prev) => ({ ...prev, jointSubType: "", jointArrangement: "", organization: "" }));
   }, [isJoint]);
 
   // Reset corporateSubType when account type changes away from Corporate
@@ -417,12 +532,31 @@ const UploadSigcard = () => {
       setAdditionalAccounts([]);
       setItfFiles(initialItfFiles());
     } else if (isNonITF) {
-      setAdditionalPersons([]); // Non-ITF has one customer — no additional holders
+      // Regular joint (AND / OR): primary + at least one secondary account holder
+      setAdditionalPersons((prev) => (prev.length >= 1 ? prev.map(({ role: _role, ...p }) => p) : [emptyPerson()]));
       setAdditionalAccounts([]);
     }
     setHasSecondJointFront(false);
     setSecondJointFront(null);
+    setFaoExtraFronts([]);
+    setJointExtraNais([]);
   }, [formData.jointSubType, isITF, isNonITF]);
+
+  // ITF roles: Sole Trustee → everyone after Person 1 is In-Trust-For.
+  // Joint Trustee → make sure there is a second trustee and an In-Trust-For person.
+  useEffect(() => {
+    if (!isITF) return;
+    if (formData.jointArrangement === "Sole Trustee") {
+      setAdditionalPersons((prev) => prev.map((p) => ({ ...p, role: "beneficiary" })));
+    } else if (formData.jointArrangement === "Joint Trustee") {
+      setAdditionalPersons((prev) => {
+        const next = prev.length ? [...prev] : [emptyPerson()];
+        if (!next.some((p) => personRole(p) === "trustee")) next[0] = { ...next[0], role: "trustee" };
+        if (!next.some((p) => personRole(p) === "beneficiary")) next.push({ ...emptyPerson(), role: "beneficiary" });
+        return next;
+      });
+    }
+  }, [isITF, formData.jointArrangement]);
 
   // Sync persons/accounts when account type changes
   useEffect(() => {
@@ -448,7 +582,8 @@ const UploadSigcard = () => {
   useEffect(() => {
     if (isITF) return; // ITF uses itfFiles, not files
     const acctCount    = additionalAccounts.length + 1;
-    const sigcardCount = acctCount; // Non-ITF risk profiling is per account, not per person
+    // Regular joint: one Risk Profiling per account holder (primary + every secondary holder)
+    const sigcardCount = isNonITF ? additionalPersons.length + 1 : acctCount;
     setFiles((prev) => {
       const sync = (pairs, target) => {
         if (pairs.length === target) return pairs;
@@ -470,7 +605,7 @@ const UploadSigcard = () => {
         otherDocs:    syncOther(prev.otherDocs, acctCount),
       };
     });
-  }, [isITF, isNonITF, isCorporate, additionalAccounts.length]);
+  }, [isITF, isNonITF, isCorporate, additionalAccounts.length, additionalPersons.length]);
 
   // Sync corporate sigcard arrays to person count (always N signatories + 1 extra for corporate)
   useEffect(() => {
@@ -543,7 +678,7 @@ const UploadSigcard = () => {
     const currentKey = activeSteps[step]?.key;
     switch (currentKey) {
       case "accountType":      return !!formData.accountType;
-      case "jointSubType":     return !!formData.jointSubType;
+      case "jointSubType":     return !!formData.jointSubType && !!formData.jointArrangement;
       case "corporateSubType": return !!formData.corporateSubType;
       case "customerInfo":
         if (isSoleProprietorship)
@@ -552,8 +687,12 @@ const UploadSigcard = () => {
           return !!formData.companyName.trim() && !!formData.firstName.trim() && !!formData.lastName.trim() &&
             additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
         if (isITF) return !!formData.firstName.trim() && !!formData.lastName.trim() &&
+          additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim()) &&
+          (!isJointTrustee || (additionalPersons.some((p) => personRole(p) === "trustee") &&
+                               additionalPersons.some((p) => personRole(p) === "beneficiary")));
+        if (isNonITF) return (!isFAO || (!!formData.companyName.trim() && !!formData.organization.trim())) &&
+          !!formData.firstName.trim() && !!formData.lastName.trim() &&
           additionalPersons.length >= 1 && additionalPersons.every((p) => p.firstName.trim() && p.lastName.trim());
-        if (isNonITF) return !!formData.firstName.trim() && !!formData.lastName.trim();
         return !!formData.firstName.trim() && !!formData.lastName.trim();
       case "holders":
         if (!formData.riskLevel || !formData.status) return false;
@@ -565,11 +704,12 @@ const UploadSigcard = () => {
         );
       case "sigcard":
         if (isITF) return itfFiles.sigcardFronts.every((f) => !!f) && itfFiles.riskProfilings.every((f) => !!f);
-        if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back);
+        if (isNonITF) return !!files.sigcardPairs[0]?.front && files.sigcardPairs.every((p) => !!p.back) &&
+          (!isFAO || faoExtraFronts.every((f) => !!f));
         if (isSoleProprietorship) return !!files.sigcardPairs[0]?.front && !!files.sigcardPairs[0]?.back;
         if (isCorporate) return corpSigFronts.every((f) => f !== null) && corpSigBacks.every((f) => f !== null);
         return files.sigcardPairs.every((p) => p.front && p.back);
-      case "nais": return true;
+      case "nais": return !isNonITF || jointExtraNais.every((p) => p.front || p.back);
       case "privacy":
         if (privacyNotRequired) return true;
         if (isITF) return itfFiles.privacy.every((p) => p.front || p.back);
@@ -578,14 +718,14 @@ const UploadSigcard = () => {
       case "otherDocs": return true;
       default: return false;
     }
-  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF]);
+  }, [step, formData, files, itfFiles, additionalPersons, additionalAccounts, activeSteps, corpSigFronts, corpSigBacks, isSoleProprietorship, privacyNotRequired, isCorporate, isITF, isNonITF, isFAO, isJointTrustee, faoExtraFronts, jointExtraNais]);
 
   const handleNext = () => { if (isStepValid) { setDirection(1);  setStep((s) => Math.min(s + 1, activeSteps.length - 1)); } };
   const handlePrev = () => {                   setDirection(-1); setStep((s) => Math.max(s - 1, 0)); };
 
   const resetAll = () => {
     setStep(0);
-    setFormData({ accountType:"", jointSubType:"", corporateSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", riskLevel:"", accountNo:"", dateOpened:"", dateUpdated:"", status:"active", statusDate:"" });
+    setFormData({ accountType:"", jointSubType:"", jointArrangement:"", corporateSubType:"", firstName:"", middleName:"", lastName:"", suffix:"", companyName:"", organization:"", riskLevel:"", accountNo:"", dateOpened:"", dateUpdated:"", status:"active", statusDate:"" });
     setPhotoFile(null);
     setFiles(initialFiles);
     setItfFiles(initialItfFiles());
@@ -595,6 +735,8 @@ const UploadSigcard = () => {
     setCorpSigBacks([null, null]);
     setHasSecondJointFront(false);
     setSecondJointFront(null);
+    setFaoExtraFronts([]);
+    setJointExtraNais([]);
   };
 
   const handleSubmit = async () => {
@@ -604,9 +746,10 @@ const UploadSigcard = () => {
     try {
       // Files are sent raw; the backend's Image Intervention handles all resizing and optimisation.
       const fd = new FormData();
-      if (isCorporate) {
-        fd.append("company_name", formData.companyName);
+      if (isCorporate || isFAO) {
+        fd.append("company_name", formData.companyName.trim());
       }
+      if (isFAO) fd.append("organization", formData.organization.trim());
       fd.append("firstname",  formData.firstName);
       fd.append("middlename", formData.middleName);
       fd.append("lastname",   formData.lastName);
@@ -620,7 +763,10 @@ const UploadSigcard = () => {
       if (photoFile)            fd.append("photo", photoFile);
       if (user?.branch?.id)     fd.append("branch_id", user.branch.id);
 
-      if (isJoint) fd.append("joint_sub_type", formData.jointSubType);
+      if (isJoint) {
+        fd.append("joint_sub_type", formData.jointSubType);
+        fd.append("joint_arrangement", formData.jointArrangement);
+      }
       if (isCorporate && formData.corporateSubType) fd.append("corporate_sub_type", formData.corporateSubType);
       if (formData.statusDate) fd.append("status_date", formData.statusDate);
 
@@ -630,6 +776,7 @@ const UploadSigcard = () => {
           fd.append(`additionalPersons[${i}][middlename]`, p.middleName);
           fd.append(`additionalPersons[${i}][lastname]`,   p.lastName);
           fd.append(`additionalPersons[${i}][suffix]`,     p.suffix);
+          fd.append(`additionalPersons[${i}][role]`,       personRole(p));
         });
 
         // Sigcard: Signature Card and Risk Profiling are independent lists, sent as sigcardPairs[i][front]/[back]
@@ -710,8 +857,24 @@ const UploadSigcard = () => {
               if (pair.back)  fd.append(`${key}[${i}][back]`,  pair.back);
             });
           }
-          if (isNonITF && hasSecondJointFront && secondJointFront) {
-            fd.append(`sigcardPairs[${files.sigcardPairs.length}][front]`, secondJointFront);
+          // Extra signature card fronts are part of the shared card, so file them under
+          // person 1 (where the profile shows the joint account's signature cards).
+          const extraFronts = isFAO
+            ? faoExtraFronts.filter(Boolean)
+            : isNonITF && hasSecondJointFront && secondJointFront ? [secondJointFront] : [];
+          extraFronts.forEach((f, i) => {
+            const idx = files.sigcardPairs.length + i;
+            fd.append(`sigcardPairs[${idx}][front]`, f);
+            fd.append(`sigcardPairs[${idx}][person_index]`, 1);
+          });
+          // Extra NAIS forms belong to the account itself (person 1), like the extra signature cards.
+          if (isNonITF) {
+            jointExtraNais.filter((p) => p.front || p.back).forEach((p, i) => {
+              const idx = files.naisPairs.length + i;
+              if (p.front) fd.append(`naisPairs[${idx}][front]`, p.front);
+              if (p.back)  fd.append(`naisPairs[${idx}][back]`,  p.back);
+              fd.append(`naisPairs[${idx}][person_index]`, 1);
+            });
           }
           files.otherDocs.forEach((section, i) => section.forEach((f) => fd.append(`otherDocs[${i + 1}][]`, f)));
         }
@@ -779,22 +942,41 @@ const UploadSigcard = () => {
         return (
           <div className="space-y-6">
             <AccountTypePill type={formData.accountType} onReset={() => setStep(0)} />
-            <p className="text-sm text-slate-500">Select the joint account classification.</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {jointSubTypeConfig.map(({ value, label, icon: Icon, bg, border, ring, iconBg }) => {
-                const isSelected = formData.jointSubType === value;
+            <p className="text-sm text-slate-500">Select the type of joint account.</p>
+            <div className="grid gap-5 lg:grid-cols-2 items-stretch">
+              {JOINT_TYPE_GROUPS.filter((g) => jointSubTypeConfig.some((c) => c.value === g.subType)).map((group) => {
+                const meta = JOINT_SUB_TYPE_META[group.subType] ?? {};
+                const Icon = meta.icon ?? HiOutlineUsers;
                 return (
-                  <motion.button key={value} type="button" whileTap={{ scale: 0.97 }}
-                    onClick={() => setField("jointSubType", value)}
-                    className={`relative flex flex-col items-center gap-4 p-7 rounded-2xl border-2 text-center transition-all outline-none
-                      ${isSelected ? `${bg} ${border} ring-4 ${ring}/20 shadow-lg` : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md"}`}
-                  >
-                    {isSelected && <div className="absolute top-3 right-3"><HiOutlineCheckCircle className="w-5 h-5 text-green-500" /></div>}
-                    <div className={`p-4 rounded-2xl ${isSelected ? iconBg : "bg-slate-100"} transition-colors`}>
-                      <Icon className={`w-8 h-8 ${isSelected ? "text-white" : "text-slate-500"}`} />
+                  <div key={group.subType} className="h-full flex flex-col gap-3 rounded-2xl border-2 border-slate-200 bg-white p-4">
+                    <div className="flex items-center gap-3 min-h-[3rem]">
+                      <div className={`p-2.5 rounded-xl ${meta.iconBg ?? "bg-slate-500"}`}>
+                        <Icon className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">{group.title}</p>
+                        <p className="text-xs text-slate-400">{group.note}</p>
+                      </div>
                     </div>
-                    <p className={`text-base font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}>{label}</p>
-                  </motion.button>
+                    <div className="grid flex-1 gap-3 sm:grid-cols-2 auto-rows-fr">
+                      {group.options.map((opt) => {
+                        const isSelected = formData.jointSubType === group.subType && formData.jointArrangement === opt.arrangement;
+                        return (
+                          <motion.button key={opt.arrangement} type="button" whileTap={{ scale: 0.97 }}
+                            onClick={() => setFormData((prev) => ({ ...prev, jointSubType: group.subType, jointArrangement: opt.arrangement }))}
+                            className={`relative h-full min-h-[7rem] flex flex-col items-start justify-start gap-1 p-4 rounded-xl border-2 text-left transition-all outline-none
+                              ${isSelected ? `${meta.bg ?? "bg-slate-50"} ${meta.border ?? "border-slate-500"} ring-4 ${meta.ring ?? "ring-slate-500"}/20 shadow-md` : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"}`}
+                          >
+                            {isSelected && <div className="absolute top-2 right-2"><HiOutlineCheckCircle className="w-5 h-5 text-green-500" /></div>}
+                            <p className={`pr-6 text-sm font-bold whitespace-nowrap ${isSelected ? "text-slate-900" : "text-slate-700"}`}>
+                              {opt.label}
+                            </p>
+                            <p className="text-xs text-slate-500 leading-relaxed">{opt.description}</p>
+                          </motion.button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -867,6 +1049,7 @@ const UploadSigcard = () => {
                   <div className="border-t border-slate-200" />
                   <NameGrid
                     values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                    accountType={formData.accountType}
                     onChange={(key, val) => setField(key, val)}
                   />
                 </div>
@@ -892,6 +1075,7 @@ const UploadSigcard = () => {
                     <div className="border-t border-slate-200" />
                     <NameGrid
                       values={p}
+                      accountType={formData.accountType}
                       onChange={(key, val) => setAdditionalPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
                     />
                   </div>
@@ -938,46 +1122,33 @@ const UploadSigcard = () => {
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
                     <div>
-                      <p className="text-sm font-bold text-slate-800">Person 1 — Primary</p>
-                      <p className="text-xs text-slate-400">Primary account holder</p>
+                      <p className="text-sm font-bold text-slate-800">Person 1 — Trustee</p>
+                      <p className="text-xs text-slate-400">{isJointTrustee ? "Joint trustee of the account" : "Sole trustee of the account"}</p>
                     </div>
                   </div>
                   <div className="border-t border-blue-100" />
                   <NameGrid
                     values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                    accountType={formData.accountType}
                     onChange={(key, val) => setField(key, val)}
                   />
                 </div>
-                {/* Person 2+ */}
-                {additionalPersons.map((p, i) => (
-                  <div key={i} className="rounded-2xl border-2 border-purple-100 bg-purple-50/20 p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[i + 1] ?? "bg-slate-500"}`}>{i + 2}</div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-800">Person {i + 2}{i === 0 ? " — Secondary" : ""}</p>
-                          <p className="text-xs text-slate-400">Additional account holder</p>
-                        </div>
-                      </div>
-                      {additionalPersons.length > 1 && (
-                        <button type="button"
-                          onClick={() => setAdditionalPersons((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="text-xs font-medium text-red-500 hover:text-red-600">Remove</button>
-                      )}
-                    </div>
-                    <div className="border-t border-purple-100" />
-                    <NameGrid
-                      values={p}
-                      onChange={(key, val) => setAdditionalPersons((prev) => prev.map((x, idx) => idx === i ? { ...x, [key]: val } : x))}
-                    />
-                  </div>
-                ))}
-                <button type="button"
-                  onClick={() => setAdditionalPersons((prev) => [...prev, emptyPerson()])}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-3 text-sm font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-2xl hover:border-purple-500 hover:bg-purple-50 transition-all">
-                  <HiOutlinePlus className="w-4 h-4" />
-                  Add Another Person
-                </button>
+                {/* Person 2+ — Trustee or In-Trust-For */}
+                <AdditionalPeopleList
+                  persons={additionalPersons}
+                  setPersons={setAdditionalPersons}
+                  showRoleChoice={isJointTrustee}
+                  titleFor={(p) => (personRole(p) === "trustee" ? "Trustee" : "In-Trust-For")}
+                  subtitleFor={(p) => (personRole(p) === "trustee" ? "Joint trustee of the account" : "Beneficiary of the account")}
+                  addLabel={isJointTrustee ? "Add Another Person" : "Add Another In-Trust-For Person"}
+                  minCount={isJointTrustee ? 2 : 1}
+                  accountType={formData.accountType}
+                />
+                {isJointTrustee && !(additionalPersons.some((p) => personRole(p) === "trustee") && additionalPersons.some((p) => personRole(p) === "beneficiary")) && (
+                  <p className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    A Joint Trustee account needs at least 2 trustees and at least 1 In-Trust-For person.
+                  </p>
+                )}
                 {/* Photo — optional */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-semibold text-slate-600">
@@ -1007,17 +1178,48 @@ const UploadSigcard = () => {
               </div>
             ) : isNonITF ? (
               <div className="space-y-5">
-                {/* Single customer — Non-ITF has one customer with multiple accounts */}
-                <div className="flex items-center gap-3 p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">Account Holder</p>
-                    <p className="text-xs text-slate-400">Non-ITF — one customer, one or more accounts</p>
+                {/* For the Account Of: account name + organization */}
+                {isFAO && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-slate-600">Account Name <span className="text-red-500">*</span></label>
+                      <input value={formData.companyName} onChange={(e) => setField("companyName", e.target.value)}
+                        placeholder="Enter the account name" className={inputCls} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-slate-600">Organization <span className="text-red-500">*</span></label>
+                      <input value={formData.organization} onChange={(e) => setField("organization", e.target.value)}
+                        placeholder="Organization the account is held for" className={inputCls} />
+                    </div>
                   </div>
+                )}
+                {/* Regular joint / For the Account Of (AND / OR): primary + secondary account holders */}
+                <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/20 p-5 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${PERSON_COLORS[0]}`}>1</div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">Person 1 — Primary Account Holder</p>
+                      <p className="text-xs text-slate-400">
+                        {isFAO ? "For the Account Of" : "Regular Joint Account"} · {formData.jointArrangement === "AND" ? "All Must Sign" : "Any May Sign"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="border-t border-blue-100" />
+                  <NameGrid
+                    values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                    accountType={formData.accountType}
+                    onChange={(key, val) => setField(key, val)}
+                  />
                 </div>
-                <NameGrid
-                  values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
-                  onChange={(key, val) => setField(key, val)}
+                <AdditionalPeopleList
+                  persons={additionalPersons}
+                  setPersons={setAdditionalPersons}
+                  showRoleChoice={false}
+                  titleFor={() => "Secondary Account Holder"}
+                  subtitleFor={() => (isFAO ? "Co-signer of the account" : "Co-owner of the joint account")}
+                  addLabel="Add Another Account Holder"
+                  minCount={1}
+                  accountType={formData.accountType}
                 />
                 {/* Photo — optional */}
                 <div className="space-y-1.5">
@@ -1057,6 +1259,7 @@ const UploadSigcard = () => {
                 </div>
                 <NameGrid
                   values={{ firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName, suffix: formData.suffix }}
+                  accountType={formData.accountType}
                   onChange={(key, val) => setField(key, val)}
                 />
                 {/* Photo — optional */}
@@ -1104,10 +1307,12 @@ const UploadSigcard = () => {
                   <p className="text-sm font-bold text-slate-800">
                     {isCorporate
                       ? formData.companyName || "Corporate Account"
-                      : `${formData.firstName} ${formData.lastName}`.trim() || "Account Holder"}
+                      : isFAO && formData.companyName
+                        ? formData.companyName
+                        : `${formData.firstName} ${formData.lastName}`.trim() || "Account Holder"}
                   </p>
                   <p className="text-xs text-slate-400">
-                    {isITF ? "Shared ITF account" : isNonITF ? "Primary account" : isCorporate ? "Corporate account" : "Primary account"}
+                    {isITF ? "Shared ITF account" : isFAO ? `For the Account Of${formData.organization ? ` ${formData.organization}` : ""}` : isNonITF ? "Primary account" : isCorporate ? "Corporate account" : "Primary account"}
                   </p>
                 </div>
               </div>
@@ -1123,6 +1328,7 @@ const UploadSigcard = () => {
                 onAccountNo={(e) => setField("accountNo", e.target.value)}
                 onDateOpened={(e) => setField("dateOpened", e.target.value)}
                 onDateUpdated={(e) => setField("dateUpdated", e.target.value)}
+                reminder={showReminder ? dormancyReminderFor({ status: formData.status, date_opened: formData.dateOpened, date_updated: formData.dateUpdated, status_date: formData.statusDate }) : null}
               />
             </div>
 
@@ -1169,6 +1375,7 @@ const UploadSigcard = () => {
                       onAccountNo={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, accountNo: e.target.value } : x))}
                       onDateOpened={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, dateOpened: e.target.value } : x))}
                       onDateUpdated={(e) => setAdditionalAccounts((prev) => prev.map((x, idx) => idx === i ? { ...x, dateUpdated: e.target.value } : x))}
+                      reminder={showReminder ? dormancyReminderFor({ status: a.status, date_opened: a.dateOpened, date_updated: a.dateUpdated, status_date: a.statusDate }) : null}
                     />
                   </div>
                 ))}
@@ -1248,11 +1455,12 @@ const UploadSigcard = () => {
           );
         }
 
-        // Non-ITF Joint: 1 shared sigcard front + 1 risk profiling per account
+        // Non-ITF Joint: 1 shared sigcard front + 1 risk profiling per account holder
         if (isNonITF) {
-          const acctLabels = [
-            "Account 1 — Primary",
-            ...additionalAccounts.map((_, i) => `Account ${i + 2}`),
+          const holderName = (p) => [p.firstName, p.lastName].filter(Boolean).join(" ").trim();
+          const holderLabels = [
+            `Primary Account Holder${holderName(formData) ? ` — ${holderName(formData)}` : ""}`,
+            ...additionalPersons.map((p) => `Secondary Account Holder${holderName(p) ? ` — ${holderName(p)}` : ""}`),
           ];
           return (
             <div className="space-y-8">
@@ -1264,8 +1472,40 @@ const UploadSigcard = () => {
                 onChange={(f) => setPairFile("sigcardPairs", 0, "front", f)}
               />
 
-              {/* Second sigcard front prompt */}
-              {!hasSecondJointFront ? (
+              {/* For the Account Of: any number of extra signature cards */}
+              {isFAO ? (
+                <div className="space-y-4">
+                  {faoExtraFronts.map((f, i) => (
+                    <div key={i} className="space-y-3 rounded-2xl border-2 border-teal-200 bg-teal-50/50 p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-teal-700">Signature Card {i + 2}</p>
+                        <button type="button"
+                          onClick={() => setFaoExtraFronts((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                          <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                        </button>
+                      </div>
+                      <DocImageDropZone
+                        label={`SIGCARD ${i + 2}`}
+                        shape="landscape"
+                        file={f}
+                        onChange={(file) => setFaoExtraFronts((prev) => prev.map((x, idx) => (idx === i ? file : x)))}
+                      />
+                    </div>
+                  ))}
+                  <button type="button"
+                    onClick={() => setFaoExtraFronts((prev) => [...prev, null])}
+                    className="flex flex-col items-center justify-center gap-0.5 w-full px-4 py-3 text-teal-700 border-2 border-dashed border-teal-300 rounded-xl hover:border-teal-500 hover:bg-teal-50 transition-all">
+                    <span className="flex items-center gap-2 text-xs font-semibold">
+                      <HiOutlinePlus className="w-3.5 h-3.5" />
+                      Add Another Signature Card
+                    </span>
+                    <span className="text-[11px] font-normal text-slate-500">
+                      For accounts with 3 or more holders whose signatures don't fit on one card
+                    </span>
+                  </button>
+                </div>
+              ) : !hasSecondJointFront ? (
                 <button type="button"
                   onClick={() => setHasSecondJointFront(true)}
                   className="flex items-center justify-center gap-2 w-full px-4 py-3 text-xs font-semibold text-indigo-600 border-2 border-dashed border-indigo-300 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all">
@@ -1295,7 +1535,7 @@ const UploadSigcard = () => {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-slate-200" />
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Risk Profiling — per account</p>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Risk Profiling — per account holder</p>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
 
@@ -1306,7 +1546,7 @@ const UploadSigcard = () => {
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${PERSON_COLORS[i] ?? "bg-slate-400"}`}>
                           {i + 1}
                         </div>
-                        <p className="text-sm font-semibold text-slate-700">{acctLabels[i] ?? `Account ${i + 1}`}</p>
+                        <p className="text-sm font-semibold text-slate-700">{holderLabels[i] ?? `Account Holder ${i + 1}`}</p>
                       </div>
                       <DocImageDropZone
                         label="Risk Profiling"
@@ -1469,10 +1709,42 @@ const UploadSigcard = () => {
               ...additionalAccounts.map((a, i) => `Account ${i + 2}${a.accountNo ? ` (${a.accountNo})` : ""}`),
             ]
           : undefined;
-        return <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.naisPairs}
+        const naisStep = <JointDocStep isMultiHolder={isMultiHolder} minHolders={1} pairs={files.naisPairs}
           frontLabel="NAIS Front" backLabel="NAIS Back (Optional)"
           onSetFile={(i, s, f) => setPairFile("naisPairs", i, s, f)}
           sectionLabels={sectionLabels} />;
+        if (!isNonITF) return naisStep;
+        // Regular joint / For the Account Of: any number of extra NAIS forms for the account
+        const setExtraNaisSide = (idx, side, f) =>
+          setJointExtraNais((prev) => prev.map((p, i) => (i === idx ? { ...p, [side]: f } : p)));
+        return (
+          <div className="space-y-6">
+            {naisStep}
+            {jointExtraNais.map((pair, idx) => (
+              <div key={idx} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-slate-400">NAIS {idx + 2}</p>
+                  <button type="button" onClick={() => setJointExtraNais((prev) => prev.filter((_, i) => i !== idx))}
+                    className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600">
+                    <HiOutlineX className="w-3.5 h-3.5" /> Remove
+                  </button>
+                </div>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <DocImageDropZone label={`NAIS ${idx + 2} Front`} file={pair.front} onChange={(f) => setExtraNaisSide(idx, "front", f)} />
+                  <DocImageDropZone label={`NAIS ${idx + 2} Back (Optional)`} file={pair.back} onChange={(f) => setExtraNaisSide(idx, "back", f)} />
+                </div>
+                {!pair.front && !pair.back && (
+                  <p className="text-[11px] text-amber-600">Add a photo for NAIS {idx + 2}, or press Remove.</p>
+                )}
+              </div>
+            ))}
+            <button type="button" onClick={() => setJointExtraNais((prev) => [...prev, { front: null, back: null }])}
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-xs font-semibold text-purple-600 border-2 border-dashed border-purple-300 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all">
+              <HiOutlinePlus className="w-3.5 h-3.5" />
+              Add Another NAIS
+            </button>
+          </div>
+        );
       }
 
       case "privacy": {

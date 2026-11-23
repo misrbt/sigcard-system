@@ -4,7 +4,8 @@ import api from "../services/api";
 const FALLBACK_CONFIG = {
   customer_statuses:   ["active", "dormant", "reactivated", "escheat", "closed"],
   account_types:       ["Regular", "Joint", "Corporate"],
-  joint_sub_types:     ["ITF", "Non-ITF"],
+  joint_sub_types:     ["ITF", "Non-ITF", "FAO"],
+  joint_arrangements:  ["AND", "OR", "Sole Trustee", "Joint Trustee"],
   corporate_sub_types: ["Corporate", "Sole Proprietorship"],
   risk_levels:         ["Low Risk", "Medium Risk", "High Risk"],
   document_types:      ["sigcard_front", "sigcard_back", "nais_front", "nais_back", "privacy_front", "privacy_back", "other"],

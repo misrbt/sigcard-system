@@ -1791,7 +1791,7 @@ class ComplianceController extends Controller
                 return [
                     'account_no' => $c->account_no,
                     'full_name' => $c->full_name,
-                    'account_type' => $c->account_type.($c->joint_sub_type ? " ({$c->joint_sub_type})" : ''),
+                    'account_type' => $c->account_type.($c->joint_sub_type ? ' ('.($c->joint_sub_type === 'FAO' ? 'For the Account Of' : $c->joint_sub_type).')' : ''),
                     'risk_level' => $c->risk_level ?? '—',
                     'status' => $c->status,
                     'date_opened' => $c->date_opened?->format('Y-m-d'),

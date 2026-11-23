@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\JointArrangement;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreCustomerRequest extends FormRequest
 {
@@ -43,13 +45,17 @@ class StoreCustomerRequest extends FormRequest
             'lastname' => 'required|string|max:255',
             'suffix' => 'nullable|string|max:50',
             'account_type' => 'required|in:Regular,Joint,Corporate',
-            'joint_sub_type' => 'required_if:account_type,Joint|nullable|in:ITF,Non-ITF',
+            'joint_sub_type' => 'required_if:account_type,Joint|nullable|in:ITF,Non-ITF,FAO',
+            'joint_arrangement' => ['required_if:account_type,Joint', 'nullable', Rule::in(JointArrangement::valuesForSubType($this->input('joint_sub_type')))],
             'corporate_sub_type' => 'required_if:account_type,Corporate|nullable|in:Corporate,Sole Proprietorship',
             'risk_level' => 'required|in:Low Risk,Medium Risk,High Risk',
             'branch_id' => 'nullable|exists:branches,id',
 
             // Corporate accounts use company_name instead of personal name fields
-            'company_name' => 'required_if:account_type,Corporate|nullable|string|max:255',
+            'company_name' => 'required_if:account_type,Corporate|required_if:joint_sub_type,FAO|nullable|string|max:255',
+
+            // "For the Account Of" joint accounts: the organization the account is held for
+            'organization' => 'required_if:joint_sub_type,FAO|nullable|string|max:255',
 
             // Additional accounts for the same person (Regular only)
             'additionalAccounts' => 'nullable|array',
@@ -66,6 +72,7 @@ class StoreCustomerRequest extends FormRequest
             'additionalPersons.*.middlename' => 'nullable|string|max:255',
             'additionalPersons.*.lastname' => 'required_with:additionalPersons|string|max:255',
             'additionalPersons.*.suffix' => 'nullable|string|max:50',
+            'additionalPersons.*.role' => 'nullable|in:trustee,beneficiary',
             'additionalPersons.*.risk_level' => 'nullable|in:Low Risk,Medium Risk,High Risk',
 
             // Document pairs — each pair has a front and back image.
@@ -74,13 +81,23 @@ class StoreCustomerRequest extends FormRequest
             'sigcardPairs.*.front' => 'nullable|image|max:10240',
             'sigcardPairs.*.back' => 'nullable|image|max:10240',
 
+            // NAIS is optional; an uploaded NAIS needs at least one side (front or back).
             'naisPairs' => 'nullable|array|min:1',
-            'naisPairs.*.front' => 'required|image|max:10240',
+            'naisPairs.*.front' => 'required_without:naisPairs.*.back|nullable|image|max:10240',
             'naisPairs.*.back' => 'nullable|image|max:10240',
 
+            // Joint accounts share one consent form, and the upload screen accepts either
+            // side of it; every other account type needs both sides.
             'privacyPairs' => $privacyExempt ? 'nullable|array' : 'required|array|min:1',
-            'privacyPairs.*.front' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
-            'privacyPairs.*.back' => $privacyExempt ? 'nullable|image|max:10240' : 'required|image|max:10240',
+            'privacyPairs.*.front' => match (true) {
+                $privacyExempt => 'nullable|image|max:10240',
+                $this->input('account_type') === 'Joint' => 'required_without:privacyPairs.*.back|nullable|image|max:10240',
+                default => 'required|image|max:10240',
+            },
+            'privacyPairs.*.back' => match (true) {
+                $privacyExempt, $this->input('account_type') === 'Joint' => 'nullable|image|max:10240',
+                default => 'required|image|max:10240',
+            },
 
             // Optional additional documents — keyed by person/account index (1-based)
             'otherDocs' => 'nullable|array',
@@ -97,16 +114,29 @@ class StoreCustomerRequest extends FormRequest
             if ($accountType === 'Joint') {
                 $subType = $this->input('joint_sub_type');
 
-                // ITF: 2 or more holders (primary + 1 or more additional)
-                if ($subType === 'ITF') {
-                    if (count($this->input('additionalPersons', [])) < 1) {
+                $persons = $this->input('additionalPersons', []) ?: [];
+
+                // Every joint account (ITF or regular AND/OR) has 2 or more people.
+                if (count($persons) < 1) {
+                    $validator->errors()->add(
+                        'additionalPersons',
+                        $subType === 'ITF'
+                            ? 'ITF accounts require a trustee and at least one In-Trust-For person.'
+                            : 'Joint accounts require at least 2 account holders.'
+                    );
+                }
+
+                // Joint Trustee: Person 1 + at least one more trustee, and at least one In-Trust-For.
+                if ($subType === 'ITF' && $this->input('joint_arrangement') === JointArrangement::JointTrustee->value) {
+                    $roles = array_column($persons, 'role');
+
+                    if (! in_array('trustee', $roles, true) || ! in_array('beneficiary', $roles, true)) {
                         $validator->errors()->add(
                             'additionalPersons',
-                            'ITF joint accounts require at least 2 account holders.'
+                            'A Joint Trustee account needs at least 2 trustees and at least one In-Trust-For person.'
                         );
                     }
                 }
-                // Non-ITF: one customer with one or more accounts — no additional persons required
             }
 
             if ($accountType === 'Corporate' && $this->input('corporate_sub_type') !== 'Sole Proprietorship') {
@@ -125,11 +155,16 @@ class StoreCustomerRequest extends FormRequest
         return [
             'firstname.required' => 'First name is required.',
             'lastname.required' => 'Last name is required.',
-            'company_name.required_if' => 'Company name is required for Corporate accounts.',
+            'company_name.required_if' => $this->input('joint_sub_type') === 'FAO'
+                ? 'Account name is required for "For the Account Of" accounts.'
+                : 'Company name is required for Corporate accounts.',
+            'organization.required_if' => 'Organization is required for "For the Account Of" accounts.',
             'account_type.required' => 'Account type is required.',
             'account_type.in' => 'Account type must be Regular, Joint, or Corporate.',
             'joint_sub_type.required_if' => 'Joint sub-type is required for Joint accounts.',
-            'joint_sub_type.in' => 'Joint sub-type must be ITF or Non-ITF.',
+            'joint_sub_type.in' => 'Joint sub-type must be Regular Joint, ITF, or For the Account Of.',
+            'joint_arrangement.required_if' => 'Please choose AND / OR (regular joint or For the Account Of) or Sole / Joint Trustee (ITF).',
+            'joint_arrangement.in' => 'Regular joint and For the Account Of accounts must be AND or OR; ITF accounts must be Sole Trustee or Joint Trustee.',
             'corporate_sub_type.required_if' => 'Corporate sub-type is required for Corporate accounts.',
             'corporate_sub_type.in' => 'Corporate sub-type must be Corporate or Sole Proprietorship.',
             'risk_level.required' => 'Risk level is required.',
@@ -139,7 +174,8 @@ class StoreCustomerRequest extends FormRequest
             'sigcardPairs.required' => 'Sigcard images are required.',
             'sigcardPairs.*.back.required' => 'Sigcard back image is required for each person.',
 
-            'naisPairs.*.front.required' => 'NAIS front image is required for each person.',
+            'naisPairs.*.front.required_without' => 'Please upload the front or back of each NAIS.',
+            'privacyPairs.*.front.required_without' => 'Please upload the front or back of each data privacy form.',
 
             'privacyPairs.required' => 'Data privacy images are required.',
             'privacyPairs.*.front.required' => 'Data privacy front image is required for each person.',

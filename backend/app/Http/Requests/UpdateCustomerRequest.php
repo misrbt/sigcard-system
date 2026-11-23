@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\JointArrangement;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateCustomerRequest extends FormRequest
 {
@@ -26,6 +28,7 @@ class UpdateCustomerRequest extends FormRequest
             'lastname' => 'sometimes|nullable|string|max:255',
             'suffix' => 'nullable|string|max:50',
             'company_name' => 'sometimes|nullable|string|max:255',
+            'organization' => 'sometimes|nullable|string|max:255',
             'account_type' => 'sometimes|required|in:Regular,Joint,Corporate',
             'risk_level' => 'sometimes|required|in:Low Risk,Medium Risk,High Risk',
             'status' => 'sometimes|in:active,reactivated,dormant,escheat,closed',
@@ -45,7 +48,9 @@ class UpdateCustomerRequest extends FormRequest
             'additionalPersons.*.middlename' => 'nullable|string|max:255',
             'additionalPersons.*.lastname' => 'required_with:additionalPersons|string|max:255',
             'additionalPersons.*.suffix' => 'nullable|string|max:50',
-            'additionalPersons.*.risk_level' => 'required_with:additionalPersons|in:Low Risk,Medium Risk,High Risk',
+            'additionalPersons.*.role' => 'nullable|in:trustee,beneficiary',
+            'joint_arrangement' => ['sometimes', 'nullable', Rule::in(JointArrangement::values())],
+            'additionalPersons.*.risk_level' => 'nullable|in:Low Risk,Medium Risk,High Risk',
 
             'account_status' => 'sometimes|nullable|string|in:active,reactivated,dormant,escheat,closed',
 
@@ -69,11 +74,11 @@ class UpdateCustomerRequest extends FormRequest
                 'nullable',
                 'max:10240',
                 'mimetypes:image/jpeg,image/jpg,image/png,image/gif,image/webp,'
-                    . 'application/pdf,'
-                    . 'application/msword,'
-                    . 'application/vnd.openxmlformats-officedocument.wordprocessingml.document,'
-                    . 'application/vnd.ms-excel,'
-                    . 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    .'application/pdf,'
+                    .'application/msword,'
+                    .'application/vnd.openxmlformats-officedocument.wordprocessingml.document,'
+                    .'application/vnd.ms-excel,'
+                    .'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ],
         ];
     }
@@ -92,7 +97,6 @@ class UpdateCustomerRequest extends FormRequest
 
             'additionalPersons.*.firstname.required_with' => 'First name is required for each additional holder.',
             'additionalPersons.*.lastname.required_with' => 'Last name is required for each additional holder.',
-            'additionalPersons.*.risk_level.required_with' => 'Risk level is required for each additional holder.',
             'additionalPersons.*.risk_level.in' => 'Risk level must be Low Risk, Medium Risk, or High Risk.',
 
             '*.image' => 'File must be an image.',

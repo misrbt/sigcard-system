@@ -82,6 +82,24 @@ Fixes applied directly to production bypass code review, testing, and the normal
 
 ---
 
+## RULE 6 — Production Releases: Read and Maintain `PRODUCTION_RELEASE_CHECKLIST.md`
+
+`PRODUCTION_RELEASE_CHECKLIST.md` (repo root) lists, per release, what must be done on
+production: the database changes the deploy runs automatically, and the **manual server steps**
+(PHP upload limits, Nginx settings, etc.) that the deploy job does NOT do.
+
+- When the user asks "what do I need to do in production", "we merged to main", or anything
+  about deploying or fixing production → **read that file first** and walk them through the
+  unchecked items of the newest release, in plain language.
+- When a task needs anything on production beyond a normal code deploy (a migration, a `.env`
+  value, a server/PHP/Nginx/systemd change, a one-time command) → **add it to the top release
+  section of that file** as part of finishing the task.
+- On production, still follow RULE 5: give the steps; don't apply code fixes there directly.
+- Questions about joint accounts (types, who's who, which documents, old vs new records) →
+  read `JOINT_ACCOUNT_GUIDE.md` first, and keep it updated when joint-account behaviour changes.
+
+---
+
 ## RULE 4 — Before Context Fills Up
 
 If the conversation is growing very long or approaching limits:

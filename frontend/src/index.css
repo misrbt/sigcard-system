@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Always reserve room for the scrollbar so the page doesn't shift sideways
+   when a list grows or shrinks while searching. */
+html {
+  scrollbar-gutter: stable;
+}
+
 :root,
 body,
 #root {

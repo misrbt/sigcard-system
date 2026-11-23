@@ -10,12 +10,13 @@ use Spatie\Activitylog\Traits\LogsActivity;
 class CustomerHolder extends Model
 {
     use LogsActivity;
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
             ->useLogName('customer_holder')
             ->logOnly([
-                'customer_id', 'person_index', 'firstname', 'middlename',
+                'customer_id', 'person_index', 'role', 'firstname', 'middlename',
                 'lastname', 'suffix', 'risk_level',
             ])
             ->logOnlyDirty()
@@ -25,6 +26,7 @@ class CustomerHolder extends Model
     protected $fillable = [
         'customer_id',
         'person_index',
+        'role',
         'firstname',
         'middlename',
         'lastname',
@@ -42,13 +44,13 @@ class CustomerHolder extends Model
         $name = $this->firstname;
 
         if ($this->middlename) {
-            $name .= ' ' . $this->middlename;
+            $name .= ' '.$this->middlename;
         }
 
-        $name .= ' ' . $this->lastname;
+        $name .= ' '.$this->lastname;
 
         if ($this->suffix) {
-            $name .= ' ' . $this->suffix;
+            $name .= ' '.$this->suffix;
         }
 
         return $name;

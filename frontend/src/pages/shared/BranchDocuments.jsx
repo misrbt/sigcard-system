@@ -10,13 +10,14 @@ import {
   HiOutlineShieldCheck,
   HiOutlineOfficeBuilding,
   HiOutlineCalendar,
-  HiOutlineUsers,
   HiOutlineZoomIn,
   HiOutlineZoomOut,
   HiOutlineChevronLeft,
 } from "react-icons/hi";
 import { MdDescription } from "react-icons/md";
 import api from "../../services/api";
+import { corporateViewerImages, currentDocuments, jointViewerImages } from "../../utils/accountDocuments";
+import { CorporateDocumentsLayout, JointDocumentsLayout } from "../../components/customer/AccountDocumentsLayout";
 
 const storageUrl = (path) => {
   const base = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api").replace(/\/api$/, "");
@@ -46,12 +47,6 @@ const STATUS_STYLE = {
   closed:  { pill: "bg-red-100 text-red-700 border border-red-300",          dot: "bg-red-500"    },
 };
 
-const RISK_STYLE = {
-  "Low Risk":    "bg-emerald-50 text-emerald-700",
-  "Medium Risk": "bg-yellow-50 text-yellow-700",
-  "High Risk":   "bg-red-50 text-red-700",
-};
-
 const initials = (c) =>
   ((c?.firstname?.[0] ?? "") + (c?.lastname?.[0] ?? "")).toUpperCase() || "?";
 
@@ -61,7 +56,7 @@ const formatDate = (iso) => {
 };
 
 // ── Image Viewer ──────────────────────────────────────────────────────────────
-const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) => {
+const ImageViewer = ({ images, initialIndex = 0, onClose }) => {
   const [idx, setIdx]   = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan]   = useState({ x: 0, y: 0 });
@@ -126,7 +121,7 @@ const ImageViewer = ({ images, initialIndex = 0, onClose, isDormant = false }) =
         style={{ cursor: zoom > 1 ? (drag ? "grabbing" : "grab") : "default" }}>
         <img
           src={cur.src} alt={cur.label} draggable={false}
-          className={`max-h-full max-w-full object-contain transition-transform duration-100 select-none${isDormant ? " blur-md" : ""}`}
+          className={`max-h-full max-w-full object-contain transition-transform duration-100 select-none`}
           style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)` }}
         />
         {idx > 0 && (
@@ -222,7 +217,15 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
   const docs      = customer.documents ?? [];
   const holders   = customer.holders   ?? [];
   const isJoint   = customer.account_type === "Joint";
-  const isDormant = customer.status === "dormant";
+  const isCorporate = customer.account_type === "Corporate";
+  // Joint and business accounts use the same layout as the customer profile:
+  // signature card → each person's own documents → documents for the whole account.
+  const structuredDocs = (isJoint || isCorporate) ? currentDocuments(customer) : null;
+  const openStructured = (filePath) => {
+    const images = isJoint ? jointViewerImages(customer, structuredDocs) : corporateViewerImages(customer, structuredDocs, structuredDocs);
+    const idx = images.findIndex((img) => img.src === storageUrl(filePath));
+    if (images.length) setViewer({ images, index: Math.max(idx, 0) });
+  };
   const sCfg      = STATUS_STYLE[customer.status] ?? { pill: "bg-slate-100 text-slate-500", dot: "bg-slate-400" };
 
   const allHolders = [
@@ -247,7 +250,7 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
   return (
     <>
       {viewer && (
-        <ImageViewer images={viewer.images} initialIndex={viewer.index} onClose={() => setViewer(null)} isDormant={isDormant} />
+        <ImageViewer images={viewer.images} initialIndex={viewer.index} onClose={() => setViewer(null)} />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5">
@@ -268,9 +271,6 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
                 )}
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${sCfg.pill}`}>{customer.status}</span>
-                  {isDormant && (
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">Blurred</span>
-                  )}
                 </div>
               </div>
             </div>
@@ -299,34 +299,6 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
             </div>
           </div>
 
-          {isJoint && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100">
-                <HiOutlineUsers className="w-4 h-4 text-purple-500" />
-                <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Account Holders</p>
-                <span className="ml-auto text-xs text-slate-400">{allHolders.length}</span>
-              </div>
-              <div className="px-4 py-3 space-y-2">
-                {allHolders.map((h) => (
-                  <div key={h.person_index} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[11px] flex-shrink-0 ${h.person_index === 1 ? "bg-blue-600" : "bg-purple-600"}`}>
-                      {h.person_index}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-slate-800 truncate">
-                        {h.firstname}{h.middlename ? ` ${h.middlename}` : ""} {h.lastname}{h.suffix ? ` ${h.suffix}` : ""}
-                      </p>
-                      <p className="text-[10px] text-slate-400">{h.person_index === 1 ? "Primary" : "Secondary"}</p>
-                    </div>
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${RISK_STYLE[h.risk_level] ?? "bg-slate-100 text-slate-600"}`}>
-                      {h.risk_level}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           <button
             onClick={onClose}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-600 bg-white border-2 border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all"
@@ -336,6 +308,13 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
         </div>
 
         {/* RIGHT — Documents grid */}
+        {structuredDocs ? (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 min-w-0">
+            {isJoint
+              ? <JointDocumentsLayout customer={customer} docs={structuredDocs} onOpen={openStructured} />
+              : <CorporateDocumentsLayout customer={customer} docs={structuredDocs} acctDocs={structuredDocs} onOpen={openStructured} />}
+          </div>
+        ) : (
         <div className="space-y-5">
           {DOC_SECTIONS.map((sec) => {
             const secDocs = docs.filter((d) => d.document_type === sec.front || d.document_type === sec.back);
@@ -378,7 +357,7 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
                                     className="relative group w-full aspect-[3/4] rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm hover:shadow-md"
                                   >
                                     <img src={storageUrl(doc.file_path)} alt={lbl}
-                                      className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                                      className={`w-full h-full object-contain transition-all`} />
                                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                                       <div className="bg-white/90 rounded-full p-2 shadow-lg">
                                         <HiOutlineEye className="w-5 h-5 text-slate-700" />
@@ -422,7 +401,7 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
                       className="relative group aspect-square rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all bg-slate-50 shadow-sm hover:shadow-md"
                     >
                       <img src={storageUrl(doc.file_path)} alt={`Other ${i + 1}`}
-                        className={`w-full h-full object-contain transition-all${isDormant ? " blur-md" : ""}`} />
+                        className={`w-full h-full object-contain transition-all`} />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                         <div className="bg-white/90 rounded-full p-1.5 shadow"><HiOutlineEye className="w-4 h-4 text-slate-700" /></div>
                       </div>
@@ -433,6 +412,7 @@ const CustomerDocPanel = ({ customerId, onClose }) => {
             </div>
           )}
         </div>
+        )}
       </div>
     </>
   );
