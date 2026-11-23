@@ -14,7 +14,7 @@ jobs:
     runs-on: [self-hosted, staging-server]
 
     env:
-      DEPLOY_DIR: /home/rbtwebsrvr/projects/sigcard-system
+      DEPLOY_DIR: /var/www/staging/sigcard-system
 
     steps:
       - name: Checkout latest code
@@ -76,7 +76,9 @@ jobs:
           /usr/bin/rsync -a --delete $GITHUB_WORKSPACE/frontend/dist/      $DEPLOY_DIR/frontend/dist/
 
       - name: Restart services
-        run: sudo -n /usr/bin/systemctl restart sigcard-backend
+        run: |
+          # The staging backend (php -S) reads files on every request, so a restart is optional.
+          sudo -n /usr/bin/systemctl restart sigcard-backend || echo "Restart skipped (no passwordless sudo); new files are picked up automatically."
 
       - name: Write GitHub Actions summary
         run: |
