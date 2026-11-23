@@ -11,6 +11,7 @@ use App\Models\Customer;
 use App\Models\CustomerDocument;
 use App\Models\CustomerStatusLog;
 use App\Models\User;
+use App\Traits\SummarizesUserActivity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,8 @@ use Spatie\Activitylog\Models\Activity;
  */
 class ComplianceController extends Controller
 {
+    use SummarizesUserActivity;
+
     // =============================================
     // DASHBOARD
     // =============================================
@@ -180,6 +183,8 @@ class ComplianceController extends Controller
         $request->validate([
             'search' => 'nullable|string|max:255',
             'category' => 'nullable|in:all,login,customer,user_management,security,system',
+            'action' => 'nullable|in:all,alert,login,deleted,viewed,uploaded,edited,status,report,other',
+            'hide_background' => 'nullable|boolean',
             'causer_id' => 'nullable|exists:users,id',
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
@@ -203,7 +208,8 @@ class ComplianceController extends Controller
             }
 
             if ($request->filled('causer_id')) {
-                $query->where('causer_id', $request->causer_id);
+                $query->where('causer_type', User::class)
+                    ->where('causer_id', $request->causer_id);
             }
 
             if ($request->filled('date_from')) {
@@ -216,6 +222,14 @@ class ComplianceController extends Controller
 
             if ($request->filled('category') && $request->category !== 'all') {
                 $this->applyCategoryFilter($query, $request->category);
+            }
+
+            if ($request->filled('action') && $request->action !== 'all') {
+                $this->applyActionFilter($query, $request->action);
+            }
+
+            if ($request->boolean('hide_background')) {
+                $this->excludeBackgroundActivity($query);
             }
 
             $logs = $query->paginate($request->per_page ?? 25);
@@ -269,7 +283,7 @@ class ComplianceController extends Controller
 
             $stats = [
                 'total_today' => Activity::whereDate('created_at', today())->count(),
-                'logins_today' => Activity::where('description', 'like', '%login%')
+                'logins_today' => Activity::where('description', 'like', '%logged in%')
                     ->whereDate('created_at', today())->count(),
                 'failed_today' => Activity::where('description', 'like', '%failed%')
                     ->whereDate('created_at', today())->count(),
@@ -280,9 +294,11 @@ class ComplianceController extends Controller
                 'total_all_time' => Activity::count(),
             ];
 
-            $users = User::select('id', 'firstname', 'lastname', 'email')
-                ->orderBy('firstname')->get()
-                ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->full_name, 'email' => $u->email]);
+            $users = $this->auditUserDirectory();
+
+            $userSummary = $request->filled('causer_id')
+                ? $this->buildUserActivitySummary((int) $request->causer_id, $request)
+                : null;
 
             return response()->json([
                 'success' => true,
@@ -290,6 +306,7 @@ class ComplianceController extends Controller
                 'data' => $logs,
                 'stats' => $stats,
                 'users' => $users,
+                'user_summary' => $userSummary,
             ]);
 
         } catch (\Exception $e) {
