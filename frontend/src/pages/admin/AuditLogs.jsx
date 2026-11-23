@@ -11,7 +11,7 @@ import {
   FaUserPlus, FaUserEdit, FaUserTimes, FaKey, FaLock,
   FaUnlock, FaShieldAlt, FaDatabase, FaFileAlt,
   FaExclamationTriangle, FaCheckCircle, FaCog, FaArrowRight,
-  FaPlus, FaTrash, FaEdit, FaCalendarAlt, FaBuilding,
+  FaPlus, FaTrash, FaEdit, FaCalendarAlt, FaBuilding, FaEye, FaUpload,
 } from 'react-icons/fa';
 import { HiOutlineX, HiOutlineClock, HiOutlineCollection, HiOutlineChevronLeft, HiOutlinePhotograph } from 'react-icons/hi';
 import api from '../../services/api';
@@ -140,8 +140,37 @@ const personLabel = (index) => {
   return `${ordinal(n)} Account Holder (Joint)`;
 };
 
-const humanizeDescription = (description = '', properties = {}) => {
+const SUBJECT_NOUNS = {
+  Customer:          'a customer record',
+  CustomerDocument:  'a customer document',
+  CustomerHolder:    "an account holder's details",
+  CustomerAccount:   'a customer account',
+  CustomerStatusLog: 'an account status entry',
+  User:              'a staff account',
+  Branch:            'a branch',
+  BranchDataShare:   'a branch sharing rule',
+};
+
+const subjectClass = (log) => log?.subject_type?.split('\\').pop() ?? null;
+
+const humanizeDescription = (description = '', properties = {}, log = null) => {
   const d   = description.toLowerCase();
+  const bareEvent = { created: 'Added', updated: 'Changed', deleted: 'Deleted' }[d.trim()];
+  if (bareEvent) {
+    const noun = SUBJECT_NOUNS[subjectClass(log)] ?? 'a record';
+    const name = properties.full_name ? ` (${properties.full_name})` : '';
+    return `${bareEvent} ${noun}${name}.`;
+  }
+  if (d === 'api access granted')
+    return 'Automatic check: the system confirmed this person may use the page they opened.';
+  if (d.includes('token refreshed'))
+    return 'Automatic: the login session was kept active.';
+  if (d.includes('logged in successfully'))
+    return 'Signed in to the system.';
+  if (d.includes('logged in with password only'))
+    return 'Signed in with password only (allowed by an administrator).';
+  if (d.includes('recovery code acknowledged'))
+    return 'Confirmed they saved their recovery code.';
   const who = properties.full_name ? ` for ${properties.full_name}` : '';
   const dt  = properties.document_type ? ` (${DOC_TYPE_LABELS[properties.document_type] ?? properties.document_type})` : '';
 
@@ -218,20 +247,29 @@ const humanizeDescription = (description = '', properties = {}) => {
   if (d.includes('restore'))
     return 'System data was restored from a backup.';
 
-  return description;
+  const viewed = description.match(/viewed (.+)$/i);
+  if (viewed && !d.includes('customer'))
+    return `Opened the ${viewed[1].replace(/\(read-only\)/i, '').trim()} page.`;
+
+  return description.charAt(0).toUpperCase() + description.slice(1);
 };
 
 const humanizeSubject = (log) => {
   const props = log.properties ?? {};
   if (props.full_name) return props.full_name;
-  const type = log.subject_type?.split('\\').pop();
+  const type = subjectClass(log);
   if (!type) return null;
   const typeMap = {
-    Customer:         'Customer Record',
-    CustomerDocument: 'Document',
-    User:             'Staff Account',
+    Customer:          'Customer record',
+    CustomerDocument:  'Document',
+    CustomerHolder:    'Account holder',
+    CustomerAccount:   'Account',
+    CustomerStatusLog: 'Status entry',
+    User:              'Staff account',
+    Branch:            'Branch',
+    BranchDataShare:   'Branch sharing',
   };
-  return typeMap[type] ?? type;
+  return typeMap[type] ?? type.replace(/([a-z])([A-Z])/g, '$1 $2');
 };
 
 const resolveLogMeta = (description = '', event = '') => {
@@ -1141,8 +1179,9 @@ const StatCard = ({ label, value, icon: Icon, colorClass, bgClass }) => (
 );
 
 // ── Log Entry Row ─────────────────────────────────────────────────────────────
-const LogEntryRow = ({ log, expanded, onToggle, onHistory }) => {
+const LogEntryRow = ({ log, expanded, onToggle, onHistory, onSelectUser, isFilteredUser, staffById }) => {
   const meta     = resolveLogMeta(log.description, log.event);
+  const action   = actionGroupOf(log.description);
   const Icon     = meta.icon;
   const subject  = humanizeSubject(log);
   const props    = log.properties ?? {};
@@ -1151,11 +1190,7 @@ const LogEntryRow = ({ log, expanded, onToggle, onHistory }) => {
   const severity = getSeverity(log.description);
   const sev      = SEVERITY_MAP[severity];
 
-  const subjectType = log.subject_type?.toLowerCase().includes('customer') && !log.subject_type?.toLowerCase().includes('document')
-    ? 'customer'
-    : log.subject_type?.toLowerCase().includes('customerdocument')
-    ? 'document'
-    : null;
+  const subjectType = { Customer: 'customer', CustomerDocument: 'document' }[subjectClass(log)] ?? null;
 
   const getInitials = () => {
     if (!log.causer) return 'SY';
@@ -1170,45 +1205,66 @@ const LogEntryRow = ({ log, expanded, onToggle, onHistory }) => {
     return log.causer.email ?? 'Unknown';
   };
 
+  const staff = log.causer ? staffById?.[log.causer.id] : null;
+  const time  = log.created_at
+    ? new Date(log.created_at).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })
+    : '';
+  const ActionIcon = action.icon;
+
   return (
-    <div className={`border-l-[3px] ${sev.border} transition-colors ${expanded ? 'bg-blue-50/30' : 'hover:bg-gray-50/80'}`}>
-      <div className="flex items-start gap-3 px-5 py-4">
-        {/* Avatar */}
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-[#05173a] to-[#1877F2] flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5 select-none ring-2 ring-white">
-          {getInitials()}
+    <div className={`border-l-[3px] ${sev.border} transition-colors ${expanded ? 'bg-blue-50/40' : 'hover:bg-slate-50'}`}>
+      <div className="grid grid-cols-[4.5rem_1fr] sm:grid-cols-[5.5rem_13rem_1fr_auto] gap-x-4 gap-y-2 items-start px-4 sm:px-5 py-3.5">
+        {/* When */}
+        <div className="pt-0.5">
+          <p className="text-sm font-semibold text-gray-800 tabular-nums whitespace-nowrap">{time}</p>
+          <p className="text-[11px] text-gray-400">{formatRelative(log.created_at)}</p>
         </div>
 
-        {/* Category icon */}
-        <div className={`flex-shrink-0 w-10 h-10 rounded-xl ${meta.bg} flex items-center justify-center mt-0.5 border border-gray-100`}>
-          <Icon className={`w-4.5 h-4.5 ${meta.color}`} />
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => hasProps && onToggle()}>
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className="text-sm font-bold text-gray-800">{getCauserName()}</span>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${meta.badge}`}>{meta.label}</span>
-            {subject && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500 border border-gray-200">{subject}</span>
-            )}
+        {/* Who */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#05173a] to-[#1877F2] flex items-center justify-center text-white text-[11px] font-bold select-none">
+            {getInitials()}
           </div>
-          <p className="text-[13px] text-gray-600 leading-relaxed">{humanizeDescription(log.description, log.properties)}</p>
-          <div className="flex flex-wrap items-center gap-3 mt-1.5">
-            <span className="inline-flex items-center gap-1 text-[11px] text-gray-400">
-              <MdAccessTime className="w-3 h-3" />
-              {formatDateShort(log.created_at)}
+          <div className="min-w-0">
+            {log.causer && !isFilteredUser ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onSelectUser?.(log.causer.id); }}
+                className="block max-w-full truncate text-sm font-semibold text-gray-800 hover:text-[#1877F2] hover:underline text-left"
+                title="Show everything this person did"
+              >
+                {getCauserName()}
+              </button>
+            ) : (
+              <p className="truncate text-sm font-semibold text-gray-800">{getCauserName()}</p>
+            )}
+            <p className="truncate text-[11px] text-gray-400">
+              {log.causer ? [roleLabel(staff?.role), staff?.branch].filter((v) => v && v !== '—').join(', ') || 'Staff' : 'Automatic'}
+            </p>
+          </div>
+        </div>
+
+        {/* What happened */}
+        <div
+          className={`col-span-2 sm:col-span-1 min-w-0 ${hasProps ? 'cursor-pointer' : ''}`}
+          onClick={() => hasProps && onToggle()}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${action.chip}`}>
+              <ActionIcon className="w-3 h-3" />{action.label}
             </span>
-            <span className="text-[11px] text-blue-400 font-medium">{formatRelative(log.created_at)}</span>
-            {ipAddr && (
-              <span className="text-[11px] text-gray-400 font-mono bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
-                {ipAddr}
-              </span>
+            {subject && (
+              <span className="text-[11px] font-medium text-gray-500 bg-gray-100 rounded-md px-2 py-0.5 truncate max-w-[16rem]">{subject}</span>
             )}
           </div>
+          <p className="text-[13px] text-gray-700 leading-relaxed mt-1">{humanizeDescription(log.description, log.properties, log)}</p>
+          {ipAddr && (
+            <p className="text-[11px] text-gray-400 mt-0.5">From computer {ipAddr}</p>
+          )}
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-1 flex-shrink-0 mt-1">
+        {/* Actions */}
+        <div className="col-span-2 sm:col-span-1 flex items-center gap-1 justify-end">
           {subjectType && log.subject_id && (
             <button
               onClick={() => onHistory({
@@ -1216,19 +1272,20 @@ const LogEntryRow = ({ log, expanded, onToggle, onHistory }) => {
                 subjectId:    log.subject_id,
                 subjectLabel: subject ?? log.description,
               })}
-              className="p-2 rounded-lg text-[#1877F2] hover:bg-blue-50 transition-colors"
-              title="View full history timeline"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#1877F2] hover:bg-blue-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              title="See every change made to this record"
             >
-              <MdTimeline className="w-5 h-5" />
+              <MdTimeline className="w-4 h-4" /> Record history
             </button>
           )}
           {hasProps && (
             <button
               onClick={onToggle}
-              className={`p-2 rounded-lg transition-colors ${expanded ? 'text-blue-600 bg-blue-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-              title="View details"
+              aria-expanded={expanded}
+              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${expanded ? 'text-blue-700 bg-blue-100' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
             >
-              {expanded ? <MdExpandLess className="w-5 h-5" /> : <MdExpandMore className="w-5 h-5" />}
+              {expanded ? 'Hide details' : 'Details'}
+              {expanded ? <MdExpandLess className="w-4 h-4" /> : <MdExpandMore className="w-4 h-4" />}
             </button>
           )}
         </div>
@@ -1242,12 +1299,13 @@ const LogEntryRow = ({ log, expanded, onToggle, onHistory }) => {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="mx-5 mb-4 p-4 bg-gradient-to-br from-slate-50 to-blue-50/30 rounded-xl border border-gray-200/80">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <div className="mx-4 sm:ml-[7.5rem] sm:mr-5 mb-4 p-4 bg-white rounded-xl border border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 mb-3 flex items-center gap-1.5">
                 <MdVisibility className="w-3.5 h-3.5" />
-                Event Details
+                Details of this activity
               </p>
               <PropertiesPanel log={log} />
             </div>
@@ -1257,6 +1315,270 @@ const LogEntryRow = ({ log, expanded, onToggle, onHistory }) => {
     </div>
   );
 };
+
+// ── Staff Activity Lookup ─────────────────────────────────────────────────────
+const ROLE_LABELS = {
+  admin: 'Administrator', manager: 'Branch Manager', user: 'Staff',
+  cashier: 'Cashier', compliance: 'Compliance Officer', audit: 'Auditor',
+};
+const roleLabel = (r) => ROLE_LABELS[r] ?? (r ? r.charAt(0).toUpperCase() + r.slice(1) : '—');
+
+const dayLabel = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+};
+
+const initialsOf = (name = '') =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+
+const Highlight = ({ text, query }) => {
+  const q = query.trim();
+  if (!q || !text) return text ?? null;
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i === -1) return text;
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="bg-yellow-100 text-gray-900 rounded px-0.5">{text.slice(i, i + q.length)}</mark>
+      {text.slice(i + q.length)}
+    </>
+  );
+};
+
+const StaffLookup = ({ users, selectedId, onSelect, onClear }) => {
+  const [query, setQuery] = useState('');
+  const [open, setOpen]   = useState(false);
+  const [cursor, setCursor] = useState(0);
+
+  const selected = useMemo(
+    () => users.find((u) => String(u.id) === String(selectedId)),
+    [users, selectedId],
+  );
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    const rank = (u) => {
+      const n = (u.name || '').toLowerCase();
+      if (n.startsWith(q)) return 0;
+      if (n.split(/\s+/).some((w) => w.startsWith(q))) return 1;
+      if (n.includes(q)) return 2;
+      return 3;
+    };
+    return users
+      .filter((u) => [u.name, u.email, u.username, u.branch, roleLabel(u.role)]
+        .some((v) => v && String(v).toLowerCase().includes(q)))
+      .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  }, [users, query]);
+
+  const choose = (u) => {
+    onSelect(u.id);
+    setQuery('');
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => Math.min(c + 1, matches.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (matches[cursor]) choose(matches[cursor]); }
+    else if (e.key === 'Escape') { setOpen(false); }
+  };
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setOpen(true); setCursor(0); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            onKeyDown={onKeyDown}
+            placeholder={selected ? `${selected.name} (type to change)` : 'Everyone. Type a name, branch or email…'}
+            className={`w-full pl-9 pr-4 py-2 text-sm text-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1877F2] transition-colors ${selected ? 'border-[#1877F2] bg-blue-50/40 placeholder:text-gray-700 placeholder:font-medium' : 'border-gray-200 bg-white'}`}
+            aria-label="Search staff member"
+          />
+          {open && (
+            <div className="absolute z-30 mt-1.5 w-full bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
+              {matches.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-gray-400">No staff member matches “{query}”.</p>
+              ) : (
+                <>
+                <p className="px-4 pt-2.5 pb-1.5 text-xs text-gray-400 border-b border-gray-100">
+                  {query.trim() ? `${matches.length} staff found` : `All staff (${matches.length})`}. Use the arrow keys and Enter to pick.
+                </p>
+                <ul className="max-h-80 overflow-y-auto py-1">
+                  {matches.map((u, i) => (
+                    <li key={u.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => choose(u)}
+                        onMouseEnter={() => setCursor(i)}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === cursor ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                      >
+                        <span className="w-8 h-8 rounded-full bg-gradient-to-br from-[#05173a] to-[#1877F2] text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">
+                          {initialsOf(u.name)}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-semibold text-gray-800 truncate"><Highlight text={u.name} query={query} /></span>
+                          <span className="block text-[11px] text-gray-400 truncate">
+                            {roleLabel(u.role)}{u.branch ? <> · <Highlight text={u.branch} query={query} /></> : ''}{u.username ? <> · @<Highlight text={u.username} query={query} /></> : ''}
+                          </span>
+                          {u.email && (
+                            <span className="block text-[11px] text-gray-400 truncate"><Highlight text={u.email} query={query} /></span>
+                          )}
+                        </span>
+                        {String(u.id) === String(selectedId) && (
+                          <FaCheckCircle className="w-4 h-4 text-[#1877F2] flex-shrink-0" />
+                        )}
+                        {u.status && u.status !== 'active' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-gray-100 text-gray-500 border border-gray-200">{u.status}</span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {selected && (
+          <button
+            onClick={onClear}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium flex-shrink-0"
+          >
+            <MdClose className="w-4 h-4" /> Everyone
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Plain-language action groups. Same words and order as the backend
+// (SummarizesUserActivity::auditActionGroups) — first match wins, so groups never overlap.
+const ACTION_GROUPS = [
+  { key: 'alert',    label: 'Security Alerts',    hint: 'Failed logins, blocked or suspicious access', icon: FaExclamationTriangle, chip: 'bg-red-50 text-red-700 border-red-200',             bar: 'bg-red-400',     words: ['failed', 'unauthorized', 'attempted access', 'security event', 'rate limit'] },
+  { key: 'login',    label: 'Logins & Passwords', hint: 'Logged in or out, password and 2FA changes',  icon: FaKey,                 chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', bar: 'bg-emerald-400', words: ['logged in', 'logged out', 'login', 'password', 'two-factor', 'recovery code'] },
+  { key: 'deleted',  label: 'Deleted / Removed',  hint: 'Records, documents or access taken away',     icon: FaTrash,               chip: 'bg-rose-50 text-rose-700 border-rose-200',          bar: 'bg-rose-400',    words: ['deleted', 'removed', 'revoked'] },
+  { key: 'viewed',   label: 'Viewed / Searched',  hint: 'Opened customer records, lists or reports',   icon: FaEye,                 chip: 'bg-sky-50 text-sky-700 border-sky-200',             bar: 'bg-sky-400',     words: ['viewed', 'accessed', 'search'] },
+  { key: 'uploaded', label: 'Uploaded / Added',   hint: 'New signature cards, customers or accounts',  icon: FaUpload,              chip: 'bg-indigo-50 text-indigo-700 border-indigo-200',    bar: 'bg-indigo-400',  words: ['created', 'uploaded', 'added'] },
+  { key: 'edited',   label: 'Edited / Changed',   hint: 'Updated details or replaced documents',       icon: FaEdit,                chip: 'bg-amber-50 text-amber-700 border-amber-200',       bar: 'bg-amber-400',   words: ['updated', 'replaced', 'changed', 'moved', 'assigned', 'synced', 'edited'] },
+  { key: 'status',   label: 'Approvals & Status', hint: 'Approved, activated, unlocked, verified',     icon: FaCheckCircle,         chip: 'bg-teal-50 text-teal-700 border-teal-200',          bar: 'bg-teal-400',    words: ['approved', 'rejected', 'verified', 'activated', 'unlocked', 'exempted', 'restored'] },
+  { key: 'report',   label: 'Reports & Exports',  hint: 'Generated or downloaded reports',             icon: FaFileAlt,             chip: 'bg-purple-50 text-purple-700 border-purple-200',    bar: 'bg-purple-400',  words: ['generated', 'exported', 'report'] },
+  { key: 'other',    label: 'Background Checks',  hint: 'Automatic system checks while logged in',     icon: FaCog,                 chip: 'bg-gray-50 text-gray-500 border-gray-200',          bar: 'bg-gray-300',    words: [] },
+];
+
+const actionGroupOf = (description = '') => {
+  const d = description.toLowerCase();
+  return ACTION_GROUPS.find((g) => g.words.some((w) => d.includes(w))) ?? ACTION_GROUPS[ACTION_GROUPS.length - 1];
+};
+
+const UserActivitySummary = ({ summary, hasDateRange }) => {
+  if (!summary) return null;
+  const u = summary.user;
+  const tiles = [
+    { label: hasDateRange ? 'In the dates chosen' : 'All recorded activity', value: summary.total_in_period },
+    { label: 'Today',             value: summary.today },
+    { label: 'Last 7 days',       value: summary.last_7_days },
+    { label: 'Last active',       value: summary.last_activity_at ? formatRelative(summary.last_activity_at) : 'Never', sub: summary.last_activity_at ? formatDateShort(summary.last_activity_at) : null },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden"
+    >
+      <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center">
+        <div className="flex items-center gap-4 lg:w-80 flex-shrink-0">
+          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#05173a] to-[#1877F2] flex items-center justify-center text-white text-lg font-bold shadow ring-4 ring-blue-50">
+            {initialsOf(u.name)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-base font-extrabold text-gray-800 truncate">{u.name}</p>
+            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-100 text-blue-700">{roleLabel(u.role)}</span>
+              {u.branch && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                  <FaBuilding className="w-2.5 h-2.5" />{u.branch}
+                </span>
+              )}
+              {u.status && u.status !== 'active' && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-red-50 text-red-600 border border-red-200">{u.status}</span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1 truncate">{u.email}</p>
+            {u.last_login_at && (
+              <p className="text-xs text-gray-400 truncate">
+                Last login {formatDateShort(u.last_login_at)}{u.last_login_ip ? ` from ${u.last_login_ip}` : ''}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1">
+          {tiles.map((t) => (
+            <div key={t.label} className="rounded-lg bg-slate-50 border border-gray-100 px-3 py-2.5">
+              <p className="text-xs text-gray-500">{t.label}</p>
+              <p className="text-lg font-extrabold text-gray-800 leading-tight mt-0.5">
+                {typeof t.value === 'number' ? t.value.toLocaleString() : t.value}
+              </p>
+              {t.sub && <p className="text-[10px] text-gray-400 mt-0.5">{t.sub}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+    </motion.div>
+  );
+};
+
+const toYmd = (d) => {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+};
+
+const DATE_PRESETS = [
+  { key: 'all',       label: 'All time'     },
+  { key: 'today',     label: 'Today'        },
+  { key: 'yesterday', label: 'Yesterday'    },
+  { key: '7d',        label: 'Last 7 days'  },
+  { key: '30d',       label: 'Last 30 days' },
+  { key: 'month',     label: 'This month'   },
+  { key: 'custom',    label: 'Pick dates'   },
+];
+
+const rangeForPreset = (key) => {
+  const now = new Date();
+  const daysAgo = (n) => { const d = new Date(now); d.setDate(d.getDate() - n); return d; };
+  switch (key) {
+    case 'today':     return { from: toYmd(now), to: toYmd(now) };
+    case 'yesterday': return { from: toYmd(daysAgo(1)), to: toYmd(daysAgo(1)) };
+    case '7d':        return { from: toYmd(daysAgo(6)), to: toYmd(now) };
+    case '30d':       return { from: toYmd(daysAgo(29)), to: toYmd(now) };
+    case 'month':     return { from: toYmd(new Date(now.getFullYear(), now.getMonth(), 1)), to: toYmd(now) };
+    default:          return { from: '', to: '' };
+  }
+};
+
+const CountPill = ({ n, active }) => (
+  <span className={`min-w-[1.5rem] px-1.5 py-0.5 rounded-full text-[11px] font-semibold tabular-nums text-center ${active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
+    {n.toLocaleString()}
+  </span>
+);
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
@@ -1270,6 +1592,11 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
   const [showFilters, setShowFilters]   = useState(false);
   const [historyTarget, setHistoryTarget] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [userSummary, setUserSummary] = useState(null);
+  const [activeAction, setActiveAction] = useState('all');
+  const [datePreset, setDatePreset] = useState('all');
+  const [hideBackground, setHideBackground] = useState(true);
+  const [searchText, setSearchText] = useState('');
 
   const isCompliance = apiEndpoint.includes('compliance');
 
@@ -1277,10 +1604,19 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
     search: '', causer_id: '', date_from: '', date_to: '', per_page: 25,
   });
 
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((p) => (p.search === searchText.trim() ? p : { ...p, search: searchText.trim() }));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchText]);
+
   const fetchLogs = useCallback(async (page = 1) => {
     setLoading(true);
     try {
       const params = { page, category: activeTab, per_page: filters.per_page };
+      if (activeAction !== 'all') params.action = activeAction;
+      if (hideBackground) params.hide_background = 1;
       if (filters.search)    params.search    = filters.search;
       if (filters.causer_id) params.causer_id = filters.causer_id;
       if (filters.date_from) params.date_from = filters.date_from;
@@ -1292,6 +1628,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
       setLogs(data?.data ?? []);
       setStats(body.stats ?? null);
       if (body.users?.length) setUsers(body.users);
+      setUserSummary(body.user_summary ?? null);
       setPagination({
         current_page: data?.current_page ?? 1,
         last_page:    data?.last_page    ?? 1,
@@ -1304,7 +1641,7 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
     } finally {
       setLoading(false);
     }
-  }, [filters, activeTab, apiEndpoint]);
+  }, [filters, activeTab, activeAction, hideBackground, apiEndpoint]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
@@ -1335,69 +1672,95 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
     }
   };
 
-  const hasFiltersActive = filters.search || filters.causer_id || filters.date_from || filters.date_to;
+  const staffById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users]);
+  const selectedStaff = filters.causer_id ? staffById[filters.causer_id] : null;
 
-  const activeCategory = useMemo(() => CATEGORIES.find((c) => c.key === activeTab), [activeTab]);
+  const selectStaff = useCallback((id) => {
+    setFilters((p) => ({ ...p, causer_id: id ? String(id) : '' }));
+    setActiveAction('all');
+    setExpandedRow(null);
+    window.scrollTo?.({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const pickDatePreset = (key) => {
+    setDatePreset(key);
+    if (key === 'custom') return;
+    const { from, to } = rangeForPreset(key);
+    setFilters((p) => ({ ...p, date_from: from, date_to: to }));
+  };
+
+  const clearAll = () => {
+    setSearchText('');
+    setDatePreset('all');
+    setActiveAction('all');
+    setActiveTab('all');
+    setFilters({ search: '', causer_id: '', date_from: '', date_to: '', per_page: 25 });
+  };
+
+  const hasFiltersActive = Boolean(
+    filters.search || filters.causer_id || filters.date_from || filters.date_to || activeAction !== 'all' || activeTab !== 'all',
+  );
+
+  const actionCounts = userSummary?.by_action ?? null;
+  const allCount = actionCounts
+    ? Object.entries(actionCounts).reduce((n, [k, v]) => (hideBackground && k === 'other' ? n : n + v), 0)
+    : null;
+  const visibleActions = ACTION_GROUPS.filter((g) => !(hideBackground && g.key === 'other'));
+
+  const resultSentence = useMemo(() => {
+    const parts = [];
+    if (selectedStaff) parts.push(`by ${selectedStaff.name}`);
+    if (activeAction !== 'all') parts.push(ACTION_GROUPS.find((g) => g.key === activeAction)?.label.toLowerCase());
+    if (activeTab !== 'all') parts.push(`in ${CATEGORIES.find((c) => c.key === activeTab)?.label.toLowerCase()}`);
+    if (filters.search) parts.push(`matching “${filters.search}”`);
+    if (datePreset !== 'all') {
+      const label = DATE_PRESETS.find((d) => d.key === datePreset)?.label;
+      if (datePreset === 'custom') {
+        if (filters.date_from || filters.date_to) parts.push(`from ${filters.date_from || 'the start'} to ${filters.date_to || 'today'}`);
+      } else {
+        parts.push(label.toLowerCase());
+      }
+    }
+    return parts.filter(Boolean).join(', ');
+  }, [selectedStaff, activeAction, activeTab, filters.search, filters.date_from, filters.date_to, datePreset]);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#01060f] via-[#05173a] to-[#0a2a5e] px-6 py-6 shadow-xl">
-        <div className="absolute inset-0 opacity-[0.07]"
-          style={{ backgroundImage: 'radial-gradient(circle at 70% 50%, #1877F2 0%, transparent 60%)' }} />
-        <div className="absolute top-0 right-0 w-64 h-64 opacity-5"
-          style={{ backgroundImage: 'radial-gradient(circle, #60A5FA 0%, transparent 70%)', transform: 'translate(30%, -30%)' }} />
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#01060f] via-[#05173a] to-[#0a2a5e] px-6 py-5 shadow-lg">
         <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/10">
-                {isCompliance
-                  ? <FaShieldAlt className="w-5 h-5 text-blue-400" />
-                  : <MdHistory className="w-6 h-6 text-blue-400" />
-                }
-              </div>
-              {isCompliance ? 'Compliance Audit Trail' : 'System Audit Logs'}
-            </h1>
-            <p className="mt-1.5 text-sm text-blue-200/80 ml-[52px]">
-              {isCompliance
-                ? 'BSP-compliant audit trail — full regulatory oversight of all system activity.'
-                : 'A complete record of all activity in the system — who did what, and when.'
-              }
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
+              {isCompliance ? <FaShieldAlt className="w-5 h-5 text-blue-300" /> : <MdHistory className="w-6 h-6 text-blue-300" />}
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                {isCompliance ? 'Compliance Audit Trail' : 'Audit Logs'}
+              </h1>
+              <p className="text-sm text-blue-200/80">Who did what in the system, and when.</p>
+            </div>
           </div>
-          <div className="flex items-center gap-2 ml-[52px] sm:ml-0">
-            {/* Export buttons for compliance */}
+          <div className="flex items-center gap-2">
             {isCompliance && (
-              <div className="flex items-center gap-1 mr-1">
+              <>
                 <button
                   onClick={() => handleExport('csv')}
                   disabled={exporting}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-colors disabled:opacity-50"
                 >
-                  <MdDownload className="w-3.5 h-3.5" /> CSV
+                  <MdDownload className="w-4 h-4" /> CSV
                 </button>
                 <button
                   onClick={() => handleExport('pdf')}
                   disabled={exporting}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/20 text-red-300 border border-red-400/30 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-colors disabled:opacity-50"
                 >
-                  <MdDownload className="w-3.5 h-3.5" /> PDF
+                  <MdDownload className="w-4 h-4" /> PDF
                 </button>
-              </div>
+              </>
             )}
             <button
-              onClick={() => setShowFilters((v) => !v)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                showFilters || hasFiltersActive
-                  ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-lg shadow-blue-500/20'
-                  : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
-              }`}
-            >
-              <MdFilterList className="w-4 h-4" />
-              Filters {hasFiltersActive && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
-            </button>
-            <button
-              onClick={() => fetchLogs()}
+              onClick={() => fetchLogs(pagination.current_page)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-colors"
             >
               <MdRefresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
@@ -1406,186 +1769,253 @@ const AuditLogs = ({ apiEndpoint = '/admin/audit-logs' }) => {
         </div>
       </div>
 
-      {/* ── Stats ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <StatCard label="Activities Today"        value={stats?.total_today}    icon={MdHistory}             colorClass="text-blue-600"   bgClass="bg-blue-50"   />
-        <StatCard label="Successful Logins Today" value={stats?.logins_today}   icon={FaSignInAlt}           colorClass="text-emerald-600"bgClass="bg-emerald-50"/>
-        <StatCard label="Failed Login Attempts"   value={stats?.failed_today}   icon={FaExclamationTriangle} colorClass="text-red-600"    bgClass="bg-red-50"    />
-        <StatCard label="Customer Actions Today"  value={stats?.customer_ops}   icon={FaIdCard}              colorClass="text-indigo-600" bgClass="bg-indigo-50" />
-        <StatCard label="Total Records (All-Time)"value={stats?.total_all_time} icon={FaDatabase}            colorClass="text-slate-600"  bgClass="bg-slate-50"  />
+      {/* ── Today at a glance ──────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Activities today"        value={stats?.total_today}  icon={MdHistory}             colorClass="text-blue-600"    bgClass="bg-blue-50"    />
+        <StatCard label="Logins today"            value={stats?.logins_today} icon={FaSignInAlt}           colorClass="text-emerald-600" bgClass="bg-emerald-50" />
+        <StatCard label="Failed attempts today"   value={stats?.failed_today} icon={FaExclamationTriangle} colorClass="text-red-600"     bgClass="bg-red-50"     />
+        <StatCard label="Customer record actions today" value={stats?.customer_ops} icon={FaIdCard}        colorClass="text-indigo-600"  bgClass="bg-indigo-50"  />
       </div>
 
-      {/* ── Filters ────────────────────────────────────────────────────── */}
-      <AnimatePresence>
-        {showFilters && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <MdFilterList className="w-4 h-4 text-gray-400" />
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Filter & Search</p>
-                {hasFiltersActive && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-600 border border-blue-200 uppercase">Active</span>
-                )}
+      {/* ── Filter panel: Who / What / When ────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
+        {/* Who + When */}
+        <div className="grid gap-4 p-4 lg:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-1.5">Who?</p>
+            <StaffLookup
+              users={users}
+              selectedId={filters.causer_id}
+              onSelect={selectStaff}
+              onClear={() => selectStaff('')}
+            />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-1.5">When?</p>
+            <div className="flex flex-wrap gap-1.5">
+              {DATE_PRESETS.map((d) => (
+                <button
+                  key={d.key}
+                  onClick={() => pickDatePreset(d.key)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                    datePreset === d.key ? 'bg-[#05173a] text-white border-[#05173a]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+            {datePreset === 'custom' && (
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                <input type="date" value={filters.date_from} aria-label="From date"
+                  onChange={(e) => setFilters((p) => ({ ...p, date_from: e.target.value }))}
+                  className="px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                <span className="text-sm text-gray-400">to</span>
+                <input type="date" value={filters.date_to} aria-label="To date" min={filters.date_from || undefined}
+                  onChange={(e) => setFilters((p) => ({ ...p, date_to: e.target.value }))}
+                  className="px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200" />
               </div>
-              <div className="flex flex-wrap gap-3 items-end">
-                <div className="flex-1 min-w-[220px]">
-                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Search</label>
-                  <div className="relative">
-                    <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      name="search"
-                      value={filters.search}
-                      onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
-                      placeholder="Search descriptions, user names..."
-                      className="w-full pl-9 pr-4 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1877F2] bg-gray-50 focus:bg-white transition-colors"
-                    />
+            )}
+          </div>
+        </div>
+
+        {/* What */}
+        <div className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <p className="text-sm font-semibold text-gray-700">What did they do?</p>
+            <label className="inline-flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={hideBackground}
+                onChange={(e) => { setHideBackground(e.target.checked); if (e.target.checked && activeAction === 'other') setActiveAction('all'); }}
+                className="w-4 h-4 rounded border-gray-300 text-[#1877F2] focus:ring-blue-300"
+              />
+              Hide automatic system checks
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setActiveAction('all')}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                activeAction === 'all' ? 'bg-[#05173a] text-white border-[#05173a]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              Everything
+              {allCount !== null && <CountPill n={allCount} active={activeAction === 'all'} />}
+            </button>
+            {visibleActions.map(({ key, label, hint, icon: Icon }) => {
+              const active = activeAction === key;
+              const n = actionCounts?.[key];
+              return (
+                <button
+                  key={key}
+                  onClick={() => setActiveAction(active ? 'all' : key)}
+                  title={hint}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                    active ? 'bg-[#05173a] text-white border-[#05173a]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  } ${n === 0 && !active ? 'opacity-50' : ''}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {label}
+                  {n !== undefined && <CountPill n={n} active={active} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* More options */}
+        <div className="px-4 py-2.5">
+          <button
+            onClick={() => setShowFilters((v) => !v)}
+            aria-expanded={showFilters}
+            className="inline-flex items-center gap-1 text-sm font-medium text-[#1877F2] hover:underline"
+          >
+            {showFilters ? <MdExpandLess className="w-4 h-4" /> : <MdExpandMore className="w-4 h-4" />}
+            {showFilters ? 'Fewer options' : 'More options (keyword, area, rows per page)'}
+          </button>
+          <AnimatePresence initial={false}>
+            {showFilters && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="flex flex-wrap gap-3 items-end pt-3 pb-1">
+                  <div className="flex-1 min-w-[220px]">
+                    <label htmlFor="audit-keyword" className="block text-xs font-medium text-gray-500 mb-1">Keyword</label>
+                    <div className="relative">
+                      <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        id="audit-keyword"
+                        type="text"
+                        value={searchText}
+                        onChange={(e) => setSearchText(e.target.value)}
+                        placeholder="e.g. replaced, password, a customer's name"
+                        className="w-full pl-9 pr-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1877F2]"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="audit-area" className="block text-xs font-medium text-gray-500 mb-1">Area of the system</label>
+                    <select
+                      id="audit-area"
+                      value={activeTab}
+                      onChange={(e) => { setActiveTab(e.target.value); setExpandedRow(null); }}
+                      className="px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    >
+                      {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.key === 'all' ? 'All areas' : c.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="audit-per-page" className="block text-xs font-medium text-gray-500 mb-1">Rows per page</label>
+                    <select
+                      id="audit-per-page"
+                      value={filters.per_page}
+                      onChange={(e) => setFilters((p) => ({ ...p, per_page: Number(e.target.value) }))}
+                      className="px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    >
+                      {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
                   </div>
                 </div>
-                <div className="min-w-[180px]">
-                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Performed By</label>
-                  <select
-                    name="causer_id"
-                    value={filters.causer_id}
-                    onChange={(e) => setFilters((p) => ({ ...p, causer_id: e.target.value }))}
-                    className="w-full px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors"
-                  >
-                    <option value="">All Users</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
-                    <FaCalendarAlt className="inline w-3 h-3 mr-1 -mt-0.5" />Date From
-                  </label>
-                  <input type="date" name="date_from" value={filters.date_from}
-                    onChange={(e) => setFilters((p) => ({ ...p, date_from: e.target.value }))}
-                    className="px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
-                    <FaCalendarAlt className="inline w-3 h-3 mr-1 -mt-0.5" />Date To
-                  </label>
-                  <input type="date" name="date_to" value={filters.date_to}
-                    onChange={(e) => setFilters((p) => ({ ...p, date_to: e.target.value }))}
-                    className="px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Per Page</label>
-                  <select value={filters.per_page}
-                    onChange={(e) => setFilters((p) => ({ ...p, per_page: Number(e.target.value) }))}
-                    className="px-3 py-2.5 text-sm text-gray-700 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 focus:bg-white transition-colors">
-                    {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </div>
-                {hasFiltersActive && (
-                  <button
-                    onClick={() => setFilters({ search: '', causer_id: '', date_from: '', date_to: '', per_page: 25 })}
-                    className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors font-medium"
-                  >
-                    <MdClose className="w-4 h-4" /> Clear All
-                  </button>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Category Tabs ──────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-1.5">
-        <div className="flex gap-1 overflow-x-auto">
-          {CATEGORIES.map(({ key, label, icon: Icon }) => {
-            const active = activeTab === key;
-            return (
-              <button
-                key={key}
-                onClick={() => { setActiveTab(key); setExpandedRow(null); }}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-                  active
-                    ? 'bg-[#05173a] text-white shadow-md'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${active ? 'text-blue-300' : ''}`} />
-                {label}
-              </button>
-            );
-          })}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {/* ── Results summary bar ─────────────────────────────────────── */}
-      {!loading && (
-        <div className="flex items-center justify-between px-1">
-          <p className="text-xs text-gray-400 font-medium">
-            {pagination.total > 0
-              ? `Showing ${pagination.from}–${pagination.to} of ${pagination.total.toLocaleString()} records`
-              : 'No records found'
-            }
-            {activeTab !== 'all' && <span className="ml-1 text-gray-500">in {activeCategory?.label}</span>}
-          </p>
-          {hasFiltersActive && (
-            <p className="text-xs text-blue-500 font-medium flex items-center gap-1">
-              <MdFilterList className="w-3 h-3" /> Filters applied
-            </p>
-          )}
-        </div>
+      {/* ── Selected person ─────────────────────────────────────────────── */}
+      {filters.causer_id && (
+        <UserActivitySummary summary={userSummary} hasDateRange={Boolean(filters.date_from || filters.date_to)} />
       )}
+
+      {/* ── Results sentence ───────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1" aria-live="polite">
+        <p className="text-sm text-gray-600">
+          {loading ? 'Loading activities…' : (
+            <>
+              <span className="font-bold text-gray-900">{pagination.total.toLocaleString()}</span>
+              {' '}{pagination.total === 1 ? 'activity' : 'activities'}
+              {resultSentence && <> {resultSentence}</>}
+              {pagination.total > 0 && pagination.last_page > 1 && (
+                <span className="text-gray-400"> (showing {pagination.from}–{pagination.to})</span>
+              )}
+            </>
+          )}
+        </p>
+        {hasFiltersActive && (
+          <button onClick={clearAll} className="inline-flex items-center gap-1 text-sm font-medium text-red-600 hover:text-red-700">
+            <MdClose className="w-4 h-4" /> Clear all filters
+          </button>
+        )}
+      </div>
 
       {/* ── Logs Feed ──────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="hidden sm:grid grid-cols-[5.5rem_13rem_1fr_auto] gap-x-4 px-5 py-2 bg-slate-50 border-b border-gray-200 text-xs font-semibold text-gray-500">
+          <span>Time</span>
+          <span>Staff member</span>
+          <span>What happened</span>
+          <span className="sr-only">Options</span>
+        </div>
         {loading ? (
           <div className="divide-y divide-gray-100">
             {[...Array(8)].map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-5 py-4 animate-pulse">
-                <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0" />
-                <div className="w-10 h-10 rounded-xl bg-gray-100 flex-shrink-0" />
-                <div className="flex-1 space-y-2.5">
-                  <div className="flex gap-2">
-                    <div className="h-3.5 bg-gray-200 rounded-full w-28" />
-                    <div className="h-3.5 bg-gray-100 rounded-full w-20" />
-                  </div>
+                <div className="w-14 h-3.5 bg-gray-200 rounded" />
+                <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
+                <div className="w-32 h-3.5 bg-gray-200 rounded" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 bg-gray-100 rounded w-24" />
                   <div className="h-3 bg-gray-100 rounded w-3/4" />
-                  <div className="h-2.5 bg-gray-50 rounded w-1/3" />
                 </div>
               </div>
             ))}
           </div>
         ) : logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-gray-400">
-            <div className="w-20 h-20 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center mb-4">
-              <MdHistory className="w-10 h-10 opacity-30" />
+          <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center mb-4">
+              <MdHistory className="w-8 h-8 text-gray-300" />
             </div>
-            <p className="font-semibold text-gray-500">No audit logs found</p>
-            <p className="text-sm mt-1.5 text-gray-400">Try a different category tab or adjust your filters</p>
+            <p className="font-semibold text-gray-600">No activity matches these filters</p>
+            <p className="text-sm mt-1 text-gray-400 max-w-sm">
+              {selectedStaff
+                ? `${selectedStaff.name} has no recorded activity of this kind for the dates chosen. Try a wider date range or pick “Everything”.`
+                : 'Try a wider date range, pick “Everything”, or search for a different staff member.'}
+            </p>
             {hasFiltersActive && (
-              <button
-                onClick={() => setFilters({ search: '', causer_id: '', date_from: '', date_to: '', per_page: 25 })}
-                className="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-              >
-                <MdClose className="w-4 h-4" /> Clear filters
+              <button onClick={clearAll} className="mt-4 text-sm text-[#1877F2] hover:underline font-medium">
+                Clear all filters
               </button>
             )}
           </div>
         ) : (
-          <div className="divide-y divide-gray-100/70">
-            {logs.map((log) => (
-              <LogEntryRow
-                key={log.id}
-                log={log}
-                expanded={expandedRow === log.id}
-                onToggle={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
-                onHistory={setHistoryTarget}
-              />
-            ))}
+          <div>
+            {logs.map((log, i) => {
+              const day = dayLabel(log.created_at);
+              const showDay = i === 0 || dayLabel(logs[i - 1].created_at) !== day;
+              return (
+                <div key={log.id} className={showDay ? '' : 'border-t border-gray-100'}>
+                  {showDay && (
+                    <div className={`px-5 py-2 bg-blue-50/60 text-xs font-semibold text-[#05173a] ${i === 0 ? '' : 'border-t border-gray-200'}`}>
+                      {day}
+                    </div>
+                  )}
+                  <LogEntryRow
+                    log={log}
+                    expanded={expandedRow === log.id}
+                    onToggle={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
+                    onHistory={setHistoryTarget}
+                    onSelectUser={selectStaff}
+                    isFilteredUser={Boolean(filters.causer_id)}
+                    staffById={staffById}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
