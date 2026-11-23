@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-DEPLOY_DIR="/home/rbtwebsrvr/projects/sigcard-system"
+DEPLOY_DIR="/var/www/staging/sigcard-system"
 
 # When running via GitHub Actions, use the checked-out workspace.
-# When running manually on the server, use the production directory directly.
+# When running on the staging server (cron watcher or by hand), use the staging folder directly.
 if [ -n "$GITHUB_WORKSPACE" ]; then
     SRC="$GITHUB_WORKSPACE"
 else
@@ -21,7 +21,7 @@ echo "======================================"
 echo "[1/6] Pulling latest code from staging..."
 if [ -n "$GITHUB_WORKSPACE" ]; then
     echo "  → Using GitHub Actions checkout (already up to date)"
-    # Copy the production .env files into the workspace (not stored in git)
+    # Copy the staging .env files into the workspace (not stored in git)
     /usr/bin/cp "$DEPLOY_DIR/backend/.env"  "$BACKEND_DIR/.env"
     /usr/bin/cp "$DEPLOY_DIR/frontend/.env" "$FRONTEND_DIR/.env"
 else
@@ -29,16 +29,15 @@ else
 fi
 
 echo "[2/6] Installing backend dependencies..."
-/usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction --working-dir="$BACKEND_DIR"
+# Staging keeps dev packages (tests, Pint, Boost), so no --no-dev here.
+/usr/local/bin/composer install --optimize-autoloader --no-interaction --working-dir="$BACKEND_DIR"
 
 echo "[3/6] Running database migrations..."
 /usr/bin/php "$BACKEND_DIR/artisan" migrate --force
 
-echo "[4/6] Caching config, routes, views..."
-/usr/bin/php "$BACKEND_DIR/artisan" config:cache
-/usr/bin/php "$BACKEND_DIR/artisan" route:cache
-/usr/bin/php "$BACKEND_DIR/artisan" view:cache
-/usr/bin/php "$BACKEND_DIR/artisan" optimize
+echo "[4/6] Clearing cached config, routes, views..."
+# Staging is not cached, so .env edits take effect right away.
+/usr/bin/php "$BACKEND_DIR/artisan" optimize:clear
 
 echo "[5/6] Building frontend..."
 /usr/bin/npm ci --prefix "$FRONTEND_DIR"
@@ -58,7 +57,7 @@ echo "  → Building with VITE_API_BASE_URL=$VITE_API_BASE_URL"
 /usr/bin/npm run build --prefix "$FRONTEND_DIR"
 
 if [ -n "$GITHUB_WORKSPACE" ]; then
-    echo "[5b] Syncing built files to production directory..."
+    echo "[5b] Syncing built files to the staging folder..."
     /usr/bin/rsync -a --delete "$BACKEND_DIR/app/"        "$DEPLOY_DIR/backend/app/"
     /usr/bin/rsync -a --delete "$BACKEND_DIR/config/"     "$DEPLOY_DIR/backend/config/"
     /usr/bin/rsync -a --delete "$BACKEND_DIR/database/"   "$DEPLOY_DIR/backend/database/"
@@ -69,7 +68,8 @@ if [ -n "$GITHUB_WORKSPACE" ]; then
 fi
 
 echo "[6/6] Restarting backend service..."
-sudo -n /usr/bin/systemctl restart sigcard-backend
+# The staging backend (php -S) reads files on every request, so a restart is optional.
+sudo -n /usr/bin/systemctl restart sigcard-backend || echo "  → Restart skipped (no passwordless sudo); new files are picked up automatically."
 
 echo ""
 echo "✓ Staging deploy complete!"
