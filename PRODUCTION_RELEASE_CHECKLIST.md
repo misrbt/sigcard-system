@@ -32,7 +32,9 @@ Each release adds a section at the top. Tick items off as they are done on produ
 - [ ] **Check the deploy target folder exists on production.** `deploy-production.yml` copies to `DEPLOY_DIR: /home/rbtwebsrvr/projects/sigcard-system`. On the staging server that folder does not exist, and the staging deploy fails because of it. On production, run:
       `ls /home/rbtwebsrvr/projects/sigcard-system/frontend/dist`
       If it doesn't exist, fix `DEPLOY_DIR` in `.github/workflows/deploy-production.yml` (on `develop`) to the real production folder before merging.
-- [ ] **Check which machine runs the production job.** It uses `runs-on: self-hosted`. The only runner seen so far, `misrbt-sigcard-system.dc1`, is on the staging server. If production has no runner of its own, the job will try to deploy on the staging machine and fail.
+- [ ] **Check which machine runs the production job.** ~~It uses `runs-on: self-hosted`.~~ **Fixed Nov 23, 2026:** each workflow now names its runner — `deploy-production.yml` uses `[self-hosted, production]`; `deploy-staging.yml`, `ci.yml` and `staging-report.yml` use `[self-hosted, staging-server]`. Before this, production deploys were being picked up by the staging runner `dc1` and failing (production itself was not touched).
+      - Until this fix is on `main`: stop `dc1` on the staging machine (`sudo ./svc.sh stop` in its runner folder), re-run the production deploy, then start `dc1` again (`sudo ./svc.sh start`) once the fix is merged.
+      - After merging: in GitHub → Settings → Actions → Runners, confirm the production runner has the `production` label and `dc1` has `staging-server`.
 - [ ] **Back up the production database.** This release adds columns.
 
 ### Automatic (done by the deploy job, just verify)

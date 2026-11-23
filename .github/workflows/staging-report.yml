@@ -7,7 +7,7 @@ on:
 jobs:
   report:
     name: Show changes ready for production
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-server]
 
     steps:
       - name: Checkout latest code

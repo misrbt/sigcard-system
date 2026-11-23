@@ -11,7 +11,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Staging Server
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-server]
 
     env:
       DEPLOY_DIR: /home/rbtwebsrvr/projects/sigcard-system
@@ -104,7 +104,7 @@ jobs:
   promote-to-production:
     name: "Confirm: Deploy to Production?"
     needs: deploy
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-server]
     environment: production-gate
 
     env:

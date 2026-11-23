@@ -9,7 +9,7 @@ on:
 jobs:
   backend-tests:
     name: Backend — Tests
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-server]
 
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
 
   frontend-checks:
     name: Frontend — Lint & Build
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-server]
 
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +64,7 @@ jobs:
 
   merge-to-staging:
     name: Merge develop → staging
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-server]
     needs: [backend-tests, frontend-checks]
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
 
