@@ -139,8 +139,9 @@ class BranchDataShareTest extends TestCase
         $customer = $this->makeCustomer($this->surigao, '2026-07-01', 'WithImage');
         CustomerDocument::create([
             'customer_id' => $customer->id,
-            'document_type' => 'signature',
+            'document_type' => 'sigcard_front',
             'file_path' => 'customers/test.jpg',
+            'file_name' => 'test.jpg',
             'person_index' => 1,
         ]);
 
@@ -159,8 +160,9 @@ class BranchDataShareTest extends TestCase
         $customer = $this->makeCustomer($this->surigao, '2026-07-01', 'NoImage');
         CustomerDocument::create([
             'customer_id' => $customer->id,
-            'document_type' => 'signature',
+            'document_type' => 'sigcard_front',
             'file_path' => 'customers/test.jpg',
+            'file_name' => 'test.jpg',
             'person_index' => 1,
         ]);
         BranchDataShare::query()->update(['include_documents' => false]);
