@@ -63,7 +63,7 @@ class CustomerController extends Controller
         $dateColumn = match ($request->date_field) {
             'uploaded' => 'created_at',
             'opened' => 'date_opened',
-            'status' => 'status_updated_at',
+            'status' => 'status_date',
             default => null,
         };
 
